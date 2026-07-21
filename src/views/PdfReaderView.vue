@@ -34,6 +34,8 @@
         <el-button size="small" @click="nextPage" :disabled="!totalPages||page>=totalPages">&gt;</el-button>
         <el-slider v-model="zoom" :min="80" :max="300" :step="10" style="width:100px;margin:0 6px" @change="() => renderPage()" />
         <span>{{ zoom }}%</span>
+        <el-button size="small" @click="fitZoom" title="Fit width">Fit</el-button>
+        <el-button size="small" @click="resetView" title="Reset to first page + default zoom">Reset</el-button>
         <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">Annotate</el-button>
       </div>
       <div v-if="annMode" class="ann-toolbar">
@@ -49,9 +51,10 @@
         <el-slider v-model="annWidth" :min="1" :max="12" :step="0.5" style="width:80px;margin-left:6px" />
         <el-button size="small" @click="clearPageAnnotations">Clear Page</el-button>
       </div>
-      <div class="canvas-wrap" ref="wrap" @click="onCanvasClick">
+      <div class="canvas-wrap" ref="wrap" @click="onCanvasClick" @mousedown="onDragStart" @mousemove="onDragMove" @mouseup="onDragEnd" @mouseleave="onDragEnd">
         <div ref="pageHost" class="page-host" @mouseup="onSelectionEnd"></div>
         <div v-if="loading" class="loading">Loading page {{ page }}...</div>
+      <div v-if="dragHint" class="drag-hint">{{ dragHint }}</div>
       </div>
     </div>
     <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y+'px', left:selPopup.x+'px' }">
@@ -91,6 +94,14 @@ const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'>('pen')
 const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
 const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
+
+// mouse drag to flip pages
+const DRAG_THRESHOLD = 60
+let dragStartX = 0
+let dragStartY = 0
+let isDragging = false
+let didDrag = false
+const dragHint = ref<string | null>(null)
 
 let pdfDoc: any = null
 let annCtx: CanvasRenderingContext2D | null = null
@@ -327,6 +338,7 @@ function onWheel(e: WheelEvent) {
 function onCanvasClick(e: MouseEvent) {
   if (annMode.value) return // don't flip in annotation mode
   if (e.target instanceof HTMLButtonElement) return
+  if (didDrag) { didDrag = false; return } // suppress click right after drag
   const w = wrap.value!; const x = e.clientX - w.getBoundingClientRect().left
   const ratio = x / w.clientWidth
   if (ratio < 0.35) prevPage()
@@ -340,6 +352,45 @@ function prevPage() {
   if (page.value > 1) { page.value--; renderPage() }
 }
 function goPage(p: number) { page.value = p; renderPage() }
+
+// fit width (zoom = 100)
+function fitZoom() { zoom.value = 100; renderPage(); ElMessage.success('fit width') }
+// reset view
+function resetView() { page.value = 1; zoom.value = 100; renderPage(); wrap.value?.scrollTo({ top: 0 }); ElMessage.success('reset view') }
+
+// === drag-to-flip ===
+let lastDx = 0
+function onDragStart(e: MouseEvent) {
+  if (annMode.value && e.target instanceof HTMLCanvasElement) return
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+  isDragging = true
+  didDrag = false
+  lastDx = 0
+  dragHint.value = null
+}
+function onDragMove(e: MouseEvent) {
+  if (!isDragging || !wrap.value) return
+  const dx = e.clientX - dragStartX
+  const dy = e.clientY - dragStartY
+  if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return
+  if (Math.abs(dx) > Math.abs(dy) * 1.5) {
+    didDrag = true
+    lastDx = dx
+    if (dx < -DRAG_THRESHOLD) { dragHint.value = 'Release ->' }
+    else if (dx > DRAG_THRESHOLD) { dragHint.value = '<- Release' }
+    else { dragHint.value = `Drag ${Math.round(Math.abs(dx))}/${DRAG_THRESHOLD}px` }
+  }
+}
+function onDragEnd() {
+  if (!isDragging) return
+  isDragging = false
+  if (didDrag) {
+    if (lastDx < -DRAG_THRESHOLD && page.value < totalPages.value) nextPage()
+    else if (lastDx > DRAG_THRESHOLD && page.value > 1) prevPage()
+  }
+  dragHint.value = null
+}
 
 async function addBookmark() {
   await window.lk.bookmarkAdd({ bookId: bookId.value, page: page.value, label: `Page ${page.value}` })
@@ -417,4 +468,5 @@ onUnmounted(() => {
 .loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); background:rgba(0,0,0,0.3); z-index:5; }
 .sel-popup { position:absolute; z-index:30; display:flex; gap:4px; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:var(--shadow); }
 .sel-popup button { border:none; background:transparent; color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer; &:hover { background:var(--accent); color:#fff } }
+.drag-hint { position:absolute; bottom:18px; right:18px; z-index:20; background:rgba(0,0,0,0.7); color:#fff; padding:6px 14px; border-radius:6px; font-size:12px; pointer-events:none; }
 </style>
