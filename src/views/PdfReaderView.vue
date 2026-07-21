@@ -211,10 +211,23 @@ async function renderPage() {
   const ctx = canvas.getContext('2d')!
   await p.render({ canvasContext: ctx, viewport: vp, transform: [dpr, 0, 0, dpr, 0, 0] } as any).promise
 
+  // text layer (transparent, selectable)
+  const textLayerDiv = document.createElement('div')
+  textLayerDiv.className = 'textLayer'
+  textLayerDiv.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:2;overflow:hidden`
+  container.appendChild(textLayerDiv)
+  try {
+    const textContent = await p.getTextContent()
+    const tl = new (pdfjsLib as any).TextLayer({ textContentSource: textContent, container: textLayerDiv, viewport: vp })
+    await tl.render()
+  } catch { /* text layer optional */ }
+  // in annotate mode, text layer should not capture events
+  if (annMode.value) textLayerDiv.style.pointerEvents = 'none'
+
   // annotation overlay
   annCanvas = document.createElement('canvas')
   annCanvas.width = w; annCanvas.height = h
-  annCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:2`
+  annCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:3`
   container.appendChild(annCanvas)
   annCtx = annCanvas.getContext('2d')!
   if (annMode.value) {
@@ -222,6 +235,9 @@ async function renderPage() {
     annCanvas.addEventListener('mousemove', onAnnMouseMove)
     annCanvas.addEventListener('mouseup', onAnnMouseUp)
     annCanvas.style.cursor = 'crosshair'
+  } else {
+    // in reading mode, annotation canvas should not block text selection
+    annCanvas.style.pointerEvents = 'none'
   }
   host.appendChild(container)
 
@@ -698,4 +714,11 @@ onUnmounted(() => {
 .hl-dot-sm { display:inline-block; width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-right:4px; }
 .hl-action-bar { position:absolute; z-index:30; display:flex; gap:2px; align-items:center; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px 6px; box-shadow:var(--shadow); }
 .hl-action-bar button { border:none; background:transparent; color:var(--text); padding:3px 7px; border-radius:4px; cursor:pointer; font-size:12px; &:hover { background:var(--accent); color:#fff } &.danger { color:#ff5c5c; &:hover { background:#c53030; color:#fff } } }
+
+/* PDF.js text layer - enables text selection like browser PDF viewer */
+:deep(.textLayer) { position:absolute; text-align:initial; inset:0; overflow:hidden; opacity:1; line-height:1; text-size-adjust:none; forced-color-adjust:none; transform-origin:0 0; }
+:deep(.textLayer) :is(span, br) { color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; }
+:deep(.textLayer) span.markedContent { top:0; height:0; }
+:deep(.textLayer) ::selection { background:rgba(0,100,255,0.3); }
+:deep(.textLayer) br::selection { background:transparent; }
 </style>
