@@ -153,6 +153,15 @@ export const useSettingsStore = defineStore('settings', () => {
     saveNote: 'Ctrl+S',
     pageLeft: 'ArrowLeft',
     pageRight: 'ArrowRight',
+    pageFirst: 'Home',
+    pageLast: 'End',
+    centerPage: 'Ctrl+0',
+    addBookmark: 'Ctrl+D',
+    fullscreen: 'F11',
+    undo: 'Ctrl+Z',
+    redo: 'Ctrl+Shift+Z',
+    deleteSelected: 'Delete',
+    cancel: 'Escape',
   }
   const shortcuts = ref<Record<string, string>>({ ...defaultShortcuts })
 

@@ -33,9 +33,10 @@
         <span class="pg-ind">{{ page }}/{{ totalPages }}</span>
         <el-button size="small" @click="nextPage" :disabled="!totalPages||page>=totalPages">&gt;</el-button>
         <el-slider v-model="zoom" :min="80" :max="300" :step="10" style="width:100px;margin:0 6px" @change="() => renderPage()" />
-        <span>{{ zoom }}%</span>
-        <el-button size="small" @click="fitZoom" title="Fit width">Fit</el-button>
-        <el-button size="small" @click="resetView" title="Reset to first page + default zoom">Reset</el-button>
+        <span class="zoom-lbl">{{ zoom }}%</span>
+        <el-button size="small" @click="fitZoom">Fit</el-button>
+        <el-button size="small" @click="resetView">Reset</el-button>
+        <el-button v-if="panX!==0||panY!==0" size="small" type="warning" @click="recenterPage">Center</el-button>
         <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">Annotate</el-button>
       </div>
       <div v-if="annMode" class="ann-toolbar">
@@ -46,36 +47,54 @@
           <el-button :type="annTool==='circle'?'primary':'default'" @click="annTool='circle'">Circle</el-button>
           <el-button :type="annTool==='line'?'primary':'default'" @click="annTool='line'">Line</el-button>
           <el-button :type="annTool==='eraser'?'primary':'default'" @click="annTool='eraser'">Eraser</el-button>
+          <el-button :type="annTool==='sticky'?'primary':'default'" @click="annTool='sticky'">Sticky</el-button>
         </el-button-group>
         <el-color-picker v-model="annColor" size="small" style="margin-left:6px" />
         <el-slider v-model="annWidth" :min="1" :max="12" :step="0.5" style="width:80px;margin-left:6px" />
         <el-button size="small" @click="clearPageAnnotations">Clear Page</el-button>
       </div>
-      <div class="canvas-wrap" ref="wrap" @click="onCanvasClick" @mousedown="onDragStart" @mousemove="onDragMove" @mouseup="onDragEnd" @mouseleave="onDragEnd">
-        <div ref="pageHost" class="page-host" @mouseup="onSelectionEnd"></div>
+      <div class="canvas-wrap" ref="wrap"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @contextmenu.prevent="onContextMenu"
+        @wheel="onWheel"
+        @mouseup="onSelectionEnd"
+      >
+        <div ref="pageHost" class="page-host"></div>
         <div v-if="loading" class="loading">Loading page {{ page }}...</div>
-      <div v-if="dragHint" class="drag-hint">{{ dragHint }}</div>
+        <div v-if="dragHint" class="drag-hint">{{ dragHint }}</div>
       </div>
     </div>
-    <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y+'px', left:selPopup.x+'px' }">
-      <button @click="askSel('Analyze?')">Analyze</button>
-      <button @click="askSel('Summarize?')">Summary</button>
+    <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y+'px', left: selPopup.x+'px' }">
+      <button @click="copySelection">Copy</button>
       <button @click="saveSel">Highlight</button>
+      <div class="ai-dd">
+        <button @click="aiMenuOpen=!aiMenuOpen">AI &#9662;</button>
+        <div v-if="aiMenuOpen" class="ai-menu">
+          <button @click="askSel('Analyze this passage in detail')">Analyze</button>
+          <button @click="askSel('Summarize the key points')">Summarize</button>
+          <button @click="askSel('Translate this to Chinese and explain key terms')">Translate</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useContextMenu } from '../stores/context-menu'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 const props = defineProps<{ bookIdProp: string | null }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'ask-ai', p: { quote: string; question?: string; bookId: string; page: number }): void }>()
+const menu = useContextMenu()
 
+// ── state ──
 const bookId = ref(props.bookIdProp)
 const book = ref<any>(null)
 const sideOpen = ref(true)
@@ -90,27 +109,41 @@ const outline = ref<any[]>([])
 const bookmarks = ref<any[]>([])
 const highlights = ref<any[]>([])
 const annMode = ref(false)
-const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'>('pen')
+const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'|'sticky'>('pen')
 const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
 const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
+const aiMenuOpen = ref(false)
+const dragHint = ref<string|null>(null)
 
-// mouse drag to flip pages
-const DRAG_THRESHOLD = 60
-let dragStartX = 0
-let dragStartY = 0
-let isDragging = false
-let didDrag = false
-const dragHint = ref<string | null>(null)
+// pan state (middle-mouse / space+left free page move)
+const panX = ref(0)
+const panY = ref(0)
+let isPanning = false
+let panSX = 0, panSY = 0, panSPX = 0, panSPY = 0
+let spaceHeld = false
+let lastMidClick = 0
 
+// unified drag state
+type DragAct = 'none'|'pan'|'annotate'|'edge-flip'|'select'
+let curAct: DragAct = 'none'
+let edgeSX = 0, edgeDir: 'l'|'r' = 'l'
+
+// annotation state
 let pdfDoc: any = null
-let annCtx: CanvasRenderingContext2D | null = null
-let annCanvas: HTMLCanvasElement | null = null
+let annCtx: CanvasRenderingContext2D|null = null
+let annCanvas: HTMLCanvasElement|null = null
 let drawing = false
-let startX = 0, startY = 0
-let annPoints: number[][] = []
-let canFlipNext = true // scrolling guard: only flip when fully scrolled
+let aSX = 0, aSY = 0
+let annPts: number[][] = []
 
+// apply pan transform reactively
+watch([panX, panY], () => {
+  const c = pageHost.value?.querySelector('.page-container') as HTMLElement
+  if (c) c.style.transform = `translate(${panX.value}px, ${panY.value}px)`
+})
+
+// ── lifecycle ──
 async function load() {
   if (!bookId.value) return
   loading.value = true
@@ -118,56 +151,38 @@ async function load() {
   book.value = list.find((b: any) => b.id === bookId.value) || null
   bookmarks.value = await window.lk.bookmarkList(bookId.value)
   highlights.value = await window.lk.highlightList(bookId.value)
-  const url = window.lk.bookUrl(bookId.value)
-  pdfDoc = await pdfjsLib.getDocument({ url } as any).promise
+  pdfDoc = await pdfjsLib.getDocument({ url: window.lk.bookUrl(bookId.value) } as any).promise
   totalPages.value = pdfDoc.numPages
   if (book.value?.total_pages !== pdfDoc.numPages) await window.lk.bookUpdate(bookId.value, { total_pages: pdfDoc.numPages })
   if (book.value?.last_page) page.value = Math.min(book.value.last_page, pdfDoc.numPages)
-  const raw = await pdfDoc.getOutline()
-  outline.value = flattenOutline(raw)
+  outline.value = flattenOutline(await pdfDoc.getOutline())
   loading.value = false
   await renderPage()
 }
 
-function flattenOutline(items: any[], depth=0): any[] {
+function flattenOutline(items: any[], depth = 0): any[] {
   const out: any[] = []; if (!items) return out
-  for (const it of items) { out.push({ title: it.title, dest: it.dest, depth }); if (it.items) out.push(...flattenOutline(it.items, depth+1)) }
+  for (const it of items) { out.push({ title: it.title, dest: it.dest, depth }); if (it.items) out.push(...flattenOutline(it.items, depth + 1)) }
   return out
-}
-
-async function goOutline(it: any) {
-  if (!pdfDoc) return
-  let dest: any = it.dest
-  if (typeof dest === 'string') dest = await pdfDoc.getDestination(dest)
-  if (!dest?.[0]) return
-  const idx = await pdfDoc.getPageIndex(dest[0])
-  page.value = idx + 1
-  await renderPage()
 }
 
 async function renderPage() {
   if (!pdfDoc || !pageHost.value) return
   loading.value = true
-  const myToken = page.value
-  const host = pageHost.value
-  host.innerHTML = ''
+  const host = pageHost.value; host.innerHTML = ''
   const p = await pdfDoc.getPage(page.value)
-  if (myToken !== page.value) { loading.value = false; return }
-
-  // compute scale: fit width by default, allow zoom override
   const cssW = wrap.value!.clientWidth - 40
   const base = p.getViewport({ scale: 1 })
-  const fitScale = Math.min(cssW / base.width, 1.2)
-  const scale = fitScale * (zoom.value / 100)
+  const scale = Math.min(cssW / base.width, 1.2) * (zoom.value / 100)
   const vp = p.getViewport({ scale })
   const w = Math.round(vp.width), h = Math.round(vp.height)
+  const dpr = window.devicePixelRatio || 1
 
   const container = document.createElement('div')
   container.className = 'page-container'
-  container.style.cssText = `position:relative;margin:0 auto;width:${w}px;min-height:${h}px;background:#fff;box-shadow:0 0 10px rgba(0,0,0,0.3)`
+  container.style.cssText = `position:relative;margin:0 auto;width:${w}px;min-height:${h}px;background:#fff;box-shadow:0 0 10px rgba(0,0,0,0.3);transform:translate(${panX.value}px,${panY.value}px)`
 
   const canvas = document.createElement('canvas')
-  const dpr = window.devicePixelRatio || 1
   canvas.width = w * dpr; canvas.height = h * dpr
   canvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px`
   container.appendChild(canvas)
@@ -180,76 +195,191 @@ async function renderPage() {
   annCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:2`
   container.appendChild(annCanvas)
   annCtx = annCanvas.getContext('2d')!
-
   if (annMode.value) {
     annCanvas.addEventListener('mousedown', onAnnMouseDown)
     annCanvas.addEventListener('mousemove', onAnnMouseMove)
     annCanvas.addEventListener('mouseup', onAnnMouseUp)
     annCanvas.style.cursor = 'crosshair'
   }
-
   host.appendChild(container)
 
-  // render text highlights
-  const pgHls = highlights.value.filter((hl: any) => hl.page === page.value && hl.rect_x != null)
+  // text highlights
   if (annCtx) {
-    for (const hl of pgHls) {
-      const rx = hl.rect_x * w, ry = hl.rect_y * h, rw = hl.rect_w * w, rh = hl.rect_h * h
-      annCtx.fillStyle = 'rgba(255,220,80,0.35)'; annCtx.fillRect(rx, ry, rw, rh)
+    for (const hl of highlights.value.filter((x: any) => x.page === page.value && x.rect_x != null)) {
+      annCtx.fillStyle = 'rgba(255,220,80,0.35)'
+      annCtx.fillRect(hl.rect_x * w, hl.rect_y * h, hl.rect_w * w, hl.rect_h * h)
     }
   }
 
-  // load annotations from DB
+  // annotations from DB
   const rows = await window.lk.annList(bookId.value!, page.value)
   renderAnnotations(rows)
+
+  // sticky notes as HTML
+  for (const sr of rows.filter((r: any) => r.type === 'sticky')) {
+    const d = JSON.parse(sr.data || '{}')
+    const div = document.createElement('div')
+    div.className = 'sticky-note'
+    div.style.cssText = `position:absolute;left:${d.x}px;top:${d.y}px;width:${d.w || 130}px;min-height:40px;background:${d.color || '#fff9c4'};border:1px solid #d4b469;border-radius:4px;z-index:10;box-shadow:2px 2px 6px rgba(0,0,0,0.15);font-size:12px`
+    div.dataset.annId = sr.id
+    // drag handle bar
+    const bar = document.createElement('div')
+    bar.className = 'sticky-bar'
+    bar.style.cssText = 'cursor:move;display:flex;justify-content:space-between;align-items:center;padding:1px 4px;background:rgba(0,0,0,0.06);border-radius:4px 4px 0 0'
+    const dot = document.createElement('span'); dot.textContent = '⋮⋮'; dot.style.cssText = 'font-size:10px;color:#999;cursor:move'
+    const del = document.createElement('button'); del.textContent = '×'; del.style.cssText = 'border:none;background:none;cursor:pointer;font-size:13px;color:#999;line-height:1'
+    del.addEventListener('click', (ev) => { ev.stopPropagation(); window.lk.annDelete(sr.id).then(() => renderPage()) })
+    bar.appendChild(dot); bar.appendChild(del)
+    // drag via title bar (left button only)
+    bar.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return
+      ev.stopPropagation()
+      const sx = ev.clientX, sy = ev.clientY
+      const ox = parseFloat(div.style.left), oy = parseFloat(div.style.top)
+      const mv = (me: MouseEvent) => { div.style.left = (ox + me.clientX - sx) + 'px'; div.style.top = (oy + me.clientY - sy) + 'px' }
+      const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); window.lk.annSave({ id: sr.id, bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ ...d, x: parseFloat(div.style.left), y: parseFloat(div.style.top) }) }) }
+      window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
+    })
+    const ta = document.createElement('textarea')
+    ta.value = d.text || ''
+    ta.style.cssText = 'width:100%;border:none;outline:none;background:transparent;font-size:12px;resize:vertical;min-height:28px;padding:2px 4px'
+    ta.addEventListener('change', () => { window.lk.annSave({ id: sr.id, bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ ...d, text: ta.value }) }) })
+    ta.addEventListener('mousedown', (ev) => ev.stopPropagation()) // don't drag sticky when editing text
+    div.appendChild(bar); div.appendChild(ta)
+    container.appendChild(div)
+  }
 
   window.lk.bookUpdate(bookId.value!, { last_page: page.value })
   loading.value = false
 }
 
 function renderAnnotations(rows: any[]) {
-  if (!annCtx || !rows) return
+  if (!annCtx) return
   for (const r of rows) {
+    if (r.type === 'sticky') continue
     const d = JSON.parse(r.data || '{}')
-    annCtx!.save()
+    annCtx.save()
     if (r.type === 'pen') {
-      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
-      annCtx!.lineCap = 'round'; annCtx!.lineJoin = 'round'; annCtx!.beginPath()
-      for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i===0 ? annCtx!.moveTo(pt[0],pt[1]) : annCtx!.lineTo(pt[0],pt[1]) }
-      annCtx!.stroke()
+      annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'
+      annCtx.beginPath(); for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i === 0 ? annCtx.moveTo(pt[0], pt[1]) : annCtx.lineTo(pt[0], pt[1]) }; annCtx.stroke()
     } else if (r.type === 'highlighter') {
-      annCtx!.strokeStyle = d.color || '#ffeb3b'; annCtx!.globalAlpha = 0.35; annCtx!.lineWidth = (d.width||8)*2
-      annCtx!.lineCap = 'round'; annCtx!.beginPath()
-      for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i===0 ? annCtx!.moveTo(pt[0],pt[1]) : annCtx!.lineTo(pt[0],pt[1]) }
-      annCtx!.stroke(); annCtx!.globalAlpha = 1
-    } else if (r.type === 'rect') {
-      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
-      annCtx!.strokeRect(d.x, d.y, d.w, d.h)
-    } else if (r.type === 'circle') {
-      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
-      annCtx!.beginPath(); annCtx!.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI*2); annCtx!.stroke()
-    } else if (r.type === 'line') {
-      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
-      annCtx!.beginPath(); annCtx!.moveTo(d.x1, d.y1); annCtx!.lineTo(d.x2, d.y2); annCtx!.stroke()
-    }
-    annCtx!.restore()
+      annCtx.strokeStyle = d.color || '#ffeb3b'; annCtx.globalAlpha = 0.35; annCtx.lineWidth = (d.width || 8) * 2; annCtx.lineCap = 'round'
+      annCtx.beginPath(); for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i === 0 ? annCtx.moveTo(pt[0], pt[1]) : annCtx.lineTo(pt[0], pt[1]) }; annCtx.stroke(); annCtx.globalAlpha = 1
+    } else if (r.type === 'rect') { annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.strokeRect(d.x, d.y, d.w, d.h) }
+    else if (r.type === 'circle') { annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.beginPath(); annCtx.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI * 2); annCtx.stroke() }
+    else if (r.type === 'line') { annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.beginPath(); annCtx.moveTo(d.x1, d.y1); annCtx.lineTo(d.x2, d.y2); annCtx.stroke() }
+    annCtx.restore()
   }
 }
 
-function redrawAnnotations(rows: any[]) {
-  if (!annCtx) return
-  annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height)
-  renderAnnotations(rows)
+// ── navigation ──
+function prevPage() { if (page.value > 1) { page.value--; renderPage() } }
+function nextPage() { if (page.value < totalPages.value) { page.value++; renderPage() } }
+function goPage(p: number) { page.value = p; panX.value = 0; panY.value = 0; renderPage() }
+async function goOutline(it: any) {
+  if (!pdfDoc) return; let dest: any = it.dest
+  if (typeof dest === 'string') dest = await pdfDoc.getDestination(dest)
+  if (!dest?.[0]) return
+  page.value = (await pdfDoc.getPageIndex(dest[0])) + 1
+  panX.value = 0; panY.value = 0; renderPage()
+}
+function fitZoom() { zoom.value = 100; panX.value = 0; panY.value = 0; renderPage() }
+function resetView() { page.value = 1; zoom.value = 100; panX.value = 0; panY.value = 0; renderPage(); wrap.value?.scrollTo({ top: 0 }) }
+
+// ── pan (middle-mouse / space+left) ──
+function startPan(e: PointerEvent) {
+  isPanning = true
+  panSX = e.clientX; panSY = e.clientY; panSPX = panX.value; panSPY = panY.value
+  wrap.value?.setPointerCapture(e.pointerId)
+  if (wrap.value) wrap.value.style.cursor = 'grabbing'
+}
+function movePan(e: PointerEvent) {
+  if (!isPanning) return
+  panX.value = panSPX + (e.clientX - panSX)
+  panY.value = panSPY + (e.clientY - panSY)
+  clampPan()
+}
+function endPan() {
+  isPanning = false
+  if (wrap.value) wrap.value.style.cursor = ''
+}
+function clampPan() {
+  if (!wrap.value || !pageHost.value) return
+  const c = pageHost.value.querySelector('.page-container') as HTMLElement
+  if (!c) return
+  const wr = wrap.value.getBoundingClientRect()
+  // temporarily remove transform to get natural position
+  const oldT = c.style.transform; c.style.transform = ''
+  const nr = c.getBoundingClientRect(); c.style.transform = oldT
+  const pw = nr.width, ph = nr.height, minV = 120
+  const nL = nr.left - wr.left, nT = nr.top - wr.top
+  panX.value = Math.max(minV - nL - pw, Math.min(wr.width - minV - nL, panX.value))
+  panY.value = Math.max(minV - nT - ph, Math.min(wr.height - minV - nT, panY.value))
+}
+function recenterPage() {
+  const sx = panX.value, sy = panY.value, t0 = performance.now()
+  function anim(t: number) {
+    const p = Math.min(1, (t - t0) / 200), e = p * (2 - p)
+    panX.value = sx * (1 - e); panY.value = sy * (1 - e)
+    if (p < 1) requestAnimationFrame(anim)
+  }
+  requestAnimationFrame(anim)
 }
 
-// annotation drawing
+// ── unified pointer handler ──
+function onPointerDown(e: PointerEvent) {
+  // middle button → always pan (highest priority)
+  if (e.button === 1) {
+    const now = Date.now()
+    if (now - lastMidClick < 300) { recenterPage(); lastMidClick = 0; return }
+    lastMidClick = now
+    startPan(e); curAct = 'pan'; return
+  }
+  // left button
+  if (e.button === 0) {
+    // space held → pan equivalent
+    if (spaceHeld) { startPan(e); curAct = 'pan'; return }
+    // annotate mode → draw (handled by annCanvas listeners)
+    if (annMode.value) { curAct = 'annotate'; return }
+    // edge strips → flip drag
+    const wr = wrap.value!.getBoundingClientRect()
+    const x = e.clientX - wr.left
+    if (x < 24) { curAct = 'edge-flip'; edgeSX = e.clientX; edgeDir = 'l'; dragHint.value = '< drag to prev'; return }
+    if (x > wr.width - 24) { curAct = 'edge-flip'; edgeSX = e.clientX; edgeDir = 'r'; dragHint.value = 'drag to next >'; return }
+    // otherwise → text selection (browser default)
+    curAct = 'select'
+  }
+}
+function onPointerMove(e: PointerEvent) {
+  if (curAct === 'pan') { movePan(e); return }
+  if (curAct === 'edge-flip') {
+    const dx = e.clientX - edgeSX
+    if (edgeDir === 'l') dragHint.value = dx < -60 ? 'Release → prev' : `< ${Math.abs(Math.round(dx))}/60`
+    else dragHint.value = dx > 60 ? 'Release → next' : `${Math.round(dx)}/60 >`
+  }
+}
+function onPointerUp(e: PointerEvent) {
+  if (curAct === 'pan') { endPan(); curAct = 'none'; return }
+  if (curAct === 'edge-flip') {
+    const dx = e.clientX - edgeSX
+    if (edgeDir === 'l' && dx < -60) prevPage()
+    if (edgeDir === 'r' && dx > 60) nextPage()
+    dragHint.value = null; curAct = 'none'; return
+  }
+  curAct = 'none'
+}
+
+// ── annotation drawing ──
 function onAnnMouseDown(e: MouseEvent) {
   if (!annMode.value || !annCanvas) return
-  drawing = true
   const rect = annCanvas.getBoundingClientRect()
-  startX = (e.clientX - rect.left) * (annCanvas.width / rect.width)
-  startY = (e.clientY - rect.top) * (annCanvas.height / rect.height)
-  annPoints = [[startX, startY]]
+  const x = (e.clientX - rect.left) * (annCanvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (annCanvas.height / rect.height)
+  if (annTool.value === 'sticky') {
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ x, y, w: 130, h: 60, text: '', color: '#fff9c4' }) }).then(() => renderPage())
+    return
+  }
+  drawing = true; aSX = x; aSY = y; annPts = [[x, y]]
 }
 function onAnnMouseMove(e: MouseEvent) {
   if (!drawing || !annMode.value || !annCanvas || !annCtx) return
@@ -257,189 +387,195 @@ function onAnnMouseMove(e: MouseEvent) {
   const x = (e.clientX - rect.left) * (annCanvas.width / rect.width)
   const y = (e.clientY - rect.top) * (annCanvas.height / rect.height)
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
-    annPoints.push([x, y]); annCtx.save()
+    annPts.push([x, y]); annCtx.save()
     annCtx.strokeStyle = annTool.value === 'highlighter' ? '#ffeb3b' : annColor.value
     annCtx.globalAlpha = annTool.value === 'highlighter' ? 0.35 : 1
-    annCtx.lineWidth = annTool.value === 'highlighter' ? annWidth.value*2 : annWidth.value
+    annCtx.lineWidth = annTool.value === 'highlighter' ? annWidth.value * 2 : annWidth.value
     annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'; annCtx.beginPath()
-    for (let i = 0; i < annPoints.length; i++) { i===0 ? annCtx.moveTo(annPoints[i][0], annPoints[i][1]) : annCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
+    for (let i = 0; i < annPts.length; i++) { i === 0 ? annCtx.moveTo(annPts[i][0], annPts[i][1]) : annCtx.lineTo(annPts[i][0], annPts[i][1]) }
     annCtx.stroke(); annCtx.restore()
   } else if (annTool.value === 'eraser') {
-    annPoints.push([x, y]); annCtx.save()
-    annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = annWidth.value*3; annCtx.lineCap = 'round'
-    annCtx.beginPath(); for (let i = 0; i < annPoints.length; i++) { i===0 ? annCtx.moveTo(annPoints[i][0], annPoints[i][1]) : annCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
+    annPts.push([x, y]); annCtx.save()
+    annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = annWidth.value * 3; annCtx.lineCap = 'round'
+    annCtx.beginPath(); for (let i = 0; i < annPts.length; i++) { i === 0 ? annCtx.moveTo(annPts[i][0], annPts[i][1]) : annCtx.lineTo(annPts[i][0], annPts[i][1]) }
     annCtx.stroke(); annCtx.restore()
   } else if (annTool.value === 'rect' || annTool.value === 'circle' || annTool.value === 'line') {
-    // preview
-    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
+    window.lk.annList(bookId.value!, page.value).then((rows) => { if (annCtx) { annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height); renderAnnotations(rows) } })
     annCtx.save(); annCtx.strokeStyle = annColor.value; annCtx.lineWidth = annWidth.value
-    if (annTool.value === 'rect') { annCtx.strokeRect(startX, startY, x-startX, y-startY) }
-    else if (annTool.value === 'circle') { const rx = Math.abs(x-startX)/2, ry = Math.abs(y-startY)/2; annCtx.beginPath(); annCtx.ellipse(startX+(x-startX)/2, startY+(y-startY)/2, rx||1, ry||1, 0, 0, Math.PI*2); annCtx.stroke() }
-    else if (annTool.value === 'line') { annCtx.beginPath(); annCtx.moveTo(startX, startY); annCtx.lineTo(x, y); annCtx.stroke() }
+    if (annTool.value === 'rect') annCtx.strokeRect(aSX, aSY, x - aSX, y - aSY)
+    else if (annTool.value === 'circle') { const rx = Math.abs(x - aSX) / 2, ry = Math.abs(y - aSY) / 2; annCtx.beginPath(); annCtx.ellipse(aSX + (x - aSX) / 2, aSY + (y - aSY) / 2, rx || 1, ry || 1, 0, 0, Math.PI * 2); annCtx.stroke() }
+    else if (annTool.value === 'line') { annCtx.beginPath(); annCtx.moveTo(aSX, aSY); annCtx.lineTo(x, y); annCtx.stroke() }
     annCtx.restore()
   }
 }
 function onAnnMouseUp() {
   if (!drawing || !annMode.value) return; drawing = false
   const c = annColor.value, w = annWidth.value
+  const last = annPts[annPts.length - 1] || [aSX, aSY]
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
-    window.lk.annSave({ bookId: bookId.value, page: page.value, type: annTool.value, data: JSON.stringify({ color: c, width: w, points: annPoints }) }).catch(()=>{})
-  } else if (annTool.value === 'eraser') {
-    // eraser already applied visually; save the eraser stroke
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: annTool.value, data: JSON.stringify({ color: c, width: w, points: annPts }) })
   } else if (annTool.value === 'rect') {
-    const last = annPoints[annPoints.length-1] || [startX, startY]
-    const x = Math.min(startX, last[0]), y = Math.min(startY, last[1]), w2 = Math.abs(last[0]-startX), h = Math.abs(last[1]-startY)
-    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'rect', data: JSON.stringify({ color: c, width: w, x, y, w: w2, h }) }).catch(()=>{})
-    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
+    const x = Math.min(aSX, last[0]), y = Math.min(aSY, last[1])
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'rect', data: JSON.stringify({ color: c, width: w, x, y, w: Math.abs(last[0] - aSX), h: Math.abs(last[1] - aSY) }) }).then(() => window.lk.annList(bookId.value!, page.value).then(renderAnnotations))
   } else if (annTool.value === 'circle') {
-    const last = annPoints[annPoints.length-1] || [startX, startY]
-    const dx = last[0]-startX, dy = last[1]-startY
-    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'circle', data: JSON.stringify({ color: c, width: w, x: startX+dx/2, y: startY+dy/2, rx: Math.abs(dx/2)||1, ry: Math.abs(dy/2)||1 }) }).catch(()=>{})
-    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
+    const dx = last[0] - aSX, dy = last[1] - aSY
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'circle', data: JSON.stringify({ color: c, width: w, x: aSX + dx / 2, y: aSY + dy / 2, rx: Math.abs(dx / 2) || 1, ry: Math.abs(dy / 2) || 1 }) }).then(() => window.lk.annList(bookId.value!, page.value).then(renderAnnotations))
   } else if (annTool.value === 'line') {
-    const last = annPoints[annPoints.length-1] || [startX, startY]
-    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'line', data: JSON.stringify({ color: c, width: w, x1: startX, y1: startY, x2: last[0], y2: last[1] }) }).catch(()=>{})
-    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'line', data: JSON.stringify({ color: c, width: w, x1: aSX, y1: aSY, x2: last[0], y2: last[1] }) }).then(() => window.lk.annList(bookId.value!, page.value).then(renderAnnotations))
   }
-  annPoints = []
+  annPts = []
 }
 
-// === Wheel-based page flipping (novel style) ===
-function onWheel(e: WheelEvent) {
-  if (!wrap.value || !wrap.value.contains(e.target as Node)) return
-  if (e.ctrlKey) {
-    // Ctrl+wheel = zoom
-    e.preventDefault()
-    zoom.value = Math.max(80, Math.min(300, zoom.value - Math.sign(e.deltaY) * 10))
-    renderPage()
-    return
-  }
-  // Normal wheel = page flip (if page fits in viewport)
-  // If page is zoomed in and scrollable, let native scroll happen first
-  const w = wrap.value!
-  const atTop = w.scrollTop <= 0
-  const atBottom = w.scrollTop + w.clientHeight >= w.scrollHeight - 2
-  if (e.deltaY > 0 && atBottom && canFlipNext) {
-    // scroll down at bottom => next page
-    e.preventDefault()
-    canFlipNext = false
-    nextPage()
-    setTimeout(() => { canFlipNext = true }, 300)
-  } else if (e.deltaY < 0 && atTop && page.value > 1 && canFlipNext) {
-    // scroll up at top => prev page
-    e.preventDefault()
-    canFlipNext = false
-    prevPage()
-    setTimeout(() => { canFlipNext = true }, 300)
-  }
-}
-
-// click left/right side to flip
-function onCanvasClick(e: MouseEvent) {
-  if (annMode.value) return // don't flip in annotation mode
-  if (e.target instanceof HTMLButtonElement) return
-  if (didDrag) { didDrag = false; return } // suppress click right after drag
-  const w = wrap.value!; const x = e.clientX - w.getBoundingClientRect().left
-  const ratio = x / w.clientWidth
-  if (ratio < 0.35) prevPage()
-  else if (ratio > 0.65) nextPage()
-}
-
-function nextPage() {
-  if (page.value < totalPages.value) { page.value++; renderPage() }
-}
-function prevPage() {
-  if (page.value > 1) { page.value--; renderPage() }
-}
-function goPage(p: number) { page.value = p; renderPage() }
-
-// fit width (zoom = 100)
-function fitZoom() { zoom.value = 100; renderPage(); ElMessage.success('fit width') }
-// reset view
-function resetView() { page.value = 1; zoom.value = 100; renderPage(); wrap.value?.scrollTo({ top: 0 }); ElMessage.success('reset view') }
-
-// === drag-to-flip ===
-let lastDx = 0
-function onDragStart(e: MouseEvent) {
-  if (annMode.value && e.target instanceof HTMLCanvasElement) return
-  dragStartX = e.clientX
-  dragStartY = e.clientY
-  isDragging = true
-  didDrag = false
-  lastDx = 0
-  dragHint.value = null
-}
-function onDragMove(e: MouseEvent) {
-  if (!isDragging || !wrap.value) return
-  const dx = e.clientX - dragStartX
-  const dy = e.clientY - dragStartY
-  if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return
-  if (Math.abs(dx) > Math.abs(dy) * 1.5) {
-    didDrag = true
-    lastDx = dx
-    if (dx < -DRAG_THRESHOLD) { dragHint.value = 'Release ->' }
-    else if (dx > DRAG_THRESHOLD) { dragHint.value = '<- Release' }
-    else { dragHint.value = `Drag ${Math.round(Math.abs(dx))}/${DRAG_THRESHOLD}px` }
-  }
-}
-function onDragEnd() {
-  if (!isDragging) return
-  isDragging = false
-  if (didDrag) {
-    if (lastDx < -DRAG_THRESHOLD && page.value < totalPages.value) nextPage()
-    else if (lastDx > DRAG_THRESHOLD && page.value > 1) prevPage()
-  }
-  dragHint.value = null
-}
-
-async function addBookmark() {
-  await window.lk.bookmarkAdd({ bookId: bookId.value, page: page.value, label: `Page ${page.value}` })
-  bookmarks.value = await window.lk.bookmarkList(bookId.value!); ElMessage.success('Bookmark added')
-}
-async function delBookmark(id: string) { await window.lk.bookmarkDelete(id); bookmarks.value = await window.lk.bookmarkList(bookId.value!) }
-
-function onSelectionEnd(e: MouseEvent) {
-  if (annMode.value) return
-  const sel = window.getSelection(); if (!sel) return
-  const text = sel.toString().trim()
-  if (!text || text.length < 2) { selPopup.value.show = false; return }
-  const rect = wrap.value!.getBoundingClientRect()
-  selPopup.value = { show: true, x: Math.min(e.clientX - rect.left, rect.width - 200), y: Math.max(40, e.clientY - rect.top - 50), text }
-}
-
-function askSel(prefix: string) { emit('ask-ai', { quote: selPopup.value.text, question: prefix, bookId: bookId.value!, page: page.value }); selPopup.value.show = false }
-async function saveSel() {
-  if (!selPopup.value.text) return
-  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text: selPopup.value.text, color: 'yellow' })
-  highlights.value = await window.lk.highlightList(bookId.value!); selPopup.value.show = false; ElMessage.success('Highlighted')
+async function clearPageAnnotations() {
+  await ElMessageBox.confirm('Clear all annotations on this page?', 'Clear', { type: 'warning' })
+  await window.lk.annClear(bookId.value!, page.value)
   renderPage()
 }
 
+// ── context menus (A / B / C) ──
+function onContextMenu(e: MouseEvent) {
+  const sel = window.getSelection()
+  const hasSel = sel && sel.toString().trim().length > 0
+  const target = e.target as HTMLElement
+  const stickyEl = target.closest('.sticky-note') as HTMLElement | null
+
+  if (hasSel) { showMenuB(e); return }
+  if (stickyEl) { showMenuC(e, stickyEl); return }
+  showMenuA(e)
+}
+
+function showMenuA(e: MouseEvent) {
+  const items: any[] = [
+    { label: 'Sticky Note Here', icon: 'EditPen' as any, action: () => addStickyAt(e) },
+    { label: 'Ask AI about this page', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: `(Page ${page.value})`, question: 'What is this page about?', bookId: bookId.value!, page: page.value }) },
+    { label: 'Add Bookmark', icon: 'Star' as any, action: addBookmark },
+    { separator: true },
+    { label: annMode.value ? 'Exit Annotate' : 'Enter Annotate', icon: 'Edit' as any, action: () => { annMode.value = !annMode.value; renderPage() } },
+    { label: 'Clear Page Annotations', icon: 'Delete' as any, danger: true, action: clearPageAnnotations },
+    { separator: true },
+  ]
+  if (panX.value !== 0 || panY.value !== 0) items.push({ label: 'Center Page', icon: 'Aim' as any, action: recenterPage })
+  items.push({ label: 'Fit Width', icon: 'FullScreen' as any, action: fitZoom })
+  items.push({ label: 'Reset View', icon: 'RefreshLeft' as any, action: resetView })
+  menu.open(e, items)
+}
+
+function showMenuB(e: MouseEvent) {
+  const text = window.getSelection()?.toString().trim() || ''
+  selPopup.value.show = false
+  menu.open(e, [
+    { label: 'Copy', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('Copied') } },
+    { label: 'Highlight', icon: 'EditPen' as any, action: () => saveSelText(text) },
+    { label: 'Ask AI about this', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: 'Analyze this passage', bookId: bookId.value!, page: page.value }) },
+    { separator: true },
+    { label: 'Sticky Note (quote)', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },
+    { label: 'Add Bookmark', icon: 'Star' as any, action: addBookmark },
+  ])
+}
+
+function showMenuC(e: MouseEvent, stickyEl: HTMLElement) {
+  const annId = stickyEl.dataset.annId || ''
+  const colors = ['#fff9c4', '#c8e6c9', '#bbdefb', '#f8bbd0']
+  const colorLabels = ['Yellow', 'Green', 'Blue', 'Pink']
+  menu.open(e, [
+    ...colors.map((c, i) => ({ label: colorLabels[i], icon: 'CircleCheck' as any, action: () => changeStickyColor(annId, c) })),
+    { separator: true },
+    { label: 'Duplicate', icon: 'CopyDocument' as any, action: () => duplicateSticky(annId, stickyEl) },
+    { label: 'Ask AI about this note', icon: 'ChatDotRound' as any, action: () => {
+      const ta = stickyEl.querySelector('textarea')
+      emit('ask-ai', { quote: ta?.value || '', question: 'Explain this note', bookId: bookId.value!, page: page.value })
+    }},
+    { separator: true },
+    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => { window.lk.annDelete(annId).then(() => renderPage()) } },
+  ])
+}
+
+async function addStickyAt(e: MouseEvent, prefillText?: string) {
+  const c = pageHost.value?.querySelector('.page-container') as HTMLElement
+  if (!c) return
+  const cr = c.getBoundingClientRect()
+  const x = e.clientX - cr.left, y = e.clientY - cr.top
+  await window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ x, y, w: 130, h: 60, text: prefillText || '', color: '#fff9c4' }) })
+  renderPage()
+}
+
+async function changeStickyColor(annId: string, color: string) {
+  const rows = await window.lk.annList(bookId.value!, page.value)
+  const r = rows.find((x: any) => x.id === annId)
+  if (!r) return
+  const d = JSON.parse(r.data || '{}')
+  await window.lk.annSave({ id: annId, bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ ...d, color }) })
+  renderPage()
+}
+
+async function duplicateSticky(annId: string, _el: HTMLElement) {
+  const rows = await window.lk.annList(bookId.value!, page.value)
+  const r = rows.find((x: any) => x.id === annId)
+  if (!r) return
+  const d = JSON.parse(r.data || '{}')
+  await window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ ...d, x: (d.x || 0) + 12, y: (d.y || 0) + 12 }) })
+  renderPage()
+}
+
+// ── selection ──
+function onSelectionEnd(e: MouseEvent) {
+  if (annMode.value || curAct === 'pan') return
+  const sel = window.getSelection(); if (!sel) return
+  const text = sel.toString().trim()
+  if (!text || text.length < 2) { selPopup.value.show = false; return }
+  const wr = wrap.value!.getBoundingClientRect()
+  selPopup.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 220), y: Math.max(40, e.clientY - wr.top - 50), text }
+  aiMenuOpen.value = false
+}
+function copySelection() { navigator.clipboard.writeText(selPopup.value.text); ElMessage.success('Copied'); selPopup.value.show = false }
+function askSel(q: string) { emit('ask-ai', { quote: selPopup.value.text, question: q, bookId: bookId.value!, page: page.value }); selPopup.value.show = false; aiMenuOpen.value = false }
+async function saveSel() { await saveSelText(selPopup.value.text); selPopup.value.show = false }
+async function saveSelText(text: string) {
+  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text, color: 'yellow' })
+  highlights.value = await window.lk.highlightList(bookId.value!); ElMessage.success('Highlighted'); renderPage()
+}
 function askHl(h: any) { emit('ask-ai', { quote: h.text, bookId: bookId.value!, page: h.page }) }
 async function delHl(id: string) { await window.lk.highlightDelete(id); highlights.value = await window.lk.highlightList(bookId.value!); renderPage() }
+async function addBookmark() { await window.lk.bookmarkAdd({ bookId: bookId.value, page: page.value, label: `Page ${page.value}` }); bookmarks.value = await window.lk.bookmarkList(bookId.value!); ElMessage.success('Bookmark added') }
+async function delBookmark(id: string) { await window.lk.bookmarkDelete(id); bookmarks.value = await window.lk.bookmarkList(bookId.value!) }
 
-async function clearPageAnnotations() {
-  await ElMessageBox.confirm('Clear annotations on this page?', 'Clear', { type: 'warning' })
-  await window.lk.annClear(bookId.value!, page.value)
-  if (annCtx) annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height)
-  ElMessage.success('Page cleared')
-}
-
+// ── keyboard ──
 function onKey(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) { if (e.key === 'Escape') (e.target as HTMLElement).blur(); return }
+  if (e.key === ' ') { spaceHeld = true; if (wrap.value) wrap.value.style.cursor = 'grab'; e.preventDefault(); return }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prevPage() }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nextPage() }
-  else if (e.key === 'Escape') { selPopup.value.show = false; sideOpen.value = true }
+  else if (e.key === 'Home') { e.preventDefault(); page.value = 1; panX.value = 0; panY.value = 0; renderPage() }
+  else if (e.key === 'End') { e.preventDefault(); page.value = totalPages.value; panX.value = 0; panY.value = 0; renderPage() }
+  else if (e.ctrlKey && e.key === '0') { e.preventDefault(); recenterPage() }
+  else if (e.ctrlKey && e.key === 'd') { e.preventDefault(); addBookmark() }
+  else if (e.key === 'Escape') { selPopup.value.show = false; aiMenuOpen.value = false; if (annMode.value) { annMode.value = false; renderPage() } }
+}
+function onKeyUp(e: KeyboardEvent) {
+  if (e.key === ' ') { spaceHeld = false; if (wrap.value && !isPanning) wrap.value.style.cursor = '' }
 }
 
+// ── wheel ──
+function onWheel(e: WheelEvent) {
+  if (!wrap.value || !wrap.value.contains(e.target as Node)) return
+  if (e.ctrlKey) { e.preventDefault(); zoom.value = Math.max(80, Math.min(300, zoom.value - Math.sign(e.deltaY) * 10)); renderPage(); return }
+  if (e.shiftKey) { e.preventDefault(); panX.value -= e.deltaY; clampPan(); return }
+  // normal: scroll within page, flip at edges
+  const w = wrap.value
+  const atTop = w.scrollTop <= 0, atBottom = w.scrollTop + w.clientHeight >= w.scrollHeight - 2
+  if (e.deltaY > 0 && atBottom) { e.preventDefault(); nextPage() }
+  else if (e.deltaY < 0 && atTop && page.value > 1) { e.preventDefault(); prevPage() }
+}
+
+// ── lifecycle hooks ──
 onMounted(() => {
   load()
   window.addEventListener('keydown', onKey)
-  window.addEventListener('wheel', onWheel, { passive: false })
+  window.addEventListener('keyup', onKeyUp)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
-  window.removeEventListener('wheel', onWheel)
+  window.removeEventListener('keyup', onKeyUp)
 })
 </script>
 
@@ -459,6 +595,7 @@ onUnmounted(() => {
 .title { font-weight:600; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .spacer { flex:1; }
 .pg-ind { font-size:12px; color:var(--text-dim); min-width:50px; text-align:center; }
+.zoom-lbl { font-size:11px; color:var(--text-dim); min-width:36px; }
 .ann-toolbar { display:flex; align-items:center; gap:4px; padding:4px 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); flex-wrap:wrap; font-size:12px; }
 .canvas-wrap { flex:1; overflow-y:auto; overflow-x:hidden; padding:10px 0; background:#3b3b3b; position:relative; display:flex; justify-content:center; }
 .canvas-wrap::-webkit-scrollbar { width:8px; }
@@ -466,7 +603,10 @@ onUnmounted(() => {
 .canvas-wrap::-webkit-scrollbar-track { background:var(--bg); }
 .page-host { margin:0 auto; }
 .loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); background:rgba(0,0,0,0.3); z-index:5; }
-.sel-popup { position:absolute; z-index:30; display:flex; gap:4px; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:var(--shadow); }
-.sel-popup button { border:none; background:transparent; color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer; &:hover { background:var(--accent); color:#fff } }
 .drag-hint { position:absolute; bottom:18px; right:18px; z-index:20; background:rgba(0,0,0,0.7); color:#fff; padding:6px 14px; border-radius:6px; font-size:12px; pointer-events:none; }
+.sel-popup { position:absolute; z-index:30; display:flex; gap:2px; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.sel-popup > button, .ai-dd > button { border:none; background:transparent; color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; &:hover { background:var(--accent); color:#fff } }
+.ai-dd { position:relative; }
+.ai-menu { position:absolute; top:100%; left:0; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; box-shadow:var(--shadow); padding:4px 0; min-width:140px; z-index:31; }
+.ai-menu button { display:block; width:100%; text-align:left; border:none; background:transparent; color:var(--text); padding:5px 12px; cursor:pointer; font-size:12px; &:hover { background:var(--accent); color:#fff } }
 </style>
