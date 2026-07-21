@@ -8,7 +8,7 @@
       <div class="side-body">
         <div v-if="tab==='toc'">
           <el-empty v-if="!outline.length" description="no TOC" :image-size="60" />
-          <div v-for="it in outline" :key="it.dest" class="toc-item" :style="{ paddingLeft: it.depth*12+'px' }" @click="goOutline(it)">{{ it.title }}</div>
+          <div v-for="(it, i) in outline" :key="i" class="toc-item" :style="{ paddingLeft: it.depth*12+'px' }" @click="goOutline(it)">{{ it.title }}</div>
         </div>
         <div v-else>
           <el-button size="small" plain @click="addBookmark" style="margin-bottom:6px">+ Bookmark</el-button>
@@ -17,7 +17,7 @@
           <el-divider content-position="left">HL ({{ highlights.length }})</el-divider>
           <div v-for="h in highlights" :key="h.id" class="hl" @click="goPage(h.page)">
             <div class="hl-text">{{ h.text }}</div>
-            <el-button text size="small" @click.stop="askHl(h)">Ask AI</el-button>
+            <el-button text size="small" @click.stop="askHl(h)">AI</el-button>
             <el-button text size="small" type="danger" @click.stop="delHl(h.id)">x</el-button>
           </div>
         </div>
@@ -29,30 +29,29 @@
         <el-button size="small" text @click="sideOpen=!sideOpen">TOC</el-button>
         <span class="title">{{ book?.title }}</span>
         <span class="spacer"></span>
-        <el-input-number v-model="pageInput" :min="1" :max="totalPages||1" size="small" controls-position="right" style="width:80px" @change="onPageInput" />
-        <el-slider v-model="zoom" :min="50" :max="300" :step="10" style="width:100px;margin:0 6px" @change="() => debouncedRender()" />
+        <el-button size="small" @click="prevPage" :disabled="page<=1">&lt;</el-button>
+        <span class="pg-ind">{{ page }}/{{ totalPages }}</span>
+        <el-button size="small" @click="nextPage" :disabled="!totalPages||page>=totalPages">&gt;</el-button>
+        <el-slider v-model="zoom" :min="80" :max="300" :step="10" style="width:100px;margin:0 6px" @change="() => renderPage()" />
         <span>{{ zoom }}%</span>
-        <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;debouncedRender()">Annotate</el-button>
+        <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">Annotate</el-button>
       </div>
       <div v-if="annMode" class="ann-toolbar">
         <el-button-group size="small">
           <el-button :type="annTool==='pen'?'primary':'default'" @click="annTool='pen'">Pen</el-button>
-          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">Highlighter</el-button>
+          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">Hi-Light</el-button>
           <el-button :type="annTool==='rect'?'primary':'default'" @click="annTool='rect'">Rect</el-button>
           <el-button :type="annTool==='circle'?'primary':'default'" @click="annTool='circle'">Circle</el-button>
           <el-button :type="annTool==='line'?'primary':'default'" @click="annTool='line'">Line</el-button>
-          <el-button :type="annTool==='text'?'primary':'default'" @click="annTool='text'">Text</el-button>
           <el-button :type="annTool==='eraser'?'primary':'default'" @click="annTool='eraser'">Eraser</el-button>
         </el-button-group>
         <el-color-picker v-model="annColor" size="small" style="margin-left:6px" />
         <el-slider v-model="annWidth" :min="1" :max="12" :step="0.5" style="width:80px;margin-left:6px" />
-        <el-button size="small" @click="deleteSelected">Del Sel</el-button>
-        <el-button size="small" @click="clearAllAnnotations">Clear All</el-button>
-        <el-button size="small" type="primary" @click="saveAllAnnotations">Save</el-button>
+        <el-button size="small" @click="clearPageAnnotations">Clear Page</el-button>
       </div>
-      <div class="canvas-wrap" ref="wrap">
+      <div class="canvas-wrap" ref="wrap" @click="onCanvasClick">
         <div ref="pageHost" class="page-host" @mouseup="onSelectionEnd"></div>
-        <div v-if="loading" class="loading">Loading...</div>
+        <div v-if="loading" class="loading">Loading page {{ page }}...</div>
       </div>
     </div>
     <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y+'px', left:selPopup.x+'px' }">
@@ -83,28 +82,27 @@ const pageHost = ref<HTMLElement|null>(null)
 const loading = ref(false)
 const totalPages = ref(0)
 const page = ref(1)
-const pageInput = ref(1)
-const zoom = ref(130)
+const zoom = ref(120)
 const outline = ref<any[]>([])
 const bookmarks = ref<any[]>([])
 const highlights = ref<any[]>([])
-const scrollMode = ref(true)
 const annMode = ref(false)
-const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'text'|'eraser'>('pen')
+const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'>('pen')
 const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
 const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
 
 let pdfDoc: any = null
-// stores per-page annotation data loaded from DB: page -> Annotation[]
-let annData: Map<number, any[]> = new Map()
+let annCtx: CanvasRenderingContext2D | null = null
+let annCanvas: HTMLCanvasElement | null = null
 let drawing = false
-let annCtxs: Map<number, CanvasRenderingContext2D | null> = new Map()
-// for shape drawing
 let startX = 0, startY = 0
+let annPoints: number[][] = []
+let canFlipNext = true // scrolling guard: only flip when fully scrolled
 
 async function load() {
-  if (!bookId.value) return; loading.value = true
+  if (!bookId.value) return
+  loading.value = true
   const list = await window.lk.bookList()
   book.value = list.find((b: any) => b.id === bookId.value) || null
   bookmarks.value = await window.lk.bookmarkList(bookId.value)
@@ -113,13 +111,11 @@ async function load() {
   pdfDoc = await pdfjsLib.getDocument({ url } as any).promise
   totalPages.value = pdfDoc.numPages
   if (book.value?.total_pages !== pdfDoc.numPages) await window.lk.bookUpdate(bookId.value, { total_pages: pdfDoc.numPages })
-  if (book.value?.last_page) { page.value = Math.min(book.value.last_page, pdfDoc.numPages); pageInput.value = page.value }
+  if (book.value?.last_page) page.value = Math.min(book.value.last_page, pdfDoc.numPages)
   const raw = await pdfDoc.getOutline()
   outline.value = flattenOutline(raw)
-  scrollMode.value = true
-  await renderAll()
   loading.value = false
-  setTimeout(() => scrollToPage(page.value), 300)
+  await renderPage()
 }
 
 function flattenOutline(items: any[], depth=0): any[] {
@@ -129,221 +125,221 @@ function flattenOutline(items: any[], depth=0): any[] {
 }
 
 async function goOutline(it: any) {
-  if (!pdfDoc) return; let dest: any = it.dest
+  if (!pdfDoc) return
+  let dest: any = it.dest
   if (typeof dest === 'string') dest = await pdfDoc.getDestination(dest)
   if (!dest?.[0]) return
-  const idx = await pdfDoc.getPageIndex(dest[0]); page.value = idx+1; pageInput.value = page.value
-  scrollToPage(page.value)
+  const idx = await pdfDoc.getPageIndex(dest[0])
+  page.value = idx + 1
+  await renderPage()
 }
 
-let renderToken = 0
-let renderTimer: any = null
-function debouncedRender(delay = 150) {
-  if (renderTimer) clearTimeout(renderTimer)
-  renderTimer = setTimeout(() => { renderAll(); renderTimer = null }, delay)
-}
-
-async function renderAll() {
+async function renderPage() {
   if (!pdfDoc || !pageHost.value) return
-  const myToken = ++renderToken
   loading.value = true
-  // remember scroll position so user doesn't jump to top after re-render
-  const prevScroll = wrap.value!.scrollTop
-  const prevHeight = wrap.value!.scrollHeight
-  const scrollRatio = prevHeight > 0 ? prevScroll / prevHeight : 0
+  const myToken = page.value
+  const host = pageHost.value
+  host.innerHTML = ''
+  const p = await pdfDoc.getPage(page.value)
+  if (myToken !== page.value) { loading.value = false; return }
 
-  const host = pageHost.value; host.innerHTML = ''
-  annCtxs.clear()
+  // compute scale: fit width by default, allow zoom override
   const cssW = wrap.value!.clientWidth - 40
-  for (let pg = 1; pg <= totalPages.value; pg++) {
-    if (myToken !== renderToken) return // cancelled by a newer render call
-    const p = await pdfDoc.getPage(pg)
-    const base = p.getViewport({ scale: 1 })
-    const scale = Math.min(cssW / base.width, 1.5) * (zoom.value / 100)
-    const vp = p.getViewport({ scale })
-    const w = Math.round(vp.width), h = Math.round(vp.height)
-    const container = document.createElement('div')
-    container.className = 'page-container'
-    container.style.cssText = `position:relative;margin:0 auto 8px;width:${w}px;height:${h}px;background:#fff;box-shadow:0 0 10px rgba(0,0,0,0.3)`
+  const base = p.getViewport({ scale: 1 })
+  const fitScale = Math.min(cssW / base.width, 1.2)
+  const scale = fitScale * (zoom.value / 100)
+  const vp = p.getViewport({ scale })
+  const w = Math.round(vp.width), h = Math.round(vp.height)
 
-    const canvas = document.createElement('canvas')
-    canvas.className = 'pdf-canvas'
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = w * dpr; canvas.height = h * dpr
-    canvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px`
-    container.appendChild(canvas)
-    const ctx = canvas.getContext('2d')!
-    await p.render({ canvasContext: ctx, viewport: vp, transform: [dpr, 0, 0, dpr, 0, 0] } as any).promise
-    if (myToken !== renderToken) return
+  const container = document.createElement('div')
+  container.className = 'page-container'
+  container.style.cssText = `position:relative;margin:0 auto;width:${w}px;min-height:${h}px;background:#fff;box-shadow:0 0 10px rgba(0,0,0,0.3)`
 
-    const annCanvas = document.createElement('canvas')
-    annCanvas.className = 'ann-canvas'
-    annCanvas.width = w; annCanvas.height = h
-    annCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:2`
-    container.appendChild(annCanvas)
-    const aCtx = annCanvas.getContext('2d')!
-    annCtxs.set(pg, aCtx)
-    if (annMode.value) {
-      annCanvas.addEventListener('mousedown', (e) => onAnnMouseDown(e, pg, annCanvas))
-      annCanvas.addEventListener('mousemove', (e) => onAnnMouseMove(e, pg, annCanvas))
-      annCanvas.addEventListener('mouseup', () => onAnnMouseUp(pg))
-      annCanvas.style.cursor = 'crosshair'
-    }
-    annCanvas.dataset.page = String(pg)
-    host.appendChild(container)
+  const canvas = document.createElement('canvas')
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = w * dpr; canvas.height = h * dpr
+  canvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px`
+  container.appendChild(canvas)
+  const ctx = canvas.getContext('2d')!
+  await p.render({ canvasContext: ctx, viewport: vp, transform: [dpr, 0, 0, dpr, 0, 0] } as any).promise
 
-    const pgHls = highlights.value.filter((hl: any) => hl.page === pg && hl.rect_x != null)
-    for (const hl of pgHls) {
-      if (!aCtx) continue
-      const rx = hl.rect_x * w, ry = hl.rect_y * h, rw = hl.rect_w * w, rh = hl.rect_h * h
-      aCtx.fillStyle = 'rgba(255,220,80,0.35)'; aCtx.fillRect(rx, ry, rw, rh)
-    }
-    renderAnnotations(pg, annData.get(pg) || [])
-    // yield so input events still go through
-    await new Promise((r) => setTimeout(r, 0))
+  // annotation overlay
+  annCanvas = document.createElement('canvas')
+  annCanvas.width = w; annCanvas.height = h
+  annCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:2`
+  container.appendChild(annCanvas)
+  annCtx = annCanvas.getContext('2d')!
+
+  if (annMode.value) {
+    annCanvas.addEventListener('mousedown', onAnnMouseDown)
+    annCanvas.addEventListener('mousemove', onAnnMouseMove)
+    annCanvas.addEventListener('mouseup', onAnnMouseUp)
+    annCanvas.style.cursor = 'crosshair'
   }
-  // restore scroll proportionally
-  const newHeight = wrap.value!.scrollHeight
-  wrap.value!.scrollTop = scrollRatio * newHeight
-  if (book.value) window.lk.bookUpdate(bookId.value!, { last_page: page.value })
+
+  host.appendChild(container)
+
+  // render text highlights
+  const pgHls = highlights.value.filter((hl: any) => hl.page === page.value && hl.rect_x != null)
+  if (annCtx) {
+    for (const hl of pgHls) {
+      const rx = hl.rect_x * w, ry = hl.rect_y * h, rw = hl.rect_w * w, rh = hl.rect_h * h
+      annCtx.fillStyle = 'rgba(255,220,80,0.35)'; annCtx.fillRect(rx, ry, rw, rh)
+    }
+  }
+
+  // load annotations from DB
+  const rows = await window.lk.annList(bookId.value!, page.value)
+  renderAnnotations(rows)
+
+  window.lk.bookUpdate(bookId.value!, { last_page: page.value })
   loading.value = false
 }
 
-function renderAnnotations(pg: number, rows: any[]) {
-  const aCtx = annCtxs.get(pg)
-  if (!aCtx || !rows) return
+function renderAnnotations(rows: any[]) {
+  if (!annCtx || !rows) return
   for (const r of rows) {
     const d = JSON.parse(r.data || '{}')
-    aCtx.save()
+    annCtx!.save()
     if (r.type === 'pen') {
-      aCtx.strokeStyle = d.color || annColor.value; aCtx.lineWidth = d.width || annWidth.value; aCtx.lineCap = 'round'
-      aCtx.lineJoin = 'round'
-      aCtx.beginPath()
-      for (let i = 0; i < (d.points?.length || 0); i++) {
-        const p2 = d.points[i]; i === 0 ? aCtx.moveTo(p2[0], p2[1]) : aCtx.lineTo(p2[0], p2[1])
-      }
-      aCtx.stroke()
+      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
+      annCtx!.lineCap = 'round'; annCtx!.lineJoin = 'round'; annCtx!.beginPath()
+      for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i===0 ? annCtx!.moveTo(pt[0],pt[1]) : annCtx!.lineTo(pt[0],pt[1]) }
+      annCtx!.stroke()
     } else if (r.type === 'highlighter') {
-      aCtx.strokeStyle = d.color || '#ffeb3b'; aCtx.globalAlpha = 0.35; aCtx.lineWidth = (d.width || 8) * 2
-      aCtx.lineCap = 'round'; aCtx.beginPath()
-      for (let i = 0; i < (d.points?.length || 0); i++) {
-        const p2 = d.points[i]; i === 0 ? aCtx.moveTo(p2[0], p2[1]) : aCtx.lineTo(p2[0], p2[1])
-      }
-      aCtx.stroke(); aCtx.globalAlpha = 1
+      annCtx!.strokeStyle = d.color || '#ffeb3b'; annCtx!.globalAlpha = 0.35; annCtx!.lineWidth = (d.width||8)*2
+      annCtx!.lineCap = 'round'; annCtx!.beginPath()
+      for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i===0 ? annCtx!.moveTo(pt[0],pt[1]) : annCtx!.lineTo(pt[0],pt[1]) }
+      annCtx!.stroke(); annCtx!.globalAlpha = 1
     } else if (r.type === 'rect') {
-      aCtx.strokeStyle = d.color || annColor.value; aCtx.lineWidth = d.width || annWidth.value
-      aCtx.strokeRect(d.x, d.y, d.w, d.h)
+      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
+      annCtx!.strokeRect(d.x, d.y, d.w, d.h)
     } else if (r.type === 'circle') {
-      aCtx.strokeStyle = d.color || annColor.value; aCtx.lineWidth = d.width || annWidth.value
-      aCtx.beginPath(); aCtx.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI*2); aCtx.stroke()
+      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
+      annCtx!.beginPath(); annCtx!.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI*2); annCtx!.stroke()
     } else if (r.type === 'line') {
-      aCtx.strokeStyle = d.color || annColor.value; aCtx.lineWidth = d.width || annWidth.value
-      aCtx.beginPath(); aCtx.moveTo(d.x1, d.y1); aCtx.lineTo(d.x2, d.y2); aCtx.stroke()
-    } else if (r.type === 'text') {
-      aCtx.fillStyle = d.color || annColor.value; aCtx.font = `${d.fontSize || 16}px sans-serif`
-      aCtx.fillText(d.text || '', d.x, d.y)
+      annCtx!.strokeStyle = d.color || annColor.value; annCtx!.lineWidth = d.width || annWidth.value
+      annCtx!.beginPath(); annCtx!.moveTo(d.x1, d.y1); annCtx!.lineTo(d.x2, d.y2); annCtx!.stroke()
     }
-    aCtx.restore()
+    annCtx!.restore()
   }
 }
 
-// annotation drawing handlers
-let annPoints: number[][] = []
-function redrawPageAnnotations(pg: number) {
-  const aCtx = annCtxs.get(pg); if (!aCtx) return
-  const rows = annData.get(pg) || []
-  aCtx.clearRect(0, 0, aCtx.canvas.width, aCtx.canvas.height)
-  renderAnnotations(pg, rows)
+function redrawAnnotations(rows: any[]) {
+  if (!annCtx) return
+  annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height)
+  renderAnnotations(rows)
 }
-function onAnnMouseDown(e: MouseEvent, _pg: number, canvas: HTMLCanvasElement) {
-  if (!annMode.value) return; drawing = true
-  const rect = canvas.getBoundingClientRect()
-  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
-  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
-  startX = x; startY = y
-  annPoints = [[x, y]]
+
+// annotation drawing
+function onAnnMouseDown(e: MouseEvent) {
+  if (!annMode.value || !annCanvas) return
+  drawing = true
+  const rect = annCanvas.getBoundingClientRect()
+  startX = (e.clientX - rect.left) * (annCanvas.width / rect.width)
+  startY = (e.clientY - rect.top) * (annCanvas.height / rect.height)
+  annPoints = [[startX, startY]]
 }
-function onAnnMouseMove(e: MouseEvent, pg: number, canvas: HTMLCanvasElement) {
-  if (!drawing || !annMode.value) return
-  const rect = canvas.getBoundingClientRect()
-  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
-  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
-  const aCtx = annCtxs.get(pg); if (!aCtx) return
+function onAnnMouseMove(e: MouseEvent) {
+  if (!drawing || !annMode.value || !annCanvas || !annCtx) return
+  const rect = annCanvas.getBoundingClientRect()
+  const x = (e.clientX - rect.left) * (annCanvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (annCanvas.height / rect.height)
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
-    annPoints.push([x, y]); aCtx.save()
-    aCtx.strokeStyle = annTool.value === 'highlighter' ? '#ffeb3b' : annColor.value
-    aCtx.globalAlpha = annTool.value === 'highlighter' ? 0.35 : 1
-    aCtx.lineWidth = annTool.value === 'highlighter' ? annWidth.value * 2 : annWidth.value
-    aCtx.lineCap = 'round'; aCtx.lineJoin = 'round'
-    aCtx.beginPath()
-    for (let i = 0; i < annPoints.length; i++) { i === 0 ? aCtx.moveTo(annPoints[i][0], annPoints[i][1]) : aCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
-    aCtx.stroke(); aCtx.restore()
+    annPoints.push([x, y]); annCtx.save()
+    annCtx.strokeStyle = annTool.value === 'highlighter' ? '#ffeb3b' : annColor.value
+    annCtx.globalAlpha = annTool.value === 'highlighter' ? 0.35 : 1
+    annCtx.lineWidth = annTool.value === 'highlighter' ? annWidth.value*2 : annWidth.value
+    annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'; annCtx.beginPath()
+    for (let i = 0; i < annPoints.length; i++) { i===0 ? annCtx.moveTo(annPoints[i][0], annPoints[i][1]) : annCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
+    annCtx.stroke(); annCtx.restore()
   } else if (annTool.value === 'eraser') {
-    annPoints.push([x, y]); aCtx.save()
-    aCtx.globalCompositeOperation = 'destination-out'; aCtx.lineWidth = annWidth.value * 3; aCtx.lineCap = 'round'
-    aCtx.beginPath(); for (let i = 0; i < annPoints.length; i++) { i === 0 ? aCtx.moveTo(annPoints[i][0], annPoints[i][1]) : aCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
-    aCtx.stroke(); aCtx.restore()
+    annPoints.push([x, y]); annCtx.save()
+    annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = annWidth.value*3; annCtx.lineCap = 'round'
+    annCtx.beginPath(); for (let i = 0; i < annPoints.length; i++) { i===0 ? annCtx.moveTo(annPoints[i][0], annPoints[i][1]) : annCtx.lineTo(annPoints[i][0], annPoints[i][1]) }
+    annCtx.stroke(); annCtx.restore()
   } else if (annTool.value === 'rect' || annTool.value === 'circle' || annTool.value === 'line') {
-    // preview shape on a copy of the layer
-    redrawPageAnnotations(pg)
-    aCtx.save(); aCtx.strokeStyle = annColor.value; aCtx.lineWidth = annWidth.value
-    if (annTool.value === 'rect') { const w2 = x - startX, h2 = y - startY; aCtx.strokeRect(startX, startY, w2, h2) }
-    else if (annTool.value === 'circle') { const rx = Math.abs(x - startX) / 2, ry = Math.abs(y - startY) / 2; aCtx.beginPath(); aCtx.ellipse(startX + (x-startX)/2, startY + (y-startY)/2, rx||1, ry||1, 0, 0, Math.PI*2); aCtx.stroke() }
-    else if (annTool.value === 'line') { aCtx.beginPath(); aCtx.moveTo(startX, startY); aCtx.lineTo(x, y); aCtx.stroke() }
-    aCtx.restore()
+    // preview
+    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
+    annCtx.save(); annCtx.strokeStyle = annColor.value; annCtx.lineWidth = annWidth.value
+    if (annTool.value === 'rect') { annCtx.strokeRect(startX, startY, x-startX, y-startY) }
+    else if (annTool.value === 'circle') { const rx = Math.abs(x-startX)/2, ry = Math.abs(y-startY)/2; annCtx.beginPath(); annCtx.ellipse(startX+(x-startX)/2, startY+(y-startY)/2, rx||1, ry||1, 0, 0, Math.PI*2); annCtx.stroke() }
+    else if (annTool.value === 'line') { annCtx.beginPath(); annCtx.moveTo(startX, startY); annCtx.lineTo(x, y); annCtx.stroke() }
+    annCtx.restore()
   }
 }
-function onAnnMouseUp(pg: number) {
+function onAnnMouseUp() {
   if (!drawing || !annMode.value) return; drawing = false
-  const aCtx = annCtxs.get(pg); if (!aCtx) return
   const c = annColor.value, w = annWidth.value
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
-    window.lk.annSave({ bookId: bookId.value, page: pg, type: annTool.value, data: JSON.stringify({ color: c, width: w, points: annPoints }) }).catch(() => {})
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: annTool.value, data: JSON.stringify({ color: c, width: w, points: annPoints }) }).catch(()=>{})
   } else if (annTool.value === 'eraser') {
-    window.lk.annSave({ bookId: bookId.value, page: pg, type: 'eraser', data: JSON.stringify({ points: annPoints }) }).catch(() => {})
-    redrawPageAnnotations(pg)
+    // eraser already applied visually; save the eraser stroke
   } else if (annTool.value === 'rect') {
-    const w2 = (annPoints[0]?.[0] || startX) - startX, h2 = (annPoints[0]?.[1] || startY) - startY
-    const x = w2 >= 0 ? startX : startX + w2, y = h2 >= 0 ? startY : startY + h2
-    const aw = Math.abs(w2), ah = Math.abs(h2)
-    window.lk.annSave({ bookId: bookId.value, page: pg, type: 'rect', data: JSON.stringify({ color: c, width: w, x, y, w: aw, h: ah }) }).catch(() => {})
-    redrawPageAnnotations(pg)
+    const last = annPoints[annPoints.length-1] || [startX, startY]
+    const x = Math.min(startX, last[0]), y = Math.min(startY, last[1]), w2 = Math.abs(last[0]-startX), h = Math.abs(last[1]-startY)
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'rect', data: JSON.stringify({ color: c, width: w, x, y, w: w2, h }) }).catch(()=>{})
+    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
   } else if (annTool.value === 'circle') {
-    const dx = (annPoints[0]?.[0] || startX) - startX, dy = (annPoints[0]?.[1] || startY) - startY
-    window.lk.annSave({ bookId: bookId.value, page: pg, type: 'circle', data: JSON.stringify({ color: c, width: w, x: startX + dx/2, y: startY + dy/2, rx: Math.abs(dx/2)||1, ry: Math.abs(dy/2)||1 }) }).catch(() => {})
-    redrawPageAnnotations(pg)
+    const last = annPoints[annPoints.length-1] || [startX, startY]
+    const dx = last[0]-startX, dy = last[1]-startY
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'circle', data: JSON.stringify({ color: c, width: w, x: startX+dx/2, y: startY+dy/2, rx: Math.abs(dx/2)||1, ry: Math.abs(dy/2)||1 }) }).catch(()=>{})
+    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
   } else if (annTool.value === 'line') {
-    const endX = annPoints[0]?.[0] || startX, endY = annPoints[0]?.[1] || startY
-    window.lk.annSave({ bookId: bookId.value, page: pg, type: 'line', data: JSON.stringify({ color: c, width: w, x1: startX, y1: startY, x2: endX, y2: endY }) }).catch(() => {})
-    redrawPageAnnotations(pg)
+    const last = annPoints[annPoints.length-1] || [startX, startY]
+    window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'line', data: JSON.stringify({ color: c, width: w, x1: startX, y1: startY, x2: last[0], y2: last[1] }) }).catch(()=>{})
+    window.lk.annList(bookId.value!, page.value).then(redrawAnnotations)
   }
   annPoints = []
 }
 
+// === Wheel-based page flipping (novel style) ===
 function onWheel(e: WheelEvent) {
-  // only handle wheel when inside this reader view
   if (!wrap.value || !wrap.value.contains(e.target as Node)) return
   if (e.ctrlKey) {
+    // Ctrl+wheel = zoom
     e.preventDefault()
-    zoom.value = Math.max(50, Math.min(300, zoom.value - Math.sign(e.deltaY) * 10))
-    debouncedRender(80)
+    zoom.value = Math.max(80, Math.min(300, zoom.value - Math.sign(e.deltaY) * 10))
+    renderPage()
+    return
   }
-  // when not ctrl, let native scroll happen normally
+  // Normal wheel = page flip (if page fits in viewport)
+  // If page is zoomed in and scrollable, let native scroll happen first
+  const w = wrap.value!
+  const atTop = w.scrollTop <= 0
+  const atBottom = w.scrollTop + w.clientHeight >= w.scrollHeight - 2
+  if (e.deltaY > 0 && atBottom && canFlipNext) {
+    // scroll down at bottom => next page
+    e.preventDefault()
+    canFlipNext = false
+    nextPage()
+    setTimeout(() => { canFlipNext = true }, 300)
+  } else if (e.deltaY < 0 && atTop && page.value > 1 && canFlipNext) {
+    // scroll up at top => prev page
+    e.preventDefault()
+    canFlipNext = false
+    prevPage()
+    setTimeout(() => { canFlipNext = true }, 300)
+  }
 }
 
-function scrollToPage(pg: number) {
-  if (!wrap.value || !pageHost.value) return
-  const containers = pageHost.value.querySelectorAll('.page-container')
-  const target = containers[pg - 1] as HTMLElement | undefined
-  if (!target) return
-  const wrapTop = wrap.value.getBoundingClientRect().top
-  const targetTop = target.getBoundingClientRect().top
-  wrap.value.scrollTo({ top: wrap.value.scrollTop + (targetTop - wrapTop), behavior: 'smooth' })
+// click left/right side to flip
+function onCanvasClick(e: MouseEvent) {
+  if (annMode.value) return // don't flip in annotation mode
+  if (e.target instanceof HTMLButtonElement) return
+  const w = wrap.value!; const x = e.clientX - w.getBoundingClientRect().left
+  const ratio = x / w.clientWidth
+  if (ratio < 0.35) prevPage()
+  else if (ratio > 0.65) nextPage()
 }
 
-function onPageInput(v: number | undefined) { if (!v) return; page.value = Math.max(1, Math.min(v, totalPages.value||1)); pageInput.value = page.value; scrollToPage(page.value) }
-
-function goPage(p: number) { page.value = p; pageInput.value = p; scrollToPage(p) }
+function nextPage() {
+  if (page.value < totalPages.value) { page.value++; renderPage() }
+}
+function prevPage() {
+  if (page.value > 1) { page.value--; renderPage() }
+}
+function goPage(p: number) { page.value = p; renderPage() }
 
 async function addBookmark() {
   await window.lk.bookmarkAdd({ bookId: bookId.value, page: page.value, label: `Page ${page.value}` })
@@ -352,6 +348,7 @@ async function addBookmark() {
 async function delBookmark(id: string) { await window.lk.bookmarkDelete(id); bookmarks.value = await window.lk.bookmarkList(bookId.value!) }
 
 function onSelectionEnd(e: MouseEvent) {
+  if (annMode.value) return
   const sel = window.getSelection(); if (!sel) return
   const text = sel.toString().trim()
   if (!text || text.length < 2) { selPopup.value.show = false; return }
@@ -362,46 +359,26 @@ function onSelectionEnd(e: MouseEvent) {
 function askSel(prefix: string) { emit('ask-ai', { quote: selPopup.value.text, question: prefix, bookId: bookId.value!, page: page.value }); selPopup.value.show = false }
 async function saveSel() {
   if (!selPopup.value.text) return
-  const host = pageHost.value!
-  const sel = window.getSelection(); let rectX: number|null = null, rectY: number|null = null, rectW: number|null = null, rectH: number|null = null
-  if (sel && sel.rangeCount) { try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { const hR = host.getBoundingClientRect(); rectX = (r[0].left - hR.left) / hR.width; rectY = (r[0].top - hR.top) / hR.height; rectW = r[0].width / hR.width; rectH = r[0].height / hR.height } } catch {} }
-  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text: selPopup.value.text, color: 'yellow', rectX, rectY, rectW, rectH })
+  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text: selPopup.value.text, color: 'yellow' })
   highlights.value = await window.lk.highlightList(bookId.value!); selPopup.value.show = false; ElMessage.success('Highlighted')
+  renderPage()
 }
 
 function askHl(h: any) { emit('ask-ai', { quote: h.text, bookId: bookId.value!, page: h.page }) }
-async function delHl(id: string) { await window.lk.highlightDelete(id); highlights.value = await window.lk.highlightList(bookId.value!) }
+async function delHl(id: string) { await window.lk.highlightDelete(id); highlights.value = await window.lk.highlightList(bookId.value!); renderPage() }
 
-// annotation management
-async function saveAllAnnotations() {
-  if (!bookId.value) return
-  for (let pg = 1; pg <= totalPages.value; pg++) {
-    const rows = await window.lk.annList(bookId.value, pg)
-    annData.set(pg, rows)
-  }
-  ElMessage.success('Annotations saved')
-}
-
-async function clearAllAnnotations() {
-  if (!bookId.value) return
-  await ElMessageBox.confirm('Clear all annotations?', 'Clear', { type: 'warning' })
-  for (let pg = 1; pg <= totalPages.value; pg++) {
-    await window.lk.annClear(bookId.value, pg)
-    const aCtx = annCtxs.get(pg)
-    if (aCtx) aCtx.clearRect(0, 0, aCtx.canvas.width, aCtx.canvas.height)
-  }
-  annData.clear(); ElMessage.success('All annotations cleared')
-}
-
-function deleteSelected() {
-  // simplified: last annotation on current visible page
+async function clearPageAnnotations() {
+  await ElMessageBox.confirm('Clear annotations on this page?', 'Clear', { type: 'warning' })
+  await window.lk.annClear(bookId.value!, page.value)
+  if (annCtx) annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height)
+  ElMessage.success('Page cleared')
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement) return
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); const val = page.value - 1; if (val >= 1) { page.value = val; pageInput.value = val; scrollToPage(val) } }
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); const val = page.value + 1; if (val <= totalPages.value) { page.value = val; pageInput.value = val; scrollToPage(val) } }
-  if (e.key === 'Escape') selPopup.value.show = false
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prevPage() }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nextPage() }
+  else if (e.key === 'Escape') { selPopup.value.show = false; sideOpen.value = true }
 }
 
 onMounted(() => {
@@ -417,26 +394,27 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .reader-root { flex:1; display:flex; min-width:0; background:var(--bg); position:relative; }
-.side { width:260px; background:var(--bg-soft); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; transition:width 0.2s; }
-.side:not(.open) { width:0; min-width:0; border:none; padding:0; }
+.side { width:240px; background:var(--bg-soft); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; transition:width 0.2s; }
+.side:not(.open) { width:0; min-width:0; border:none; }
 .side-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
 .side-tabs button { flex:1; padding:8px; border:none; background:transparent; color:var(--text-dim); cursor:pointer; &.active { color:var(--accent); border-bottom:2px solid var(--accent) } }
 .side-body { flex:1; overflow:auto; padding:8px 10px; font-size:13px; }
 .toc-item { padding:4px 6px; cursor:pointer; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; &:hover { background:rgba(127,127,127,0.12) } }
 .mark { display:flex; gap:4px; align-items:center; padding:4px 0; border-bottom:1px dashed var(--border); cursor:pointer; }
-.hl { padding:6px 4px; border-left:2px solid #d4b469; margin-bottom:6px; }
+.hl { padding:6px 4px; border-left:2px solid #d4b469; margin-bottom:6px; cursor:pointer; }
 .hl-text { font-size:12px; max-height:60px; overflow:hidden; }
 .main { flex:1; display:flex; flex-direction:column; min-width:0; }
 .ctrl { height:38px; flex:0 0 38px; display:flex; align-items:center; gap:6px; padding:0 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); }
-.title { font-weight:600; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.title { font-weight:600; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .spacer { flex:1; }
+.pg-ind { font-size:12px; color:var(--text-dim); min-width:50px; text-align:center; }
 .ann-toolbar { display:flex; align-items:center; gap:4px; padding:4px 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); flex-wrap:wrap; font-size:12px; }
-.canvas-wrap { flex:1; overflow-y:scroll; overflow-x:hidden; padding:14px 0 60px; background:#3b3b3b; position:relative; }
-.canvas-wrap::-webkit-scrollbar { width:10px; }
+.canvas-wrap { flex:1; overflow-y:auto; overflow-x:hidden; padding:10px 0; background:#3b3b3b; position:relative; display:flex; justify-content:center; }
+.canvas-wrap::-webkit-scrollbar { width:8px; }
 .canvas-wrap::-webkit-scrollbar-thumb { background:var(--accent); border-radius:5px; }
 .canvas-wrap::-webkit-scrollbar-track { background:var(--bg); }
 .page-host { margin:0 auto; }
-.loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); }
+.loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); background:rgba(0,0,0,0.3); z-index:5; }
 .sel-popup { position:absolute; z-index:30; display:flex; gap:4px; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:var(--shadow); }
 .sel-popup button { border:none; background:transparent; color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer; &:hover { background:var(--accent); color:#fff } }
 </style>
