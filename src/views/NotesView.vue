@@ -45,13 +45,20 @@
           <el-button size="small" @click="insertCmd('*','*')">I</el-button>
           <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
           <span class="spacer"></span>
-          <el-button size="small" @click="makeCard">生成闪卡</el-button>
+          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="Toggle block editor">{{ useBlockEditor ? 'MD' : 'Block' }}</el-button>
+          <el-button size="small" @click="makeCard">Card</el-button>
           <el-button size="small" @click="exportMd">导出</el-button>
           <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
         </div>
-        <div class="split">
+        <div class="split" v-if="!useBlockEditor">
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
-            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" @keydown.ctrl.z.prevent="doUndo" @keydown.ctrl.shift.z.prevent="doRedo" @keydown.ctrl.s.prevent="saveCurrent" placeholder="Markdown ... / 弹出命令菜单"></textarea>
+            <div class="gutter" ref="gutterRef">
+              <div v-for="(_ln, i) in lineCount" :key="i" class="gutter-line" :class="{active: cursorLine === i+1}" @click="goToLine(i+1)" @contextmenu.prevent="onGutterCtx($event, i+1)">
+                <span class="gutter-num">{{ i + 1 }}</span>
+                <span class="gutter-handle" title="Block actions">&#x2630;</span>
+              </div>
+            </div>
+            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck(); updateCursorLine()" @click="updateCursorLine" @keyup="updateCursorLine" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" @keydown.ctrl.z.prevent="doUndo" @keydown.ctrl.shift.z.prevent="doRedo" @keydown.ctrl.s.prevent="saveCurrent" placeholder="Markdown ... / slash commands"></textarea>
             <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
               <div v-for="c in filteredSlash" :key="c.label" class="slash-item" @click="applySlash(c)">
                 <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
@@ -61,6 +68,7 @@
           </div>
           <div class="preview markdown-body" v-html="html"></div>
         </div>
+        <BlockEditor v-else v-model="current.body" :show-toolbar="true" />
       </div>
     </main>
   </div>
@@ -71,6 +79,7 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
+import BlockEditor from '../components/BlockEditor.vue'
 
 const menu = useContextMenu()
 const sideW = ref(260)
@@ -88,6 +97,10 @@ const slashY = ref(0)
 const undoStack = ref<string[]>([])
 const redoStack = ref<string[]>([])
 const MAX_UNDO = 80
+const gutterRef = ref<HTMLElement|null>(null)
+const cursorLine = ref(1)
+const lineCount = computed(() => (current.value?.body || '').split('\n').length)
+const useBlockEditor = ref(false)
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
   { label: '# H1', hint: 'Heading 1', md: { pre: '# ', post: '' }, tags: ['h1','heading','title','biaoti'] },
@@ -187,6 +200,32 @@ function doRedo() {
   undoStack.value.push(current.value.body)
   current.value.body = redoStack.value.pop()!
   dirty.value = true
+}
+function updateCursorLine() {
+  const t = ta.value; if (!t) return
+  const pos = t.selectionStart
+  cursorLine.value = (current.value.body.slice(0, pos).split('\n').length)
+}
+function goToLine(n: number) {
+  const t = ta.value; if (!t) return
+  const lines = current.value.body.split('\n')
+  let pos = 0
+  for (let i = 0; i < n - 1 && i < lines.length; i++) pos += lines[i].length + 1
+  t.focus(); t.selectionStart = t.selectionEnd = pos
+  cursorLine.value = n
+}
+function onGutterCtx(e: MouseEvent, line: number) {
+  const lines = current.value.body.split('\n')
+  const lineText = lines[line - 1] || ''
+  menu.open(e, [
+    { label: 'Duplicate line', icon: 'CopyDocument' as any, action: () => { pushUndo(); lines.splice(line, 0, lineText); current.value.body = lines.join('\n'); markDirty() } },
+    { label: 'Delete line', icon: 'Delete' as any, danger: true, action: () => { pushUndo(); lines.splice(line - 1, 1); current.value.body = lines.join('\n'); markDirty() } },
+    { label: 'Move up', icon: 'ArrowUp' as any, action: () => { if (line > 1) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line - 2, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
+    { label: 'Move down', icon: 'ArrowDown' as any, action: () => { if (line < lines.length) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
+    { separator: true },
+    { label: 'Select line', icon: 'Select' as any, action: () => goToLine(line) },
+    { label: 'Make card from line', icon: 'Plus' as any, action: () => { window.lk.srsFromNote('', lineText.slice(0, 200), '', current.value.id).then(() => ElMessage.success('card created')) } },
+  ])
 }
 function insertCmd(pre: string, post: string) {
   pushUndo()
@@ -379,8 +418,13 @@ function getAllIds(nodes: any[]): string[] {
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
 .split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
-.ta-wrap { flex: 1; position: relative; min-width: 0; overflow: hidden; }
-.ta { width: 100%; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); box-sizing: border-box; }
+.ta-wrap { flex: 1; position: relative; min-width: 0; overflow: hidden; display: flex; }
+.gutter { width: 44px; flex-shrink: 0; background: var(--bg-soft); border-right: 1px solid var(--border); overflow: hidden; user-select: none; padding-top: 16px; }
+.gutter-line { height: 22.4px; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; position: relative; cursor: pointer; transition: background .1s; &:hover { background: var(--bg-hover); } &.active { background: var(--bg-selected); } }
+.gutter-num { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono, monospace); min-width: 20px; text-align: right; }
+.gutter-handle { position: absolute; left: 2px; font-size: 10px; color: var(--text-dim); opacity: 0; cursor: grab; transition: opacity .1s; }
+.gutter-line:hover .gutter-handle { opacity: 1; }
+.ta { flex: 1; width: 0; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); box-sizing: border-box; }
 .preview { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; background: var(--bg); box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
 .slash-menu { position: absolute; z-index: 20; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); min-width: 200px; padding: 4px 0; }
 .slash-item { display: flex; justify-content: space-between; padding: 5px 14px; font-size: 13px; cursor: pointer; color: var(--text); }

@@ -1,6 +1,6 @@
 <template>
   <div class="app-root" @drop.prevent @dragover.prevent>
-    <LeftRail :mode="mode" @switch="onModeSwitch" />
+    <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" @switch="onModeSwitch" @outline-click="onOutlineClick" />
     <template v-if="mode === 'chat'">
       <SidebarView :style="{ width: sideWidth + 'px' }" class="side chat-side" />
       <div class="resizer" @mousedown="startResize"></div>
@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { ChatDotRound, Reading, Edit, Share, DataLine } from '@element-plus/icons-vue'
-import LeftRail from './components/LeftRail.vue'
+import Dock from './components/Dock.vue'
 import SidebarView from './views/SidebarView.vue'
 import ChatView from './views/ChatView.vue'
 import ComposeBar from './components/ComposeBar.vue'
@@ -83,6 +83,30 @@ watch(() => tabStore.activeTab, (tab) => {
 const jumpToNoteId = ref<string | null>(null)
 const jumpToHighlight = ref<{ bookId: string; page: number } | null>(null)
 const bookKind = ref<'pdf' | 'epub'>('pdf')
+
+// dock panel data
+const outlineItems = computed(() => {
+  // extract headings from current note body or chat messages
+  const body = chat.activeMessages?.map((m: any) => m.content).join('\n') || ''
+  const lines = body.split('\n')
+  const items: {level:number;text:string;line:number}[] = []
+  lines.forEach((l: string, i: number) => {
+    const m = l.match(/^(#{1,6})\s+(.+)/)
+    if (m) items.push({ level: m[1].length, text: m[2], line: i })
+  })
+  return items
+})
+const tagItems = computed(() => {
+  const tags = new Set<string>()
+  const body = chat.activeMessages?.map((m: any) => m.content).join(' ') || ''
+  body.replace(/#(\w[\w-]*)/g, (_: string, t: string) => { tags.add(t); return '' })
+  return [...tags]
+})
+const bookmarkItems = ref<any[]>([])
+
+function onOutlineClick(_line: number) {
+  // scroll to line in editor - dispatch event
+}
 
 let activeAbort: (() => void) | null = null
 let currentReqId: string | null = null
