@@ -53,9 +53,10 @@
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
             <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" placeholder="Markdown ... / 弹出命令菜单"></textarea>
             <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
-              <div v-for="c in slashCmds" :key="c.label" class="slash-item" @click="applySlash(c)">
+              <div v-for="c in filteredSlash" :key="c.label" class="slash-item" @click="applySlash(c)">
                 <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
               </div>
+              <div v-if="!filteredSlash.length" class="slash-item" style="opacity:.5;cursor:default"><span class="lbl">No match</span></div>
             </div>
           </div>
           <div class="preview markdown-body" v-html="html"></div>
@@ -86,17 +87,46 @@ const slashX = ref(0)
 const slashY = ref(0)
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
-  { label: '# H1', hint: '一级标题', md: { pre: '# ', post: '' } },
-  { label: '## H2', hint: '二级标题', md: { pre: '## ', post: '' } },
-  { label: '### H3', hint: '三级标题', md: { pre: '### ', post: '' } },
-  { label: '- 列表', hint: '无序列表', md: { pre: '- ', post: '' } },
-  { label: '> 引用', hint: '块引用', md: { pre: '> ', post: '' } },
-  { label: '代码块', hint: '```lang', md: { pre: '```\n', post: '\n```' } },
-  { label: '**加粗**', hint: '', md: { pre: '**', post: '**' } },
-  { label: '*斜体*', hint: '', md: { pre: '*', post: '*' } },
-  { label: '链接', hint: '[text](url)', md: { pre: '[', post: '](url)' } },
-  { label: '表格', hint: '| A | B |', md: { pre: '| A | B |\n| --- | --- |\n', post: ' | ' } },
+  { label: '# H1', hint: 'Heading 1', md: { pre: '# ', post: '' }, tags: ['h1','heading','title','biaoti'] },
+  { label: '## H2', hint: 'Heading 2', md: { pre: '## ', post: '' }, tags: ['h2','heading','biaoti'] },
+  { label: '### H3', hint: 'Heading 3', md: { pre: '### ', post: '' }, tags: ['h3','heading','biaoti'] },
+  { label: '- List', hint: 'Bullet list', md: { pre: '- ', post: '' }, tags: ['list','ul','bullet','liebiao','xd'] },
+  { label: '1. Ordered', hint: 'Numbered list', md: { pre: '1. ', post: '' }, tags: ['ol','ordered','number','youxu'] },
+  { label: '- [ ] Todo', hint: 'Checkbox', md: { pre: '- [ ] ', post: '' }, tags: ['todo','task','check','dai'] },
+  { label: '> Quote', hint: 'Blockquote', md: { pre: '> ', post: '' }, tags: ['quote','blockquote','yinyong'] },
+  { label: '``` Code', hint: 'Code block', md: { pre: '```\n', post: '\n```' }, tags: ['code','block','daima'] },
+  { label: '```python', hint: 'Python code', md: { pre: '```python\n', post: '\n```' }, tags: ['python','py'] },
+  { label: '```js', hint: 'JavaScript code', md: { pre: '```javascript\n', post: '\n```' }, tags: ['js','javascript'] },
+  { label: '```java', hint: 'Java code', md: { pre: '```java\n', post: '\n```' }, tags: ['java'] },
+  { label: '```sql', hint: 'SQL code', md: { pre: '```sql\n', post: '\n```' }, tags: ['sql','database'] },
+  { label: '**Bold**', hint: 'Bold text', md: { pre: '**', post: '**' }, tags: ['bold','strong','jiacu'] },
+  { label: '*Italic*', hint: 'Italic text', md: { pre: '*', post: '*' }, tags: ['italic','em','xieti'] },
+  { label: '~~Strike~~', hint: 'Strikethrough', md: { pre: '~~', post: '~~' }, tags: ['strike','del','shanchuxian'] },
+  { label: '==Mark==', hint: 'Highlight mark', md: { pre: '==', post: '==' }, tags: ['mark','highlight','gaoliang'] },
+  { label: '[Link]', hint: 'Hyperlink', md: { pre: '[', post: '](url)' }, tags: ['link','url','lianjie'] },
+  { label: '![Image]', hint: 'Image embed', md: { pre: '![alt](', post: ')' }, tags: ['image','img','tupian','tp'] },
+  { label: '| Table |', hint: 'Table', md: { pre: '| Col1 | Col2 |\n| --- | --- |\n| ', post: ' |  |' }, tags: ['table','grid','biaoge','bg'] },
+  { label: '---', hint: 'Divider line', md: { pre: '\n---\n', post: '' }, tags: ['hr','divider','line','fengexian','fgx'] },
+  { label: '> [!NOTE]', hint: 'Callout note', md: { pre: '> [!NOTE]\n> ', post: '' }, tags: ['callout','note','admonition','tishi'] },
+  { label: '> [!WARNING]', hint: 'Callout warning', md: { pre: '> [!WARNING]\n> ', post: '' }, tags: ['callout','warning','jinggao','jg'] },
+  { label: '> [!TIP]', hint: 'Callout tip', md: { pre: '> [!TIP]\n> ', post: '' }, tags: ['callout','tip','jiqiao','jq'] },
+  { label: '$$ Math $$', hint: 'Math block', md: { pre: '$$\n', post: '\n$$' }, tags: ['math','latex','formula','gongshi','gs'] },
+  { label: '$ inline $', hint: 'Inline math', md: { pre: '$', post: '$' }, tags: ['math','inline','latex','gongshi'] },
+  { label: 'Flashcard', hint: 'Create SRS card from selection', md: { pre: '<!--card-->\nQ: ', post: '\nA: \n<!--/card-->' }, tags: ['flashcard','card','srs','shanka','sk','fuxi'] },
+  { label: 'AI Ask', hint: 'Ask AI about this topic', md: { pre: '<!--ai-ask-->\n', post: '\n<!--/ai-ask-->' }, tags: ['ai','ask','wen','tiwen'] },
+  { label: 'Mindmap ref', hint: 'Reference a mindmap', md: { pre: '<!--mindmap-ref-->\n', post: '\n<!--/mindmap-ref-->' }, tags: ['mindmap','xweinaotu','swnt'] },
 ]
+const slashFilter = ref('')
+const filteredSlash = computed(() => {
+  const q = slashFilter.value.toLowerCase().trim()
+  if (!q) return slashCmds.slice(0, 12)
+  return slashCmds.filter(c => {
+    if (c.label.toLowerCase().includes(q)) return true
+    if (c.hint.toLowerCase().includes(q)) return true
+    if (c.tags.some(t => t.includes(q))) return true
+    return false
+  }).slice(0, 12)
+})
 const treeData = computed(() => buildTree(rawTree.value))
 
 function buildTree(rows: any[]) {
@@ -151,13 +181,16 @@ function onInputCheck() {
   const t = ta.value; if (!t) return
   const pos = t.selectionStart
   const line = current.value.body.slice(0, pos).split('\n').pop() || ''
-  if (line.trimEnd() === '/') {
+  const slashIdx = line.lastIndexOf('/')
+  if (slashIdx >= 0 && (slashIdx === 0 || line[slashIdx - 1] === ' ' || line[slashIdx - 1] === '\n')) {
+    slashFilter.value = line.slice(slashIdx + 1)
     const rect = t.getBoundingClientRect()
-    slashX.value = Math.min(rect.width - 220, pos * 8 - 20); slashY.value = Math.max(12, Math.min(rect.height - 160, 60))
+    slashX.value = Math.min(rect.width - 240, pos * 8 - 20)
+    slashY.value = Math.max(12, Math.min(rect.height - 200, 60))
     slashVisible.value = true
-  } else { slashVisible.value = false }
+  } else { slashVisible.value = false; slashFilter.value = '' }
 }
-function applySlash(cmd: typeof slashCmds[0]) {
+function applySlash(cmd: typeof slashCmds[number]) {
   const t = ta.value!; if (!t) return
   const pos = t.selectionStart; const before = current.value.body.slice(0, pos); const after = current.value.body.slice(pos)
   const idx = before.lastIndexOf('/')

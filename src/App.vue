@@ -31,6 +31,7 @@
     <StudyPlanDialog v-model="studyPlanVisible" @created="onStudyPlanCreated" />
     <ContextOverlay />
     <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
+    <SelectionToolbar />
   </div>
 </template>
 
@@ -51,6 +52,7 @@ import MindmapView from './views/MindmapView.vue'
 import ReviewView from './views/ReviewView.vue'
 import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
+import SelectionToolbar from './components/SelectionToolbar.vue'
 import { useChatStore, useSettingsStore } from './stores/chat'
 
 export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review'
