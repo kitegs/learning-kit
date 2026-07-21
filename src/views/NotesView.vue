@@ -267,21 +267,21 @@ function getAllIds(nodes: any[]): string[] {
 </script>
 
 <style scoped lang="scss">
-.notes-root { display: flex; flex: 1; min-width: 0; }
-.side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
-.head { padding: 8px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.notes-root { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+.head { padding: 8px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tree-scroll { flex: 1; overflow: auto; padding: 8px; }
-.resizer { width: 4px; cursor: col-resize; background: var(--border); &:hover { background: var(--accent); } }
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }
-.editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; }
-.title-in { width: 180px; } .tag-in { width: 150px; }
-.sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; } .spacer { flex: 1; }
-.split { flex: 1; display: flex; min-height: 0; }
-.ta-wrap { flex: 1; position: relative; min-width: 0; }
-.ta { width: 100%; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); }
-.preview { flex: 1; padding: 16px 20px; overflow: auto; background: var(--bg); }
+.editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; flex-shrink: 0; }
+.title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
+.sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
+.split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.ta-wrap { flex: 1; position: relative; min-width: 0; overflow: hidden; }
+.ta { width: 100%; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); box-sizing: border-box; }
+.preview { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; background: var(--bg); box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
 .slash-menu { position: absolute; z-index: 20; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); min-width: 200px; padding: 4px 0; }
 .slash-item { display: flex; justify-content: space-between; padding: 5px 14px; font-size: 13px; cursor: pointer; color: var(--text); }
 .slash-item:hover { background: var(--accent); color: #fff; }

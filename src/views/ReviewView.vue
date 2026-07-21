@@ -368,7 +368,7 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.rev-root { flex: 1; display: flex; min-width: 0; }
+.rev-root { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; }
 .side {
   width: 240px; background: var(--bg-soft); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; flex-shrink: 0;

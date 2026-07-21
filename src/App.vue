@@ -20,7 +20,9 @@
           <el-button v-if="mode === 'chat'" size="small" type="primary" @click="newBlankConv">新建空笔记</el-button>
         </div>
       </header>
-      <component :is="contentComponent" :bookIdProp="openBookId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
+      <div class="view-slot">
+        <component :is="contentComponent" :bookIdProp="openBookId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
+      </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" @abort="onAbort" />
       </template>
@@ -209,6 +211,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); activeAbor
 .side { height: 100vh; }
 .resizer { width: 4px; cursor: col-resize; background: var(--border); &:hover { background: var(--accent); } }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+.view-slot { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 .topbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border); }
 .title-area { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
 .title-input { max-width: 360px; background: transparent; }

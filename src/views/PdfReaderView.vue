@@ -680,7 +680,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.reader-root { flex:1; display:flex; min-width:0; background:var(--bg); position:relative; }
+.reader-root { flex:1; display:flex; min-width:0; min-height:0; overflow:hidden; background:var(--bg); position:relative; }
 .side { width:240px; background:var(--bg-soft); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; transition:width 0.2s; }
 .side:not(.open) { width:0; min-width:0; border:none; }
 .side-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
