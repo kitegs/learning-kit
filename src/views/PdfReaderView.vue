@@ -16,6 +16,7 @@
           <div v-for="b in bookmarks" :key="b.id" class="mark" @click="goPage(b.page)">Page {{ b.page }} <el-button text size="small" type="danger" @click.stop="delBookmark(b.id)">x</el-button></div>
           <el-divider content-position="left">HL ({{ highlights.length }})</el-divider>
           <div v-for="h in highlights" :key="h.id" class="hl" @click="goPage(h.page)">
+            <span class="hl-dot-sm" :style="{ background: HL_COLORS[h.color] || HL_COLORS.yellow }"></span>
             <div class="hl-text">{{ h.text }}</div>
             <el-button text size="small" @click.stop="askHl(h)">AI</el-button>
             <el-button text size="small" type="danger" @click.stop="delHl(h.id)">x</el-button>
@@ -68,6 +69,9 @@
     </div>
     <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y+'px', left: selPopup.x+'px' }">
       <button @click="copySelection">Copy</button>
+      <div class="hl-colors">
+        <button v-for="c in ['yellow','green','blue','pink']" :key="c" class="hl-dot" :class="{active: hlColor===c}" :style="{ background: HL_COLORS[c] }" @click="hlColor=c as any" :title="c"></button>
+      </div>
       <button @click="saveSel">Highlight</button>
       <div class="ai-dd">
         <button @click="aiMenuOpen=!aiMenuOpen">AI &#9662;</button>
@@ -77,6 +81,15 @@
           <button @click="askSel('Translate this to Chinese and explain key terms')">Translate</button>
         </div>
       </div>
+    </div>
+    <!-- highlight action bar (click on existing highlight) -->
+    <div v-if="hlActionBar.show" class="hl-action-bar" :style="{ top: hlActionBar.y+'px', left: hlActionBar.x+'px' }">
+      <button @click="hlActionCopy">Copy</button>
+      <button @click="hlActionAI">AI</button>
+      <div class="hl-colors">
+        <button v-for="c in ['yellow','green','blue','pink']" :key="c" class="hl-dot" :class="{active: hlActionBar.color===c}" :style="{ background: HL_COLORS[c] }" @click="hlActionColor(c)" :title="c"></button>
+      </div>
+      <button class="danger" @click="hlActionDelete">Del</button>
     </div>
   </div>
 </template>
@@ -112,9 +125,18 @@ const annMode = ref(false)
 const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'|'sticky'>('pen')
 const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
-const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
+const selPopup = ref({ show: false, x: 0, y: 0, text: '', rectX: null as number|null, rectY: null as number|null, rectW: null as number|null, rectH: null as number|null })
 const aiMenuOpen = ref(false)
 const dragHint = ref<string|null>(null)
+const hlColor = ref<'yellow'|'green'|'blue'|'pink'>('yellow')
+const hlActionBar = ref({ show: false, x: 0, y: 0, id: '', text: '', color: '' })
+
+const HL_COLORS: Record<string, string> = {
+  yellow: 'rgba(255,220,80,0.35)',
+  green: 'rgba(120,220,120,0.35)',
+  blue: 'rgba(120,180,255,0.35)',
+  pink: 'rgba(255,140,180,0.35)',
+}
 
 // pan state (middle-mouse / space+left free page move)
 const panX = ref(0)
@@ -206,7 +228,7 @@ async function renderPage() {
   // text highlights
   if (annCtx) {
     for (const hl of highlights.value.filter((x: any) => x.page === page.value && x.rect_x != null)) {
-      annCtx.fillStyle = 'rgba(255,220,80,0.35)'
+      annCtx.fillStyle = HL_COLORS[hl.color] || HL_COLORS.yellow
       annCtx.fillRect(hl.rect_x * w, hl.rect_y * h, hl.rect_w * w, hl.rect_h * h)
     }
   }
@@ -463,9 +485,22 @@ function showMenuA(e: MouseEvent) {
 function showMenuB(e: MouseEvent) {
   const text = window.getSelection()?.toString().trim() || ''
   selPopup.value.show = false
+  // capture rect for highlight
+  let rx: number|null = null, ry: number|null = null, rw: number|null = null, rh: number|null = null
+  const container = pageHost.value?.querySelector('.page-container') as HTMLElement
+  const sel = window.getSelection()
+  if (container && sel && sel.rangeCount) {
+    try {
+      const rects = sel.getRangeAt(0).getClientRects()
+      if (rects.length) { const cr = container.getBoundingClientRect(); const r = rects[0]; rx = (r.left-cr.left)/cr.width; ry = (r.top-cr.top)/cr.height; rw = r.width/cr.width; rh = r.height/cr.height }
+    } catch {}
+  }
   menu.open(e, [
     { label: 'Copy', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('Copied') } },
-    { label: 'Highlight', icon: 'EditPen' as any, action: () => saveSelText(text) },
+    { label: 'Highlight Yellow', icon: 'EditPen' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
+    { label: 'Highlight Green', icon: 'EditPen' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+    { label: 'Highlight Blue', icon: 'EditPen' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+    { label: 'Highlight Pink', icon: 'EditPen' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
     { label: 'Ask AI about this', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: 'Analyze this passage', bookId: bookId.value!, page: page.value }) },
     { separator: true },
     { label: 'Sticky Note (quote)', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },
@@ -520,22 +555,71 @@ async function duplicateSticky(annId: string, _el: HTMLElement) {
 // ── selection ──
 function onSelectionEnd(e: MouseEvent) {
   if (annMode.value || curAct === 'pan') return
+  hlActionBar.value.show = false
   const sel = window.getSelection(); if (!sel) return
   const text = sel.toString().trim()
-  if (!text || text.length < 2) { selPopup.value.show = false; return }
+  if (!text || text.length < 2) {
+    selPopup.value.show = false
+    checkHighlightClick(e)
+    return
+  }
+  // capture selection rect relative to page container
+  let rectX: number|null = null, rectY: number|null = null, rectW: number|null = null, rectH: number|null = null
+  const container = pageHost.value?.querySelector('.page-container') as HTMLElement
+  if (container && sel.rangeCount) {
+    try {
+      const range = sel.getRangeAt(0)
+      const rects = range.getClientRects()
+      if (rects.length) {
+        const cr = container.getBoundingClientRect()
+        const r = rects[0]
+        rectX = (r.left - cr.left) / cr.width
+        rectY = (r.top - cr.top) / cr.height
+        rectW = r.width / cr.width
+        rectH = r.height / cr.height
+      }
+    } catch { /* ignore */ }
+  }
   const wr = wrap.value!.getBoundingClientRect()
-  selPopup.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 220), y: Math.max(40, e.clientY - wr.top - 50), text }
+  selPopup.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 260), y: Math.max(40, e.clientY - wr.top - 50), text, rectX, rectY, rectW, rectH }
   aiMenuOpen.value = false
+}
+
+function checkHighlightClick(e: MouseEvent) {
+  const container = pageHost.value?.querySelector('.page-container') as HTMLElement
+  if (!container) return
+  const cr = container.getBoundingClientRect()
+  const nx = (e.clientX - cr.left) / cr.width
+  const ny = (e.clientY - cr.top) / cr.height
+  const hit = highlights.value.find((h: any) => h.page === page.value && h.rect_x != null && nx >= h.rect_x && nx <= h.rect_x + h.rect_w && ny >= h.rect_y && ny <= h.rect_y + h.rect_h)
+  if (hit) {
+    const wr = wrap.value!.getBoundingClientRect()
+    hlActionBar.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 240), y: Math.max(10, e.clientY - wr.top - 40), id: hit.id, text: hit.text, color: hit.color || 'yellow' }
+  }
 }
 function copySelection() { navigator.clipboard.writeText(selPopup.value.text); ElMessage.success('Copied'); selPopup.value.show = false }
 function askSel(q: string) { emit('ask-ai', { quote: selPopup.value.text, question: q, bookId: bookId.value!, page: page.value }); selPopup.value.show = false; aiMenuOpen.value = false }
-async function saveSel() { await saveSelText(selPopup.value.text); selPopup.value.show = false }
-async function saveSelText(text: string) {
-  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text, color: 'yellow' })
+async function saveSel() {
+  const sp = selPopup.value
+  await saveSelText(sp.text, sp.rectX, sp.rectY, sp.rectW, sp.rectH)
+  selPopup.value.show = false
+}
+async function saveSelText(text: string, rx?: number|null, ry?: number|null, rw?: number|null, rh?: number|null) {
+  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text, color: hlColor.value, rectX: rx ?? null, rectY: ry ?? null, rectW: rw ?? null, rectH: rh ?? null })
   highlights.value = await window.lk.highlightList(bookId.value!); ElMessage.success('Highlighted'); renderPage()
 }
 function askHl(h: any) { emit('ask-ai', { quote: h.text, bookId: bookId.value!, page: h.page }) }
 async function delHl(id: string) { await window.lk.highlightDelete(id); highlights.value = await window.lk.highlightList(bookId.value!); renderPage() }
+
+// highlight action bar handlers
+function hlActionCopy() { navigator.clipboard.writeText(hlActionBar.value.text); ElMessage.success('Copied'); hlActionBar.value.show = false }
+function hlActionAI() { emit('ask-ai', { quote: hlActionBar.value.text, question: 'Analyze this highlighted passage', bookId: bookId.value!, page: page.value }); hlActionBar.value.show = false }
+async function hlActionColor(c: string) {
+  await window.lk.highlightUpdate(hlActionBar.value.id, { color: c })
+  highlights.value = await window.lk.highlightList(bookId.value!)
+  hlActionBar.value.color = c; renderPage()
+}
+async function hlActionDelete() { await delHl(hlActionBar.value.id); hlActionBar.value.show = false }
 async function addBookmark() { await window.lk.bookmarkAdd({ bookId: bookId.value, page: page.value, label: `Page ${page.value}` }); bookmarks.value = await window.lk.bookmarkList(bookId.value!); ElMessage.success('Bookmark added') }
 async function delBookmark(id: string) { await window.lk.bookmarkDelete(id); bookmarks.value = await window.lk.bookmarkList(bookId.value!) }
 
@@ -609,4 +693,9 @@ onUnmounted(() => {
 .ai-dd { position:relative; }
 .ai-menu { position:absolute; top:100%; left:0; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; box-shadow:var(--shadow); padding:4px 0; min-width:140px; z-index:31; }
 .ai-menu button { display:block; width:100%; text-align:left; border:none; background:transparent; color:var(--text); padding:5px 12px; cursor:pointer; font-size:12px; &:hover { background:var(--accent); color:#fff } }
+.hl-colors { display:inline-flex; gap:3px; align-items:center; padding:0 4px; }
+.hl-dot { width:16px; height:16px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0; &:hover { border-color:var(--text); } &.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); } }
+.hl-dot-sm { display:inline-block; width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-right:4px; }
+.hl-action-bar { position:absolute; z-index:30; display:flex; gap:2px; align-items:center; background:var(--bg-elev); border:1px solid var(--border); border-radius:6px; padding:4px 6px; box-shadow:var(--shadow); }
+.hl-action-bar button { border:none; background:transparent; color:var(--text); padding:3px 7px; border-radius:4px; cursor:pointer; font-size:12px; &:hover { background:var(--accent); color:#fff } &.danger { color:#ff5c5c; &:hover { background:#c53030; color:#fff } } }
 </style>
