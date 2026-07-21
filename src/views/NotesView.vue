@@ -51,7 +51,7 @@
         </div>
         <div class="split">
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
-            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" placeholder="Markdown ... / 弹出命令菜单"></textarea>
+            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" @keydown.ctrl.z.prevent="doUndo" @keydown.ctrl.shift.z.prevent="doRedo" @keydown.ctrl.s.prevent="saveCurrent" placeholder="Markdown ... / 弹出命令菜单"></textarea>
             <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
               <div v-for="c in filteredSlash" :key="c.label" class="slash-item" @click="applySlash(c)">
                 <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
@@ -85,6 +85,9 @@ const defaultExpand = ref<string[]>([])
 const slashVisible = ref(false)
 const slashX = ref(0)
 const slashY = ref(0)
+const undoStack = ref<string[]>([])
+const redoStack = ref<string[]>([])
+const MAX_UNDO = 80
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
   { label: '# H1', hint: 'Heading 1', md: { pre: '# ', post: '' }, tags: ['h1','heading','title','biaoti'] },
@@ -142,6 +145,7 @@ function onClick(d: any) { open(d.id) }
 async function open(id: string) {
   if (dirty.value) await saveCurrent()
   const n = await window.lk.notesGet(id); current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim()
+  undoStack.value = []; redoStack.value = []
 }
 async function newNote(parentId: string | null = null) {
   const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
@@ -166,13 +170,33 @@ function startResize(e: MouseEvent) {
   const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
   window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
 }
+function pushUndo() {
+  if (!current.value) return
+  undoStack.value.push(current.value.body)
+  if (undoStack.value.length > MAX_UNDO) undoStack.value.shift()
+  redoStack.value = []
+}
+function doUndo() {
+  if (!undoStack.value.length || !current.value) return
+  redoStack.value.push(current.value.body)
+  current.value.body = undoStack.value.pop()!
+  dirty.value = true
+}
+function doRedo() {
+  if (!redoStack.value.length || !current.value) return
+  undoStack.value.push(current.value.body)
+  current.value.body = redoStack.value.pop()!
+  dirty.value = true
+}
 function insertCmd(pre: string, post: string) {
+  pushUndo()
   const t = ta.value; if (!t) return
   const s = t.selectionStart; const e = t.selectionEnd; const sel = current.value.body.slice(s, e)
   current.value.body = current.value.body.slice(0, s) + pre + sel + post + current.value.body.slice(e)
   markDirty(); nextTick(() => { t.focus(); t.selectionStart = s + pre.length; t.selectionEnd = s + pre.length + sel.length })
 }
 function onTab(_e: KeyboardEvent) {
+  pushUndo()
   const t = ta.value!; const s = t.selectionStart
   current.value.body = current.value.body.slice(0, s) + '  ' + current.value.body.slice(t.selectionEnd)
   markDirty(); nextTick(() => { t.selectionStart = t.selectionEnd = s + 2 })
@@ -191,6 +215,7 @@ function onInputCheck() {
   } else { slashVisible.value = false; slashFilter.value = '' }
 }
 function applySlash(cmd: typeof slashCmds[number]) {
+  pushUndo()
   const t = ta.value!; if (!t) return
   const pos = t.selectionStart; const before = current.value.body.slice(0, pos); const after = current.value.body.slice(pos)
   const idx = before.lastIndexOf('/')
@@ -230,6 +255,8 @@ async function makeCardFromNode(data: any) {
 async function exportNode(data: any) { await window.lk.notesExport(data.id) }
 function onEditorCtx(e: MouseEvent) {
   if (!current.value) return; e.preventDefault()
+  const sel = window.getSelection()?.toString().trim() || ''
+  const aiChildren = buildAiMenuItems(sel || current.value.body.slice(0, 500))
   menu.open(e, [
     { label: 'Save', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
     { separator: true },
@@ -238,9 +265,49 @@ function onEditorCtx(e: MouseEvent) {
     { label: 'Code block', action: () => insertCmd('```\n', '\n```') },
     { label: 'List', action: () => insertCmd('- ', '') },
     { separator: true },
+    { label: 'AI', icon: 'ChatDotRound' as any, children: aiChildren },
+    { separator: true },
     { label: 'Make card', icon: 'Plus' as any, action: makeCard },
     { label: 'Export', icon: 'Download' as any, action: exportMd },
   ])
+}
+
+function buildAiMenuItems(text: string) {
+  const builtIn = [
+    { label: 'Continue writing', action: () => aiAction(text, 'Continue writing from where this text left off. Match the style and tone.') },
+    { label: 'Summarize', action: () => aiAction(text, 'Summarize the key points in 3-5 bullet points.') },
+    { label: 'Brainstorm', action: () => aiAction(text, 'Based on this content, brainstorm 5 related ideas or questions for further exploration.') },
+    { label: 'Fix grammar', action: () => aiAction(text, 'Fix any grammar, spelling, or style issues. Return the corrected text only.') },
+    { label: 'Explain simply', action: () => aiAction(text, 'Explain this in simple terms as if teaching a beginner.') },
+    { label: 'Generate flashcards', action: () => aiAction(text, 'Generate 3-5 flashcard Q&A pairs from this content. Format: Q: ...\nA: ...') },
+  ]
+  // custom actions from localStorage
+  let customs: {name:string;prompt:string}[] = []
+  try { customs = JSON.parse(localStorage.getItem('lk_ai_actions') || '[]') } catch {}
+  const customItems = customs.map(c => ({ label: c.name, action: () => aiAction(text, c.prompt) }))
+  return [
+    ...builtIn,
+    ...(customItems.length ? [{ separator: true } as any, ...customItems] : []),
+    { separator: true },
+    { label: 'Manage custom actions...', action: manageAiActions },
+  ]
+}
+
+function aiAction(text: string, prompt: string) {
+  // dispatch to chat with the text + prompt
+  window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt } }))
+}
+
+function manageAiActions() {
+  let customs: {name:string;prompt:string}[] = []
+  try { customs = JSON.parse(localStorage.getItem('lk_ai_actions') || '[]') } catch {}
+  const input = prompt('Custom AI actions (JSON array):\n[{"name":"...","prompt":"..."}]\n\nCurrent:\n' + JSON.stringify(customs, null, 2))
+  if (input === null) return
+  try {
+    const parsed = JSON.parse(input)
+    if (Array.isArray(parsed)) { localStorage.setItem('lk_ai_actions', JSON.stringify(parsed)); ElMessage.success('Custom actions saved') }
+    else ElMessage.warning('Must be a JSON array')
+  } catch { ElMessage.warning('Invalid JSON') }
 }
 async function onDrop() { await loadTree() }
 async function makeCard() {

@@ -217,6 +217,7 @@ function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); stre
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('lk:ai-action', onAiAction as EventListener)
   await settings.load(); await chat.refreshGroups(); await chat.refreshConvs(null)
   if (chat.convs.length === 0) {
     const c = await chat.newConv(null, '欢迎')
@@ -224,7 +225,14 @@ onMounted(async () => {
   }
   await chat.selectConv(chat.convs[0].id)
 })
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); activeAbort?.() })
+async function onAiAction(e: Event) {
+  const { text, prompt } = (e as CustomEvent).detail
+  mode.value = 'chat'
+  if (!chat.currentConvId) { const c = await chat.newConv(null, 'AI Action'); await chat.selectConv(c.id) }
+  await onSend(`${prompt}\n\n---\n${text}`)
+}
+
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">
