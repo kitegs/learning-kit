@@ -1,0 +1,12 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["electron/**/*", "electron.vite.config.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["electron-vite/node", "node"],
+    "baseUrl": ".",
+    "paths": { "@main/*": ["electron/main/*"] }
+  }
+}

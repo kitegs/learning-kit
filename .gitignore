@@ -1,0 +1,10 @@
+node_modules/
+out/
+tsconfig.node.tsbuildinfo
+tsconfig.web.tsbuildinfo
+*.log
+.DS_Store
+dev.out.log
+dev.err.log
+dev.log
+install.log

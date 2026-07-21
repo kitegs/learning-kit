@@ -1,0 +1,292 @@
+<template>
+  <div class="notes-root">
+    <aside class="side" :style="{ width: sideW + 'px' }">
+      <div class="head">
+        <el-button size="small" type="primary" plain @click="newFolder">+目录</el-button>
+        <el-button size="small" @click="newNote()">+笔记</el-button>
+        <el-button size="small" text @click="expandAll">展开</el-button>
+        <el-button size="small" text @click="collapseAll">折叠</el-button>
+      </div>
+      <div class="tree-scroll">
+        <el-tree
+          ref="treeRef"
+          :data="treeData"
+          :props="{ label: 'title', children: 'children' }"
+          node-key="id"
+          :default-expanded-keys="defaultExpand"
+          @node-click="(d) => onClick(d)"
+          @node-contextmenu="onTreeCtx"
+          @node-expand="onExpand"
+          @node-collapse="onCollapse"
+          draggable
+          @node-drop="onDrop"
+        >
+          <template #default="{ data }">
+            <span :class="{ active: currentId === data.id }">{{ data.title }}</span>
+          </template>
+        </el-tree>
+      </div>
+    </aside>
+    <div class="resizer" @mousedown="startResize"></div>
+    <main class="main" @contextmenu="onEditorCtx">
+      <div v-if="!current" class="empty"><p>选择或新建一份笔记。</p></div>
+      <div v-else class="editor-wrap">
+        <div class="toolbar">
+          <el-input v-model="current.title" placeholder="标题" class="title-in" @change="markDirty" size="small" />
+          <el-input v-model="tagStr" placeholder="#tags" class="tag-in" @change="updateTags" size="small" />
+          <span class="sep"></span>
+          <el-button size="small" @click="insertCmd('# ','')">H1</el-button>
+          <el-button size="small" @click="insertCmd('## ','')">H2</el-button>
+          <el-button size="small" @click="insertCmd('### ','')">H3</el-button>
+          <el-button size="small" @click="insertCmd('- ','')">列表</el-button>
+          <el-button size="small" @click="insertCmd('> ','')">引用</el-button>
+          <el-button size="small" @click="insertCmd('```\n','\n```')">代码</el-button>
+          <el-button size="small" @click="insertCmd('**','**')">B</el-button>
+          <el-button size="small" @click="insertCmd('*','*')">I</el-button>
+          <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
+          <span class="spacer"></span>
+          <el-button size="small" @click="makeCard">生成闪卡</el-button>
+          <el-button size="small" @click="exportMd">导出</el-button>
+          <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
+        </div>
+        <div class="split">
+          <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
+            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty; onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" placeholder="Markdown ... / 弹出命令菜单"></textarea>
+            <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
+              <div v-for="c in slashCmds" :key="c.label" class="slash-item" @click="applySlash(c)">
+                <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="preview markdown-body" v-html="html"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { renderMarkdown } from '../helpers/markdown'
+import { useContextMenu } from '../stores/context-menu'
+
+const menu = useContextMenu()
+const sideW = ref(260)
+const current = ref<any>(null)
+const currentId = ref<string | null>(null)
+const dirty = ref(false)
+const tagStr = ref('')
+const ta = ref<HTMLTextAreaElement | null>(null)
+const treeRef = ref<any>(null)
+const rawTree = ref<any[]>([])
+const defaultExpand = ref<string[]>([])
+const slashVisible = ref(false)
+const slashX = ref(0)
+const slashY = ref(0)
+const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
+const slashCmds = [
+  { label: '# H1', hint: '一级标题', md: { pre: '# ', post: '' } },
+  { label: '## H2', hint: '二级标题', md: { pre: '## ', post: '' } },
+  { label: '### H3', hint: '三级标题', md: { pre: '### ', post: '' } },
+  { label: '- 列表', hint: '无序列表', md: { pre: '- ', post: '' } },
+  { label: '> 引用', hint: '块引用', md: { pre: '> ', post: '' } },
+  { label: '代码块', hint: '```lang', md: { pre: '```\n', post: '\n```' } },
+  { label: '**加粗**', hint: '', md: { pre: '**', post: '**' } },
+  { label: '*斜体*', hint: '', md: { pre: '*', post: '*' } },
+  { label: '链接', hint: '[text](url)', md: { pre: '[', post: '](url)' } },
+  { label: '表格', hint: '| A | B |', md: { pre: '| A | B |\n| --- | --- |\n', post: ' | ' } },
+]
+const treeData = computed(() => buildTree(rawTree.value))
+
+function buildTree(rows: any[]) {
+  const map = new Map<string, any>()
+  rows.forEach((r) => map.set(r.id, { id: r.id, title: r.title, parent_id: r.parent_id, sort: r.sort, kind: r.kind || 'note', children: [] }))
+  const roots: any[] = []
+  rows.forEach((r) => { const node = map.get(r.id)!; if (r.parent_id && map.has(r.parent_id)) map.get(r.parent_id)!.children.push(node); else roots.push(node) })
+  return roots
+}
+
+async function loadTree() { rawTree.value = await window.lk.notesList() }
+function onClick(d: any) { open(d.id) }
+async function open(id: string) {
+  if (dirty.value) await saveCurrent()
+  const n = await window.lk.notesGet(id); current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim()
+}
+async function newNote(parentId: string | null = null) {
+  const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
+  await loadTree(); await open(id)
+}
+async function newFolder() {
+  const v = await ElMessageBox.prompt('Folder name', 'New Folder', { inputValue: 'Folder' })
+  if (!v.value) return
+  await window.lk.notesUpsert({ title: v.value, body: '', kind: 'note', parent_id: null, sort: Date.now() })
+  await loadTree()
+}
+function markDirty() { dirty.value = true }
+async function saveCurrent() {
+  if (!current.value) return
+  await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
+  dirty.value = false; await loadTree(); ElMessage.success('saved')
+}
+function updateTags() { markDirty() }
+function startResize(e: MouseEvent) {
+  const startX = e.clientX; const startW = sideW.value
+  const move = (ev: MouseEvent) => { sideW.value = Math.max(200, Math.min(460, startW + ev.clientX - startX)) }
+  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+}
+function insertCmd(pre: string, post: string) {
+  const t = ta.value; if (!t) return
+  const s = t.selectionStart; const e = t.selectionEnd; const sel = current.value.body.slice(s, e)
+  current.value.body = current.value.body.slice(0, s) + pre + sel + post + current.value.body.slice(e)
+  markDirty(); nextTick(() => { t.focus(); t.selectionStart = s + pre.length; t.selectionEnd = s + pre.length + sel.length })
+}
+function onTab(_e: KeyboardEvent) {
+  const t = ta.value!; const s = t.selectionStart
+  current.value.body = current.value.body.slice(0, s) + '  ' + current.value.body.slice(t.selectionEnd)
+  markDirty(); nextTick(() => { t.selectionStart = t.selectionEnd = s + 2 })
+}
+function onInputCheck() {
+  const t = ta.value; if (!t) return
+  const pos = t.selectionStart
+  const line = current.value.body.slice(0, pos).split('\n').pop() || ''
+  if (line.trimEnd() === '/') {
+    const rect = t.getBoundingClientRect()
+    slashX.value = Math.min(rect.width - 220, pos * 8 - 20); slashY.value = Math.max(12, Math.min(rect.height - 160, 60))
+    slashVisible.value = true
+  } else { slashVisible.value = false }
+}
+function applySlash(cmd: typeof slashCmds[0]) {
+  const t = ta.value!; if (!t) return
+  const pos = t.selectionStart; const before = current.value.body.slice(0, pos); const after = current.value.body.slice(pos)
+  const idx = before.lastIndexOf('/')
+  if (idx >= 0) {
+    current.value.body = before.slice(0, idx) + cmd.md.pre + after
+    markDirty(); slashVisible.value = false; nextTick(() => { t.focus(); t.selectionStart = t.selectionEnd = idx + cmd.md.pre.length })
+  }
+}
+async function onTreeCtx(e: any, data: any) {
+  e.preventDefault?.()
+  menu.open(e, [
+    { label: 'Open', icon: 'Document' as any, action: () => open(data.id) },
+    { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
+    { label: 'New child', icon: 'Plus' as any, action: () => newNote(data.id) },
+    { separator: true },
+    { label: 'Make card', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
+    { label: 'Export', icon: 'Download' as any, action: () => exportNode(data) },
+    { separator: true },
+    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => delNode(data) },
+  ])
+}
+async function renameNode(data: any) {
+  const v = await ElMessageBox.prompt('New name', 'Rename', { inputValue: data.title })
+  if (!v.value) return; await window.lk.notesPatch(data.id, { title: v.value }); loadTree()
+}
+async function delNode(data: any) {
+  await ElMessageBox.confirm('Confirm delete?', 'Delete', { type: 'warning' })
+  await window.lk.notesDelete(data.id); if (currentId.value === data.id) { current.value = null; currentId.value = null }; loadTree()
+}
+async function makeCardFromNode(data: any) {
+  const n = await window.lk.notesGet(data.id)
+  const decks = await window.lk.deckList(); let dId = decks[0]?.id
+  if (!dId) { await window.lk.deckUpsert({ id: await window.lk.uuid(), title: 'Default', sort: 0 }); dId = (await window.lk.deckList())[0]?.id }
+  await window.lk.srsFromNote(dId, (n.title || '').slice(0, 200), (n.body || '').slice(0, 600), n.id)
+  ElMessage.success('card created')
+}
+async function exportNode(data: any) { await window.lk.notesExport(data.id) }
+function onEditorCtx(e: MouseEvent) {
+  if (!current.value) return; e.preventDefault()
+  menu.open(e, [
+    { label: 'Save', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
+    { separator: true },
+    { label: 'H1', shortcut: '#', action: () => insertCmd('# ', '') },
+    { label: 'H2', shortcut: '##', action: () => insertCmd('## ', '') },
+    { label: 'Code block', action: () => insertCmd('```\n', '\n```') },
+    { label: 'List', action: () => insertCmd('- ', '') },
+    { separator: true },
+    { label: 'Make card', icon: 'Plus' as any, action: makeCard },
+    { label: 'Export', icon: 'Download' as any, action: exportMd },
+  ])
+}
+async function onDrop() { await loadTree() }
+async function makeCard() {
+  if (!current.value) return
+  const dks = await window.lk.deckList(); let dId = dks[0]?.id
+  if (!dId) { await window.lk.deckUpsert({ id: await window.lk.uuid(), title: 'Default', sort: 0 }); dId = (await window.lk.deckList())[0]?.id }
+  await window.lk.srsFromNote(dId, current.value.title.slice(0, 200), current.value.body.split('\n\n')[0].slice(0, 600), current.value.id)
+  ElMessage.success('card created')
+}
+async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
+onMounted(async () => {
+  window.addEventListener('beforeunload', saveCurrent)
+  await loadTree(); if (!rawTree.value.length) await newNote(null); else open(rawTree.value[0].id)
+  // restore expanded state from settings
+  const saved = await window.lk.getSetting('notesExpanded')
+  if (saved) defaultExpand.value = JSON.parse(saved)
+})
+onBeforeUnmount(async () => {
+  window.removeEventListener('beforeunload', saveCurrent)
+  if (dirty.value && current.value) await saveCurrent()
+})
+
+function onExpand() {
+  setTimeout(() => saveExpandState(), 100)
+}
+function onCollapse() {
+  setTimeout(() => saveExpandState(), 100)
+}
+function saveExpandState() {
+  const keys = treeRef.value?.store?.nodesMap
+    ? Array.from(treeRef.value.store.nodesMap.values() as any)
+        .filter((n: any) => n.expanded)
+        .map((n: any) => n.data.id)
+    : []
+  defaultExpand.value = keys
+  window.lk.setSetting('notesExpanded', JSON.stringify(keys))
+}
+function expandAll() {
+  const allIds = getAllIds(rawTree.value)
+  defaultExpand.value = allIds
+  for (const id of allIds) treeRef.value?.store?.setExpanded?.(id, true)
+  saveExpandState()
+}
+function collapseAll() {
+  for (const id of getAllIds(rawTree.value)) treeRef.value?.store?.setExpanded?.(id, false)
+  defaultExpand.value = []
+  saveExpandState()
+}
+function getAllIds(nodes: any[]): string[] {
+  const ids: string[] = []
+  for (const n of nodes) {
+    ids.push(n.id)
+    if (n.children) ids.push(...getAllIds(n.children))
+  }
+  return ids
+}
+</script>
+
+<style scoped lang="scss">
+.notes-root { display: flex; flex: 1; min-width: 0; }
+.side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.head { padding: 8px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.tree-scroll { flex: 1; overflow: auto; padding: 8px; }
+.resizer { width: 4px; cursor: col-resize; background: var(--border); &:hover { background: var(--accent); } }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }
+.editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; }
+.title-in { width: 180px; } .tag-in { width: 150px; }
+.sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; } .spacer { flex: 1; }
+.split { flex: 1; display: flex; min-height: 0; }
+.ta-wrap { flex: 1; position: relative; min-width: 0; }
+.ta { width: 100%; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); }
+.preview { flex: 1; padding: 16px 20px; overflow: auto; background: var(--bg); }
+.slash-menu { position: absolute; z-index: 20; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); min-width: 200px; padding: 4px 0; }
+.slash-item { display: flex; justify-content: space-between; padding: 5px 14px; font-size: 13px; cursor: pointer; color: var(--text); }
+.slash-item:hover { background: var(--accent); color: #fff; }
+.slash-item .hint { color: var(--text-dim); font-size: 12px; }
+.slash-item:hover .hint { color: rgba(255,255,255,0.7); }
+.active { color: var(--accent); font-weight: 600; }
+:deep(.el-tree) { background: transparent; color: var(--text); }
+</style>
