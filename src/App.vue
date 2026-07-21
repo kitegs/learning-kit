@@ -20,6 +20,7 @@
           <el-button v-if="mode === 'chat'" size="small" type="primary" @click="newBlankConv">新建空笔记</el-button>
         </div>
       </header>
+      <TabBar />
       <div class="view-slot">
         <component :is="contentComponent" :bookIdProp="openBookId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
       </div>
@@ -53,12 +54,15 @@ import ReviewView from './views/ReviewView.vue'
 import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import SelectionToolbar from './components/SelectionToolbar.vue'
+import TabBar from './components/TabBar.vue'
+import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
 
 export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
+const tabStore = useTabStore()
 const settingsVisible = ref(false)
 const studyPlanVisible = ref(false)
 const sideWidth = ref(280)
@@ -67,6 +71,15 @@ const streaming = ref(false)
 const mode = ref<Mode>('chat')
 const openBookId = ref<string | null>(null)
 const searchOpen = ref(false)
+
+// watch tab activation -> switch mode + data
+watch(() => tabStore.activeTab, (tab) => {
+  if (!tab) return
+  const m = tab.type === 'ebook' ? 'library' : tab.type === 'note' ? 'notes' : tab.type === 'mindmap' ? 'mindmap' : tab.type === 'review' ? 'review' : tab.type === 'library' ? 'library' : 'chat'
+  mode.value = m as Mode
+  if (tab.data.bookId) openBookId.value = tab.data.bookId
+})
+
 const jumpToNoteId = ref<string | null>(null)
 const jumpToHighlight = ref<{ bookId: string; page: number } | null>(null)
 const bookKind = ref<'pdf' | 'epub'>('pdf')
@@ -161,12 +174,18 @@ function onKeyDown(e: KeyboardEvent) {
   if (matchShortcut(e, sc('newConv'))) { e.preventDefault(); newBlankConv(); return }
   if (matchShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
   if (matchShortcut(e, sc('saveNote'))) {
-    // signal to NotesView through a custom event
     e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:save-note')); return
   }
   if (matchShortcut(e, sc('sendMessage'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:send-message')); return }
+  // tab shortcuts
+  if ((e.ctrlKey || e.metaKey) && e.key === 't') { e.preventDefault(); tabStore.openTab({ type: 'chat', title: 'Chat', data: {} }); return }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'w') { e.preventDefault(); tabStore.closeTab(tabStore.activeId); return }
 }
-function openBook(id: string) { openBookId.value = id; window.lk.bookUpdate(id, {}).catch(() => {}) }
+function openBook(id: string) {
+  openBookId.value = id; mode.value = 'library'
+  window.lk.bookList().then(books => { const b = books.find((x: any) => x.id === id); tabStore.openTab({ type: 'ebook', title: b?.title || 'Book', data: { bookId: id } }) })
+  window.lk.bookUpdate(id, {}).catch(() => {})
+}
 async function onAskFromReader(payload: { quote: string; question?: string; bookId: string; page: number }) {
   mode.value = 'chat'
   if (!chat.currentConvId) { const c = await chat.newConv(null, '电子书问答'); await chat.selectConv(c.id) }
