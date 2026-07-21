@@ -51,7 +51,7 @@
         </div>
         <div class="split">
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
-            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty; onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" placeholder="Markdown ... / 弹出命令菜单"></textarea>
+            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck()" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" placeholder="Markdown ... / 弹出命令菜单"></textarea>
             <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
               <div v-for="c in slashCmds" :key="c.label" class="slash-item" @click="applySlash(c)">
                 <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
