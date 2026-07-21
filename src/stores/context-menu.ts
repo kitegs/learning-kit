@@ -10,6 +10,7 @@ export interface CxItem {
   separator?: boolean
   shortcut?: string
   action?: () => void
+  children?: CxItem[]
 }
 
 export const useContextMenu = defineStore('cx-menu', () => {

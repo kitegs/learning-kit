@@ -513,10 +513,12 @@ function showMenuB(e: MouseEvent) {
   }
   menu.open(e, [
     { label: 'Copy', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('Copied') } },
-    { label: 'Highlight Yellow', icon: 'EditPen' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
-    { label: 'Highlight Green', icon: 'EditPen' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-    { label: 'Highlight Blue', icon: 'EditPen' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-    { label: 'Highlight Pink', icon: 'EditPen' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+    { label: 'Highlight', icon: 'EditPen' as any, children: [
+      { label: 'Yellow', icon: 'Sunny' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
+      { label: 'Green', icon: 'Sunny' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+      { label: 'Blue', icon: 'Sunny' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+      { label: 'Pink', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+    ]},
     { label: 'Ask AI about this', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: 'Analyze this passage', bookId: bookId.value!, page: page.value }) },
     { separator: true },
     { label: 'Sticky Note (quote)', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },

@@ -24,9 +24,17 @@
           <Section v-if="r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
           <Section v-if="r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
         </div>
+        <div v-else-if="!query && history.length" class="history-section">
+          <div class="hist-header"><span>Recent Searches</span><button @click="clearHistory">Clear</button></div>
+          <div v-for="(h, i) in history" :key="i" class="hist-item" @click="query = h; input?.focus()">
+            <el-icon><Clock /></el-icon>
+            <span>{{ h }}</span>
+            <button class="hist-del" @click.stop="removeHistory(i)">&times;</button>
+          </div>
+        </div>
         <div v-else class="empty">
-          <p v-if="!query">开始输入即可跨数据搜索</p>
-          <p v-else>无结果</p>
+          <p v-if="!query">Type to search across all data</p>
+          <p v-else>No results</p>
         </div>
       </div>
     </div>
@@ -35,7 +43,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Clock } from '@element-plus/icons-vue'
 import Section from './SearchSection.vue'
 
 const props = defineProps<{ open: boolean }>()
@@ -46,6 +54,8 @@ const emit = defineEmits<{
 
 const query = ref('')
 const input = ref<HTMLInputElement | null>(null)
+const history = ref<string[]>([])
+const HISTORY_KEY = 'lk_search_history'
 const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [] })
 const selIdx = ref(0)
 let timer: any = null
@@ -72,6 +82,7 @@ watch(() => props.open, (v) => {
     query.value = ''
     r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [] }
     selIdx.value = 0
+    try { history.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { history.value = [] }
     nextTick(() => input.value?.focus())
   }
 })
@@ -87,8 +98,16 @@ watch(query, (v) => {
 
 function close() { emit('close') }
 function moveSel(d: number) { selIdx.value = Math.max(0, Math.min(total.value - 1, selIdx.value + d)) }
+function clearHistory() { history.value = []; localStorage.removeItem(HISTORY_KEY) }
+function removeHistory(i: number) { history.value.splice(i, 1); localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value)) }
 function openSel() {
   if (!hasAny.value) return
+  // save to history
+  if (query.value.trim()) {
+    const q = query.value.trim()
+    history.value = [q, ...history.value.filter(h => h !== q)].slice(0, 20)
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value))
+  }
   // find which section this idx belongs to and dispatch
   const wrap = (key: string, items: any[], fn: (it: any) => void) => {
     const startI = start.value[key]
@@ -151,6 +170,13 @@ function openSel() {
   padding: 6px 0;
 }
 .empty { padding: 60px 0; text-align: center; color: var(--text-dim); }
+.history-section { padding: 8px 0; }
+.hist-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 16px 8px; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+.hist-header button { border: none; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 11px; &:hover { color: var(--accent); } }
+.hist-item { display: flex; align-items: center; gap: 8px; padding: 6px 16px; cursor: pointer; font-size: 13px; color: var(--text); &:hover { background: rgba(127,127,127,.08); } }
+.hist-item .el-icon { color: var(--text-dim); font-size: 14px; }
+.hist-del { border: none; background: transparent; color: var(--text-dim); cursor: pointer; margin-left: auto; font-size: 14px; opacity: 0; &:hover { color: #ff5c5c; } }
+.hist-item:hover .hist-del { opacity: 1; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
