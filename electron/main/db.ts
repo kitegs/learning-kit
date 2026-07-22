@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import sqlite3Init from '@sqlite.org/sqlite-wasm'
 
 let sqlite3: any = null
@@ -359,19 +359,25 @@ export async function initDb(): Promise<any> {
   const userData = app.getPath('userData')
   const dataDir = join(userData, 'data')
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
-  dbPath = join(dataDir, 'learning-kit.db')
+  dbPath = join(dataDir, 'learning-kit-v3.db')
 
   sqlite3 = await sqlite3Init()
-  db = new sqlite3.oo1.DB(dbPath)
-  db.exec(SCHEMA)
-  migrate(db)
+  db = new sqlite3.oo1.DB(':memory:')
 
-  // migrate old sql.js data if exists
-  const oldDbPath = join(dataDir, 'learning-kit.db.bak')
-  if (existsSync(oldDbPath)) {
-    // already migrated or backed up - skip
+  if (existsSync(dbPath)) {
+    try {
+      const buf = readFileSync(dbPath)
+      const capi = sqlite3.capi
+      capi.sqlite3_deserialize(db.pointer, 'main', new Uint8Array(buf), buf.byteLength, buf.byteLength, 0)
+    } catch {
+      // corrupt v3 file → start fresh
+      console.log('v3 db corrupt, starting fresh')
+    }
   }
 
+  db.exec(SCHEMA)
+  migrate(db)
+  persist()
   return db
 }
 
@@ -381,9 +387,14 @@ export function getSqlite3(): any { return sqlite3 }
 let persistTimer: NodeJS.Timeout | null = null
 export function persist(): void {
   if (!db) return
-  // @sqlite.org/sqlite-wasm with file path auto-persists on commit
-  // but we add explicit checkpoint for WAL mode
-  try { db.exec('PRAGMA wal_checkpoint(PASSIVE)') } catch {}
+  try {
+    const capi = sqlite3.capi
+    // Serialize the in-memory database to bytes
+    const nBytes = capi.sqlite3_serialize(db.pointer, 'main', null, 0)
+    if (nBytes) {
+      writeFileSync(dbPath, Buffer.from(nBytes))
+    }
+  } catch {}
 }
 export function schedulePersist(): void {
   if (persistTimer) clearTimeout(persistTimer)
