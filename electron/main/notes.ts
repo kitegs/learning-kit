@@ -14,6 +14,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     if (patch.title !== undefined) qRun(getDb(), 'UPDATE notes SET title=?,updated_at=datetime("now") WHERE id=?', [patch.title, id])
     if (patch.body !== undefined) qRun(getDb(), 'UPDATE notes SET body=?,updated_at=datetime("now") WHERE id=?', [patch.body, id])
     if (patch.tags !== undefined) qRun(getDb(), 'UPDATE notes SET tags=?,updated_at=datetime("now") WHERE id=?', [patch.tags, id])
+    if (patch.parent_id !== undefined) qRun(getDb(), 'UPDATE notes SET parent_id=?,updated_at=datetime("now") WHERE id=?', [patch.parent_id, id])
     schedulePersist(); return true
   })
   ipc.handle('notes:delete', (_e, id: string) => {

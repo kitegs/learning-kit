@@ -19,6 +19,7 @@
           @node-expand="onExpand"
           @node-collapse="onCollapse"
           draggable
+          :allow-drop="allowDrop"
           @node-drop="onDrop"
         >
           <template #default="{ data }">
@@ -206,6 +207,8 @@ function markDirty() { dirty.value = true }
 async function saveCurrent() {
   if (!current.value) return
   try {
+    // sync textarea value explicitly in case v-model lag
+    if (ta.value) current.value.body = ta.value.value
     await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
     dirty.value = false; await loadTree(); ElMessage.success('saved')
   } catch (e: any) { ElMessage.error('Failed to save: ' + (e?.message || e)) }
@@ -400,7 +403,35 @@ function manageAiActions() {
     else ElMessage.warning('Must be a JSON array')
   } catch { ElMessage.warning('Invalid JSON') }
 }
-async function onDrop() { await loadTree() }
+function allowDrop(_draggingNode: any, dropNode: any, type: string) {
+  // notes can only be dropped INTO folders (inner)
+  // folders can be dropped into other folders (inner) or beside nodes (before/after)
+  if (type === 'inner') {
+    return dropNode.data?.kind === 'folder'
+  }
+  // before/after: allow if dropping beside a note at root level or inside a folder
+  return true
+}
+async function onDrop(draggingNode: any, dropNode: any, dropType: string) {
+  // draggingNode.data = the node being dragged
+  // dropNode.data = the node being dropped onto
+  // dropType = 'before' | 'after' | 'inner'
+  const dragId = draggingNode.data?.id
+  if (!dragId) return
+
+  let newParentId: string | null = null
+  if (dropType === 'inner') {
+    // dropped inside a folder → parent = dropNode
+    newParentId = dropNode.data?.id || null
+  } else {
+    // dropped before/after a sibling → same parent as dropNode
+    newParentId = dropNode.data?.parent_id || null
+  }
+
+  // update parent_id in database
+  await window.lk.notesPatch(dragId, { parent_id: newParentId } as any)
+  await loadTree()
+}
 async function makeCard() {
   if (!current.value) return
   const dks = await window.lk.deckList(); let dId = dks[0]?.id
@@ -411,7 +442,15 @@ async function makeCard() {
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
 onMounted(async () => {
   window.addEventListener('beforeunload', saveCurrent)
-  await loadTree(); if (!rawTree.value.length) await newNote(null); else await open(rawTree.value[0].id)
+  await loadTree()
+  if (!rawTree.value.length) {
+    await newNote(null)
+  } else {
+    // find first NOTE (not folder) to open
+    const firstNote = rawTree.value.find((r: any) => r.kind !== 'folder')
+    if (firstNote) await open(firstNote.id)
+    else await newNote(null)
+  }
   // restore expanded state from settings
   const saved = await window.lk.getSetting('notesExpanded')
   if (saved) defaultExpand.value = JSON.parse(saved)
