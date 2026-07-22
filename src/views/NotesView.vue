@@ -153,16 +153,33 @@ function buildTree(rows: any[]) {
   return roots
 }
 
-async function loadTree() { rawTree.value = await window.lk.notesList() }
-function onClick(d: any) { open(d.id) }
+async function loadTree() {
+  try { rawTree.value = await window.lk.notesList() }
+  catch (e: any) { ElMessage.error('Failed to load notes: ' + (e?.message || e)); rawTree.value = [] }
+}
+function onClick(d: any) {
+  if (d && d.id) open(d.id)
+  else console.warn('NotesView onClick: missing id', d)
+}
 async function open(id: string) {
-  if (dirty.value) await saveCurrent()
-  const n = await window.lk.notesGet(id); current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim()
-  undoStack.value = []; redoStack.value = []
+  try {
+    if (dirty.value) await saveCurrent()
+    const n = await window.lk.notesGet(id)
+    if (n) {
+      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim()
+      undoStack.value = []; redoStack.value = []
+    } else {
+      ElMessage.warning('Note not found')
+    }
+  } catch (e: any) {
+    ElMessage.error('Failed to open: ' + (e?.message || e))
+  }
 }
 async function newNote(parentId: string | null = null) {
-  const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
-  await loadTree(); await open(id)
+  try {
+    const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
+    await loadTree(); await open(id)
+  } catch (e: any) { ElMessage.error('Failed to create note: ' + (e?.message || e)) }
 }
 async function newFolder() {
   const v = await ElMessageBox.prompt('Folder name', 'New Folder', { inputValue: 'Folder' })
@@ -173,8 +190,10 @@ async function newFolder() {
 function markDirty() { dirty.value = true }
 async function saveCurrent() {
   if (!current.value) return
-  await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
-  dirty.value = false; await loadTree(); ElMessage.success('saved')
+  try {
+    await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
+    dirty.value = false; await loadTree(); ElMessage.success('saved')
+  } catch (e: any) { ElMessage.error('Failed to save: ' + (e?.message || e)) }
 }
 function updateTags() { markDirty() }
 function startResize(e: MouseEvent) {
