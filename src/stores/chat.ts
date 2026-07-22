@@ -143,6 +143,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const systemPrompt = ref('')
   const temperature = ref(0.6)
   const theme = ref<'dark' | 'light'>('dark')
+  const connected = ref(false)
 
   const defaultShortcuts = {
     search: 'Ctrl+K',
@@ -202,7 +203,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function modelList(): string[] { return models[provider.value] || [] }
   function currentApiKey(): string { return apiKeys.value[provider.value] || '' }
+  async function saveApiKey() { await window.lk.setSetting('apiKey.' + provider.value, apiKeys.value[provider.value] || '') }
+  function setConnected(v: boolean) { connected.value = v }
   function getShortcut(key: string): string { return shortcuts.value[key] || (defaultShortcuts as any)[key] || '' }
 
-  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveShortcuts, getShortcut }
+  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
 })

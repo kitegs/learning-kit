@@ -10,7 +10,7 @@
           <el-icon class="mode-icon"><component :is="modeIcon" /></el-icon>
           <el-input v-if="mode === 'chat'" v-model="titleDraft" class="title-input" size="small" placeholder="对话标题" @change="applyTitle" @blur="applyTitle" />
           <span v-else class="mode-title">{{ modeTitle }}</span>
-          <el-tag v-if="mode === 'chat'" size="small" type="info" effect="dark">{{ settings.provider }} - {{ settings.model }}</el-tag>
+          <el-tag v-if="mode === 'chat'" size="small" :type="settings.connected ? 'success' : 'info'" :effect="settings.connected ? 'dark' : 'plain'" :class="{'tag-glow': settings.connected}">{{ settings.provider }} - {{ settings.model }}</el-tag>
         </div>
         <div class="toolbar">
           <el-button size="small" @click="searchOpen=true">搜索</el-button>
@@ -254,6 +254,11 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   await settings.load(); await chat.refreshGroups(); await chat.refreshConvs(null)
+  // silent connection test on startup
+  if (settings.currentApiKey()) {
+    window.lk.aiTest({ provider: settings.provider, model: settings.model, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+      .then((r: any) => { settings.setConnected(!!r?.ok) }).catch(() => {})
+  }
   if (chat.convs.length === 0) {
     const c = await chat.newConv(null, '欢迎')
     chat.activeMessages.push({ id: 'welcome', conversation_id: c.id, role: 'assistant', content: '你好，我是你的私人学习助手。\n\n- 左侧切换 对话 / 图书馆 / 笔记 / 思维导图 / 复习模式\n- 对话模式下可在树里建目录折叠管理对话\n- 图书馆导入PDF后可划线选段向我提问\n- 在设置里填好API Key即可开始', model: 'welcome' } as any)
@@ -280,5 +285,10 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.rem
 .toolbar { display: flex; gap: 8px; }
 .mode-icon { color: var(--accent); font-size: 18px; }
 .mode-title { font-weight: 600; }
+.tag-glow { animation: glow 2s ease-in-out infinite; }
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(81,207,102,0.4); }
+  50% { box-shadow: 0 0 12px rgba(81,207,102,0.8), 0 0 20px rgba(81,207,102,0.3); }
+}
 .view-slot { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 </style>

@@ -33,7 +33,10 @@
           type="password"
           show-password
           placeholder="sk-..."
+          @blur="onKeyBlur"
+          @change="onKeyBlur"
         />
+        <span v-if="s.apiKeys[s.provider]" class="key-saved">saved</span>
       </el-form-item>
 
       <el-form-item label="Base URL" v-if="s.provider === 'custom'">
@@ -126,10 +129,18 @@ async function testConnection() {
       apiKey: s.apiKeys[s.provider] || '',
       baseUrl: s.provider === 'custom' ? s.customBaseUrl : undefined
     })
+    if (testResult.value.ok) s.setConnected(true)
+    else s.setConnected(false)
   } catch (err: any) {
     testResult.value = { ok: false, error: err?.message || String(err) }
+    s.setConnected(false)
   }
   testing.value = false
+}
+
+async function onKeyBlur() {
+  await s.saveApiKey()
+  s.setConnected(false)
 }
 
 function onClose() {
@@ -142,6 +153,7 @@ function onClose() {
 .small { font-size: 11px; margin-top: 6px; margin-left: 0; }
 .test-ok { color: var(--success, #51cf66); font-size: 12px; margin-left: 8px; }
 .test-fail { color: var(--danger, #ff6b6b); font-size: 12px; margin-left: 8px; }
+.key-saved { color: var(--success, #51cf66); font-size: 11px; margin-left: 8px; }
 .shortcuts { display:flex; flex-direction:column; gap:6px; }
 .shortcut-row { display:flex; align-items:center; gap:12px; }
 .sc-label { width:120px; font-size:13px; color:var(--text-dim); text-transform:capitalize; }
