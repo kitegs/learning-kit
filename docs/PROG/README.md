@@ -4,6 +4,7 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
-| 2026-07-21 | PROG-20260721-03-amend.md | session-3 bug fixes, ebook rewrite, sticky notes | done |
-| 2026-07-21 | PROG-20260721-02-amend.md | session-2 context menus, EPUB, theme search, mindmap annotations | done |
-| 2026-07-21 | PROG-20260721.md | 初始开发进度 | done |
+| 2026-07-22 | PROG-20260722.md | session-4 bug修复/流式显示/工具调用/文档维护 | done |
+| 2026-07-21 | PROG-20260721.md | 初始开发 | done |
+| 2026-07-21 | PROG-20260721-02-amend.md | session-2 上下文菜单/EPUB/主题/搜索/思维导图标注 | done |
+| 2026-07-21 | PROG-20260721-03-amend.md | session-3 bug修复/ebook重写/便签 | done |
