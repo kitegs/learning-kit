@@ -87,7 +87,12 @@ const chat = useChatStore()
 const menu = useContextMenu()
 
 const roleLabel = computed(() => (props.msg.role === 'user' ? 'You' : 'AI'))
-const displayContent = computed(() => props.msg.content || (props.msg.role === 'assistant' ? '…' : ''))
+const displayContent = computed(() => {
+  const c = props.msg.content
+  if (c !== undefined && c !== null && c !== '') return c
+  if (props.msg.role === 'assistant') return '<span class="typing-dots">Thinking<span class="dot-anim">...</span></span>'
+  return ''
+})
 
 const editing = ref(false)
 const editingDraft = ref('')
@@ -206,5 +211,15 @@ async function doReuse() {
   display: flex; align-items: center; gap: 6px;
   color: var(--text-dim);
   font-size: 12px;
+}
+</style>
+
+<style lang="scss">
+.typing-dots { color: var(--text-dim); font-style: italic; }
+.dot-anim { display: inline-block; animation: dotPulse 1.4s steps(4, end) infinite; }
+@keyframes dotPulse {
+  0% { opacity: 0.2; }
+  50% { opacity: 1; }
+  100% { opacity: 0.2; }
 }
 </style>

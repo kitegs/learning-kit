@@ -230,14 +230,27 @@ async function onSend(text: string) {
     const userMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'user', content: text, note: null, sort: Math.floor(Date.now() / 1000) }
     await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
     const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1 }
-    assistantMsg.id = await chat.saveNewMessage(assistantMsg); chat.activeMessages.push(assistantMsg)
+    assistantMsg.id = await chat.saveNewMessage(assistantMsg)
+    chat.activeMessages.push(assistantMsg)
+    // grab the reactive proxy from the array so mutations trigger re-render
+    const rMsg = chat.activeMessages[chat.activeMessages.length - 1]
     streaming.value = true; activeAbort?.()
     currentReqId = await window.lk.uuid()
-    const history = chat.activeMessages.filter((m) => m.id !== assistantMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
+    const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
     activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
-      if (p.error) assistantMsg.content += `\n\n> Error: ${p.error}`
-      if (p.delta) assistantMsg.content += p.delta
-      if (p.done) { streaming.value = false; window.lk.msgPatch(assistantMsg.id, { content: assistantMsg.content }).then(() => window.lk.convTouch(convId)) }
+      if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
+      if (p.delta) rMsg.content += p.delta
+      if (p.done) {
+        streaming.value = false
+        // parse and execute [[ACTION:...]] tags
+        const actions = parseActions(rMsg.content)
+        if (actions.length) executeActions(actions).then((summary) => {
+          if (summary) rMsg.content += '\n\n---\n**App actions executed:**\n' + summary
+          window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+        })
+        else window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+        window.lk.convTouch(convId)
+      }
     })
     await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
   } catch (err: any) {
@@ -249,6 +262,45 @@ async function onSend(text: string) {
   }
 }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
+
+// ── action parser & executor ──
+interface ParsedAction { type: string; params: string[] }
+function parseActions(text: string): ParsedAction[] {
+  const re = /\[\[ACTION:(\w+)\|([^\]]*)\]\]/g
+  const out: ParsedAction[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    out.push({ type: m[1], params: m[2].split('|').map(s => s.replace(/\\n/g, '\n').trim()) })
+  }
+  return out
+}
+async function executeActions(actions: ParsedAction[]): Promise<string> {
+  const results: string[] = []
+  for (const a of actions) {
+    try {
+      if (a.type === 'note' && a.params.length >= 2) {
+        const id = await window.lk.notesUpsert({ title: a.params[0], body: a.params[1], kind: 'note', sort: Date.now() })
+        results.push(`- Note created: **${a.params[0]}** (id: ${id.slice(0,8)})`)
+      } else if (a.type === 'card' && a.params.length >= 2) {
+        const decks = await window.lk.deckList()
+        let deckId = decks[0]?.id
+        if (!deckId) { const did = await window.lk.uuid(); await window.lk.deckUpsert({ id: did, title: 'Default', sort: 0 }); deckId = did }
+        await window.lk.cardSave({ deckId, front: a.params[0], back: a.params[1], kind: 'qa' })
+        results.push(`- Flashcard created: **${a.params[0].slice(0,40)}**`)
+      } else if (a.type === 'mindmap' && a.params.length >= 2) {
+        const id = await window.lk.mindmapUpsert({ title: a.params[0], body: a.params[1] })
+        results.push(`- Mindmap created: **${a.params[0]}** (id: ${id.slice(0,8)})`)
+      } else if (a.type === 'bookmark') {
+        results.push(`- Bookmark noted: ${a.params[0] || '(current page)'}`)
+      } else {
+        results.push(`- Unknown action: ${a.type}`)
+      }
+    } catch (err: any) {
+      results.push(`- Failed [${a.type}]: ${err?.message || err}`)
+    }
+  }
+  return results.join('\n')
+}
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
