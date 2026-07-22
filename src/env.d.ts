@@ -108,6 +108,8 @@ interface LkApi {
   codeList: (kpId: string|null) => Promise<any[]>
   codeUpsert: (c: any) => Promise<string>
   codeDelete: (id: string) => Promise<boolean>
+
+  drawioPort: () => Promise<number>
 }
 
 interface RawRow {

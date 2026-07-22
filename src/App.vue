@@ -283,6 +283,11 @@ function parseActions(text: string): ParsedAction[] {
   while ((m = reMm.exec(text)) !== null) {
     out.push({ type: 'mindmap', params: [m[1].trim()], rawBlock: m[0] })
   }
+  // Parse <drawio>...</drawio>
+  const reDrawio = /<drawio>([\s\S]*?)<\/drawio>/g
+  while ((m = reDrawio.exec(text)) !== null) {
+    out.push({ type: 'drawio', params: [m[1].trim()], rawBlock: m[0] })
+  }
   // Parse <plan>...</plan>
   const rePlan = /<plan>([\s\S]*?)<\/plan>/g
   while ((m = rePlan.exec(text)) !== null) {
@@ -319,6 +324,17 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
       } else if (a.type === 'mindmap') {
         const mid = await window.lk.mindmapUpsert({ title: 'AI Mindmap', body: a.params[0] || '' })
         results.push(`- Mindmap created (id: ${mid.slice(0, 8)})`)
+      } else if (a.type === 'drawio') {
+        const xml = a.params[0] || ''
+        // Validate XML
+        if (xml.includes('<mxGraphModel') || xml.includes('<mxfile')) {
+          const id = await window.lk.diagUpsert({ title: 'AI Diagram', xml, format: 'drawio' })
+          results.push(`- Draw.io diagram created (id: ${id.slice(0, 8)})`)
+          // Dispatch to DrawioView if it's listening
+          window.dispatchEvent(new CustomEvent('lk:ai-xml-result', { detail: { xml, id } }))
+        } else {
+          results.push('- Draw.io: AI returned invalid XML, not saved')
+        }
       } else if (a.type === 'plan') {
         try {
           const plan = JSON.parse(a.params[0] || '{}')
@@ -362,8 +378,8 @@ onMounted(async () => {
   await chat.selectConv(chat.convs[0].id)
 })
 async function onAiAction(e: Event) {
-  const { text, prompt } = (e as CustomEvent).detail
-  mode.value = 'chat'
+  const { text, prompt, expectXml } = (e as CustomEvent).detail
+  if (!expectXml) mode.value = 'chat'
   if (!chat.currentConvId) { const c = await chat.newConv(null, 'AI Action'); await chat.selectConv(c.id) }
   await onSend(`${prompt}\n\n---\n${text}`)
 }

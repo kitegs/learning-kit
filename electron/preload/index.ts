@@ -126,6 +126,8 @@ const api = {
   codeList: (kpId: string|null) => ipcRenderer.invoke('code:list', kpId),
   codeUpsert: (c: any) => ipcRenderer.invoke('code:upsert', c),
   codeDelete: (id: string) => ipcRenderer.invoke('code:delete', id),
+
+  drawioPort: () => ipcRenderer.invoke('drawio:port'),
 }
 
 try {

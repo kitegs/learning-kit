@@ -8,6 +8,7 @@ import { registerSrsIpcs } from './srs'
 import { registerNoteIpcs } from './notes'
 import { registerSearchIpcs } from './search'
 import { registerPrdV3Ipcs } from './prd-v3'
+import { startDrawioServer, stopDrawioServer } from './drawio-server'
 
 // register privileged scheme before any app ready (CSP + fetch support)
 protocol.registerSchemesAsPrivileged([
@@ -71,6 +72,10 @@ app.whenReady().then(async () => {
   registerSearchIpcs(ipcMain)
   registerPrdV3Ipcs(ipcMain)
 
+  // Start draw.io static file server
+  const drawioPort = await startDrawioServer()
+  ipcMain.handle('drawio:port', () => drawioPort)
+
   createWindow()
 
   app.on('activate', () => {
@@ -79,5 +84,6 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  stopDrawioServer()
   if (process.platform !== 'darwin') app.quit()
 })
