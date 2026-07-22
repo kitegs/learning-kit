@@ -7,6 +7,7 @@ import { registerBookIpcs, registerBookProtocol } from './book'
 import { registerSrsIpcs } from './srs'
 import { registerNoteIpcs } from './notes'
 import { registerSearchIpcs } from './search'
+import { registerPrdV3Ipcs } from './prd-v3'
 
 // register privileged scheme before any app ready (CSP + fetch support)
 protocol.registerSchemesAsPrivileged([
@@ -61,7 +62,6 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   await initDb()
-  // register custom protocol before windows are created
   registerBookProtocol()
   registerDbIpcs(ipcMain)
   registerAiIpcs(ipcMain)
@@ -69,6 +69,7 @@ app.whenReady().then(async () => {
   registerSrsIpcs(ipcMain)
   registerNoteIpcs(ipcMain)
   registerSearchIpcs(ipcMain)
+  registerPrdV3Ipcs(ipcMain)
 
   createWindow()
 

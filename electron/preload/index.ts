@@ -89,7 +89,43 @@ const api = {
   srsFromNote: (deckId: string, front: string, back: string, sourceNoteId?: string) =>
     ipcRenderer.invoke('srs:fromNote', deckId, front, back, sourceNoteId),
 
-  search: (q: string) => ipcRenderer.invoke('search:all', q)
+  search: (q: string) => ipcRenderer.invoke('search:all', q),
+
+  // PRD v3 APIs
+  chapterList: (bookId: string) => ipcRenderer.invoke('chapter:list', bookId),
+  chapterUpsert: (c: any) => ipcRenderer.invoke('chapter:upsert', c),
+  chapterDelete: (id: string) => ipcRenderer.invoke('chapter:delete', id),
+
+  kpList: (chapterId: string|null) => ipcRenderer.invoke('kp:list', chapterId),
+  kpUpsert: (kp: any) => ipcRenderer.invoke('kp:upsert', kp),
+  kpDelete: (id: string) => ipcRenderer.invoke('kp:delete', id),
+  kpSetMastery: (id: string, mastery: string) => ipcRenderer.invoke('kp:setMastery', id, mastery),
+
+  linkCreate: (l: any) => ipcRenderer.invoke('links:create', l),
+  linkList: (st: string, si: string) => ipcRenderer.invoke('links:list', st, si),
+  linkListTargets: (tt: string, ti: string) => ipcRenderer.invoke('links:listTargets', tt, ti),
+  linkRelate: (st: string, si: string, tt: string, ti: string, lt: string) => ipcRenderer.invoke('links:relate', st, si, tt, ti, lt),
+  linkRemove: (id: string) => ipcRenderer.invoke('links:remove', id),
+  linkAllForEntity: (t: string, id: string) => ipcRenderer.invoke('links:allForEntity', t, id),
+
+  secList: (chapterId: string) => ipcRenderer.invoke('sec:list', chapterId),
+  secUpsert: (s: any) => ipcRenderer.invoke('sec:upsert', s),
+
+  progAdd: (r: any) => ipcRenderer.invoke('prog:add', r),
+  progList: (rt: string, ri: string) => ipcRenderer.invoke('prog:list', rt, ri),
+  progCount: (rt: string) => ipcRenderer.invoke('prog:count', rt),
+
+  planList: () => ipcRenderer.invoke('plan:list'),
+  planUpsert: (p: any) => ipcRenderer.invoke('plan:upsert', p),
+  planDelete: (id: string) => ipcRenderer.invoke('plan:delete', id),
+
+  diagList: () => ipcRenderer.invoke('diag:list'),
+  diagUpsert: (d: any) => ipcRenderer.invoke('diag:upsert', d),
+  diagDelete: (id: string) => ipcRenderer.invoke('diag:delete', id),
+
+  codeList: (kpId: string|null) => ipcRenderer.invoke('code:list', kpId),
+  codeUpsert: (c: any) => ipcRenderer.invoke('code:upsert', c),
+  codeDelete: (id: string) => ipcRenderer.invoke('code:delete', id),
 }
 
 try {

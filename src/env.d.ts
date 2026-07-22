@@ -79,6 +79,35 @@ interface LkApi {
   srsFromNote: (deckId: string, front: string, back: string, sourceNoteId?: string) => Promise<string>
 
   search: (q: string) => Promise<any>
+
+  // PRD v3
+  chapterList: (bookId: string) => Promise<any[]>
+  chapterUpsert: (c: any) => Promise<string>
+  chapterDelete: (id: string) => Promise<boolean>
+  kpList: (chapterId: string|null) => Promise<any[]>
+  kpUpsert: (kp: any) => Promise<string>
+  kpDelete: (id: string) => Promise<boolean>
+  kpSetMastery: (id: string, mastery: string) => Promise<boolean>
+  linkCreate: (l: any) => Promise<string>
+  linkList: (st: string, si: string) => Promise<any[]>
+  linkListTargets: (tt: string, ti: string) => Promise<any[]>
+  linkRelate: (st: string, si: string, tt: string, ti: string, lt: string) => Promise<string>
+  linkRemove: (id: string) => Promise<boolean>
+  linkAllForEntity: (t: string, id: string) => Promise<any[]>
+  secList: (chapterId: string) => Promise<any[]>
+  secUpsert: (s: any) => Promise<string>
+  progAdd: (r: any) => Promise<string>
+  progList: (rt: string, ri: string) => Promise<any[]>
+  progCount: (rt: string) => Promise<any[]>
+  planList: () => Promise<any[]>
+  planUpsert: (p: any) => Promise<string>
+  planDelete: (id: string) => Promise<boolean>
+  diagList: () => Promise<any[]>
+  diagUpsert: (d: any) => Promise<string>
+  diagDelete: (id: string) => Promise<boolean>
+  codeList: (kpId: string|null) => Promise<any[]>
+  codeUpsert: (c: any) => Promise<string>
+  codeDelete: (id: string) => Promise<boolean>
 }
 
 interface RawRow {
