@@ -31,6 +31,7 @@ const api = {
   aiSystemPrompt: () => ipcRenderer.invoke('ai:system-prompt'),
   aiChatStart: (args: any) => ipcRenderer.invoke('ai:chat:start', args),
   aiChatAbort: (reqId: string) => ipcRenderer.invoke('ai:chat:abort', reqId),
+  aiTest: (args: any) => ipcRenderer.invoke('ai:test', args),
   onAiChunk: (reqId: string, cb: (p: any) => void) => {
     const channel = `ai:chunk:${reqId}`
     const listener = (_e: IpcRendererEvent, payload: any) => cb(payload)

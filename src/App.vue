@@ -220,21 +220,33 @@ async function onStudyPlanCreated(planText: string) {
 }
 async function onSend(text: string) {
   if (streaming.value) return
-  if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || '新对话'); await chat.selectConv(c.id) }
-  const convId = chat.currentConvId!
-  const userMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'user', content: text, note: null, sort: Math.floor(Date.now() / 1000) }
-  await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
-  const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1 }
-  assistantMsg.id = await chat.saveNewMessage(assistantMsg); chat.activeMessages.push(assistantMsg)
-  streaming.value = true; activeAbort?.()
-  currentReqId = await window.lk.uuid()
-  const history = chat.activeMessages.filter((m) => m.id !== assistantMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
-  activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
-    if (p.error) assistantMsg.content += `\n\n> 错误: ${p.error}`
-    if (p.delta) assistantMsg.content += p.delta
-    if (p.done) { streaming.value = false; window.lk.msgPatch(assistantMsg.id, { content: assistantMsg.content }).then(() => window.lk.convTouch(convId)) }
-  })
-  await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+  try {
+    if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || 'New Chat'); await chat.selectConv(c.id) }
+    const convId = chat.currentConvId!
+    if (!settings.currentApiKey()) {
+      chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '**No API Key configured.** Open Settings (gear icon) and enter your API key for ' + settings.provider + '.', model: 'system' } as any)
+      return
+    }
+    const userMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'user', content: text, note: null, sort: Math.floor(Date.now() / 1000) }
+    await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
+    const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1 }
+    assistantMsg.id = await chat.saveNewMessage(assistantMsg); chat.activeMessages.push(assistantMsg)
+    streaming.value = true; activeAbort?.()
+    currentReqId = await window.lk.uuid()
+    const history = chat.activeMessages.filter((m) => m.id !== assistantMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
+    activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
+      if (p.error) assistantMsg.content += `\n\n> Error: ${p.error}`
+      if (p.delta) assistantMsg.content += p.delta
+      if (p.done) { streaming.value = false; window.lk.msgPatch(assistantMsg.id, { content: assistantMsg.content }).then(() => window.lk.convTouch(convId)) }
+    })
+    await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+  } catch (err: any) {
+    streaming.value = false
+    const msg = err?.message || String(err)
+    if (chat.currentConvId) {
+      chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: chat.currentConvId, role: 'assistant', content: `**Send failed:** ${msg}\n\nCheck your API key and network connection in Settings.`, model: 'error' } as any)
+    }
+  }
 }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
 

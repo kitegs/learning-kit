@@ -136,7 +136,7 @@ export const useChatStore = defineStore('chat', () => {
 
 export const useSettingsStore = defineStore('settings', () => {
   const provider = ref('deepseek')
-  const model = ref('deepseek-chat')
+  const model = ref('deepseek-v4-flash')
   const models: Record<string, string[]> = { openai: [], deepseek: [], dashscope: [], custom: [] }
   const apiKeys = ref<Record<string, string>>({})
   const customBaseUrl = ref('')
@@ -171,7 +171,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function load() {
     provider.value = (await window.lk.getSetting('provider')) || 'deepseek'
-    model.value = (await window.lk.getSetting('model')) || 'deepseek-chat'
+    model.value = (await window.lk.getSetting('model')) || 'deepseek-v4-flash'
     temperature.value = Number(await window.lk.getSetting('temperature')) || 0.6
     customBaseUrl.value = (await window.lk.getSetting('customBaseUrl')) || ''
     const t = (await window.lk.getSetting('theme')) as 'dark' | 'light' | null

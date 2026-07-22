@@ -29,6 +29,7 @@ interface LkApi {
   aiSystemPrompt: () => Promise<string>
   aiChatStart: (a: any) => Promise<string | false>
   aiChatAbort: (r: string) => Promise<boolean>
+  aiTest: (args: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; reply?: string; error?: string }>
   onAiChunk: (r: string, cb: (p: any) => void) => () => void
 
   bookImport: () => Promise<string[]>

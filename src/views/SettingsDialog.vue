@@ -40,6 +40,15 @@
         <el-input v-model="s.customBaseUrl" placeholder="https://your-host/v1/chat/completions" />
       </el-form-item>
 
+      <el-form-item label="连接测试">
+        <el-button size="small" :loading="testing" @click="testConnection">
+          {{ testing ? 'Testing...' : 'Test Connection' }}
+        </el-button>
+        <span v-if="testResult" :class="testResult.ok ? 'test-ok' : 'test-fail'">
+          {{ testResult.ok ? 'OK: ' + (testResult.reply || '').slice(0, 60) : 'FAIL: ' + testResult.error }}
+        </span>
+      </el-form-item>
+
       <el-form-item label="温度">
         <el-slider v-model="s.temperature" :min="0" :max="1.5" :step="0.05" show-input />
       </el-form-item>
@@ -80,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '../stores/chat'
 
@@ -105,6 +114,24 @@ async function save() {
 function resetShortcuts() {
   Object.assign(s.shortcuts, s.defaultShortcuts)
 }
+
+const testing = ref(false)
+const testResult = ref<{ ok: boolean; reply?: string; error?: string } | null>(null)
+async function testConnection() {
+  testing.value = true; testResult.value = null
+  try {
+    testResult.value = await window.lk.aiTest({
+      provider: s.provider,
+      model: s.model,
+      apiKey: s.apiKeys[s.provider] || '',
+      baseUrl: s.provider === 'custom' ? s.customBaseUrl : undefined
+    })
+  } catch (err: any) {
+    testResult.value = { ok: false, error: err?.message || String(err) }
+  }
+  testing.value = false
+}
+
 function onClose() {
   emit('update:modelValue', false)
 }
@@ -113,6 +140,8 @@ function onClose() {
 <style scoped lang="scss">
 .muted { color: var(--text-dim); font-size: 12px; margin-left: 10px; }
 .small { font-size: 11px; margin-top: 6px; margin-left: 0; }
+.test-ok { color: var(--success, #51cf66); font-size: 12px; margin-left: 8px; }
+.test-fail { color: var(--danger, #ff6b6b); font-size: 12px; margin-left: 8px; }
 .shortcuts { display:flex; flex-direction:column; gap:6px; }
 .shortcut-row { display:flex; align-items:center; gap:12px; }
 .sc-label { width:120px; font-size:13px; color:var(--text-dim); text-transform:capitalize; }

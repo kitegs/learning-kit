@@ -12,9 +12,9 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
 }
 
 const DEFAULT_MODELS: Record<string, string[]> = {
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  dashscope: ['qwen-plus', 'qwen-max', 'qwen-turbo'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  dashscope: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long'],
   custom: []
 }
 
@@ -85,7 +85,7 @@ export function registerAiIpcs(ipc: typeof ipcMain): void {
           : [{ role: 'system', content: loadSystemPrompt() }, ...args.messages]
 
       const body = {
-        model: args.model || 'deepseek-chat',
+        model: args.model || 'deepseek-v4-flash',
         messages,
         stream: true,
         temperature: args.temperature ?? 0.6
@@ -167,5 +167,30 @@ export function registerAiIpcs(ipc: typeof ipcMain): void {
       map.delete(requestId)
     }
     return true
+  })
+
+  // test connection: send a minimal request and return success/error
+  ipc.handle('ai:test', async (_e, args: { provider: string; model: string; apiKey: string; baseUrl?: string }) => {
+    const provider = (args.provider || 'openai').toLowerCase()
+    const endpoint = args.baseUrl?.trim() || PROVIDER_ENDPOINTS[provider] || PROVIDER_ENDPOINTS.openai
+    const apiKey = (args.apiKey || '').trim()
+    if (!apiKey) return { ok: false, error: 'API Key is empty' }
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: args.model || 'deepseek-v4-flash', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5, stream: false }),
+        signal: AbortSignal.timeout(15000)
+      })
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` }
+      }
+      const data = await resp.json() as any
+      const reply = data.choices?.[0]?.message?.content || '(empty)'
+      return { ok: true, reply: reply.slice(0, 100) }
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) }
+    }
   })
 }
