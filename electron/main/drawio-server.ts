@@ -28,15 +28,32 @@ const MIME: Record<string, string> = {
 }
 
 function getWebappDir(): string {
-  // Dev: reference source directly; Prod: from resources
-  const devPath = path.join(app.getAppPath(), '..', '..', 'drawio-dev', 'drawio-dev', 'src', 'main', 'webapp')
-  if (fs.existsSync(devPath)) return devPath
-  const prodPath = path.join(process.resourcesPath || app.getAppPath(), 'drawio')
-  if (fs.existsSync(prodPath)) return prodPath
-  // fallback: try sibling of learning-kit
-  const siblingPath = path.resolve(app.getAppPath(), '..', '..', 'drawio-dev', 'drawio-dev', 'src', 'main', 'webapp')
-  if (fs.existsSync(siblingPath)) return siblingPath
-  return devPath // will 404 but at least won't crash
+  // drawio-dev lives as a SIBLING of the learning-kit project folder.
+  // learning-kit = <workspace>/learning-kit  ->  ../drawio-dev/drawio-dev/src/main/webapp
+  const appPath = app.getAppPath()
+  const candidates = [
+    // env override
+    process.env.DRAWIO_WEBAPP,
+    // sibling of project folder (our dev layout: <ws>/learning-kit  &  <ws>/drawio-dev)
+    path.join(appPath, '..', 'drawio-dev', 'drawio-dev', 'src', 'main', 'webapp'),
+    // project folder is itself the workspace root
+    path.join(appPath, 'drawio-dev', 'drawio-dev', 'src', 'main', 'webapp'),
+    // two levels up (in case project is nested deeper)
+    path.join(appPath, '..', '..', 'drawio-dev', 'drawio-dev', 'src', 'main', 'webapp'),
+    // packaged app: bundled into resources
+    path.join(process.resourcesPath || appPath, 'drawio'),
+    path.join(appPath, 'resources', 'drawio'),
+  ].filter(Boolean) as string[]
+
+  for (const c of candidates) {
+    const idx = path.join(c, 'index.html')
+    if (fs.existsSync(idx)) {
+      console.log('[drawio-server] using webapp dir:', c)
+      return c
+    }
+  }
+  console.error('[drawio-server] WARNING: no draw.io webapp found. Tried:\n  ' + candidates.join('\n  '))
+  return candidates[0]
 }
 
 export function startDrawioServer(): Promise<number> {
@@ -57,6 +74,7 @@ export function startDrawioServer(): Promise<number> {
 
       fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
+          console.log('[drawio-server] 404', urlPath)
           res.writeHead(404); res.end('Not Found'); return
         }
         const ext = path.extname(filePath).toLowerCase()

@@ -105,20 +105,32 @@ function postToIframe(msg: any) {
   iframeRef.value?.contentWindow?.postMessage(JSON.stringify(msg), '*')
 }
 
+// Unified load: hide draw.io's own Save/Exit buttons (we own persistence),
+// route UI-triggered exports through the JSON protocol (avoids cross-origin showSaveFilePicker).
+function sendLoad(xml: string) {
+  postToIframe({ action: 'load', xml, autosave: 1, noSaveBtn: 1, noExitBtn: 1, exportProtocol: true })
+}
+
 function onMessage(e: MessageEvent) {
   if (!e.data || typeof e.data !== 'string') return
   let msg: any
   try { msg = JSON.parse(e.data) } catch { return }
-  if (msg.event === 'init') {
+  if (msg.event === 'init' || msg.event === 'ready') {
     iframeReady = true
     status.value = 'Ready'
-    if (pendingXml) { postToIframe({ action: 'load', xml: pendingXml, autosave: 1 }); pendingXml = null }
-    else if (currentXml.value) { postToIframe({ action: 'load', xml: currentXml.value, autosave: 1 }) }
+    const xml = pendingXml || currentXml.value || emptyXml()
+    pendingXml = null
+    sendLoad(xml)
   } else if (msg.event === 'save' || msg.event === 'autosave') {
     currentXml.value = msg.xml || msg.data || ''
     status.value = msg.event === 'save' ? 'Saved in draw.io' : 'Autosaved'
   } else if (msg.event === 'export') {
     handleExportResult(msg)
+  } else if (msg.event === 'exit') {
+    // draw.io tried to close (e.g. File > Close). We own the editor lifecycle,
+    // so ignore it and reload the current diagram to keep the canvas alive.
+    sendLoad(currentXml.value || emptyXml())
+    status.value = 'Kept open'
   }
 }
 
@@ -154,7 +166,7 @@ async function selectDiagram(id: string) {
   currentTitle.value = d.title
   currentXml.value = d.xml || ''
   if (viewMode.value === 'edit') {
-    if (iframeReady) postToIframe({ action: 'load', xml: currentXml.value || emptyXml(), autosave: 1 })
+    if (iframeReady) sendLoad(currentXml.value || emptyXml())
     else pendingXml = currentXml.value || emptyXml()
   } else {
     renderMarkmap()
@@ -299,7 +311,7 @@ function startResize(e: MouseEvent) {
 watch(viewMode, (v) => {
   if (v === 'view') nextTick(() => renderMarkmap())
   else if (v === 'edit' && currentXml.value) {
-    if (iframeReady) postToIframe({ action: 'load', xml: currentXml.value, autosave: 1 })
+    if (iframeReady) sendLoad(currentXml.value)
     else pendingXml = currentXml.value
   }
 })
@@ -308,7 +320,12 @@ watch(viewMode, (v) => {
 onMounted(async () => {
   window.addEventListener('message', onMessage)
   const port = await window.lk.drawioPort()
-  iframeSrc.value = `http://127.0.0.1:${port}/?embed=1&proto=json&spin=1&modified=unsavedChanges&noSaveBtn=1&noExitBtn=1&lang=zh`
+  // client=1 => full normal UI (left shape library + right format panel + full menus, like the standalone editor)
+  // proto=json => postMessage JSON protocol so we can load/save XML programmatically
+  // stealth=1 + noDevice=1 + browser=0 => no cloud/device storage UI, we own persistence via SQLite
+  // suppressNewWindows=1 => link clicks route to host instead of popping windows
+  // splash=0 => skip splash screen
+  iframeSrc.value = `http://127.0.0.1:${port}/?client=1&proto=json&lang=zh&splash=0&stealth=1&noDevice=1&browser=0&suppressNewWindows=1`
   await loadList()
   if (diagrams.value.length) await selectDiagram(diagrams.value[0].id)
 })
@@ -317,7 +334,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage) })
 </script>
 
 <style scoped lang="scss">
-.mm-root { display: flex; height: 100%; min-height: 0; overflow: hidden; }
+.mm-root { display: flex; flex: 1; min-width: 0; height: 100%; min-height: 0; overflow: hidden; }
 .side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
 .side-head { padding: 8px; display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
 .tree-scroll { flex: 1; overflow: auto; padding: 4px; }
