@@ -22,7 +22,11 @@
           @node-drop="onDrop"
         >
           <template #default="{ data }">
-            <span :class="{ active: currentId === data.id }">{{ data.title }}</span>
+            <span :class="{ active: currentId === data.id, 'is-folder': data.kind === 'folder' }">
+              <span v-if="data.kind === 'folder'" style="margin-right:4px">📁</span>
+              <span v-else style="margin-right:4px">📄</span>
+              {{ data.title }}
+            </span>
           </template>
         </el-tree>
       </div>
@@ -158,8 +162,14 @@ async function loadTree() {
   catch (e: any) { ElMessage.error('Failed to load notes: ' + (e?.message || e)); rawTree.value = [] }
 }
 function onClick(d: any) {
-  if (d && d.id) open(d.id)
-  else console.warn('NotesView onClick: missing id', d)
+  if (!d || !d.id) return
+  if (d.kind === 'folder') {
+    // toggle expand in tree
+    const node = treeRef.value?.getNode(d.id)
+    if (node) node.expanded = !node.expanded
+  } else {
+    open(d.id)
+  }
 }
 async function open(id: string) {
   try {
@@ -177,6 +187,11 @@ async function open(id: string) {
 }
 async function newNote(parentId: string | null = null) {
   try {
+    // if no parentId given, check if current selected node is a folder
+    if (!parentId && currentId.value) {
+      const cur = rawTree.value.find((r: any) => r.id === currentId.value)
+      if (cur && cur.kind === 'folder') parentId = cur.id
+    }
     const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
     await loadTree(); await open(id)
   } catch (e: any) { ElMessage.error('Failed to create note: ' + (e?.message || e)) }
@@ -184,7 +199,7 @@ async function newNote(parentId: string | null = null) {
 async function newFolder() {
   const v = await ElMessageBox.prompt('Folder name', 'New Folder', { inputValue: 'Folder' })
   if (!v.value) return
-  await window.lk.notesUpsert({ title: v.value, body: '', kind: 'note', parent_id: null, sort: Date.now() })
+  await window.lk.notesUpsert({ title: v.value, body: '', kind: 'folder', parent_id: null, sort: Date.now() })
   await loadTree()
 }
 function markDirty() { dirty.value = true }
@@ -284,16 +299,34 @@ function applySlash(cmd: typeof slashCmds[number]) {
 }
 async function onTreeCtx(e: any, data: any) {
   e.preventDefault?.()
-  menu.open(e, [
-    { label: 'Open', icon: 'Document' as any, action: () => open(data.id) },
-    { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
-    { label: 'New child', icon: 'Plus' as any, action: () => newNote(data.id) },
-    { separator: true },
-    { label: 'Make card', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
-    { label: 'Export', icon: 'Download' as any, action: () => exportNode(data) },
+  const items: any[] = []
+  if (data.kind === 'folder') {
+    items.push(
+      { label: 'New note here', icon: 'Document' as any, action: () => newNote(data.id) },
+      { label: 'New subfolder', icon: 'Folder' as any, action: () => newSubFolder(data.id) },
+      { separator: true },
+      { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
+    )
+  } else {
+    items.push(
+      { label: 'Open', icon: 'Document' as any, action: () => open(data.id) },
+      { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
+      { separator: true },
+      { label: 'Make card', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
+      { label: 'Export', icon: 'Download' as any, action: () => exportNode(data) },
+    )
+  }
+  items.push(
     { separator: true },
     { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => delNode(data) },
-  ])
+  )
+  menu.open(e, items)
+}
+async function newSubFolder(parentId: string) {
+  const v = await ElMessageBox.prompt('Subfolder name', 'New Subfolder', { inputValue: 'Subfolder' })
+  if (!v.value) return
+  await window.lk.notesUpsert({ title: v.value, body: '', kind: 'folder', parent_id: parentId, sort: Date.now() })
+  await loadTree()
 }
 async function renameNode(data: any) {
   const v = await ElMessageBox.prompt('New name', 'Rename', { inputValue: data.title })
@@ -378,7 +411,7 @@ async function makeCard() {
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
 onMounted(async () => {
   window.addEventListener('beforeunload', saveCurrent)
-  await loadTree(); if (!rawTree.value.length) await newNote(null); else open(rawTree.value[0].id)
+  await loadTree(); if (!rawTree.value.length) await newNote(null); else await open(rawTree.value[0].id)
   // restore expanded state from settings
   const saved = await window.lk.getSetting('notesExpanded')
   if (saved) defaultExpand.value = JSON.parse(saved)
