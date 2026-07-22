@@ -263,14 +263,35 @@ async function onSend(text: string) {
 }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
 
-// ── action parser & executor ──
-interface ParsedAction { type: string; params: string[] }
+// ── action parser & executor (PRD v3) ──
+interface ParsedAction { type: string; params: string[]; rawBlock: string }
 function parseActions(text: string): ParsedAction[] {
-  const re = /\[\[ACTION:(\w+)\|([^\]]*)\]\]/g
   const out: ParsedAction[] = []
+  // Parse <kp>...</kp>
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    out.push({ type: m[1], params: m[2].split('|').map(s => s.replace(/\\n/g, '\n').trim()) })
+  const reKp = /<kp>([\s\S]*?)<\/kp>/g
+  while ((m = reKp.exec(text)) !== null) {
+    out.push({ type: 'kp', params: m[1].split('|').map(s => s.trim()), rawBlock: m[0] })
+  }
+  // Parse <summary>...</summary>
+  const reSum = /<summary>([\s\S]*?)<\/summary>/g
+  while ((m = reSum.exec(text)) !== null) {
+    out.push({ type: 'summary', params: [m[1].trim()], rawBlock: m[0] })
+  }
+  // Parse <mindmap>...</mindmap>
+  const reMm = /<mindmap>([\s\S]*?)<\/mindmap>/g
+  while ((m = reMm.exec(text)) !== null) {
+    out.push({ type: 'mindmap', params: [m[1].trim()], rawBlock: m[0] })
+  }
+  // Parse <plan>...</plan>
+  const rePlan = /<plan>([\s\S]*?)<\/plan>/g
+  while ((m = rePlan.exec(text)) !== null) {
+    out.push({ type: 'plan', params: [m[1].trim()], rawBlock: m[0] })
+  }
+  // Legacy [[ACTION:...]] support
+  const reLegacy = /\[\[ACTION:(\w+)\|([^\]]*)\]\]/g
+  while ((m = reLegacy.exec(text)) !== null) {
+    out.push({ type: m[1], params: m[2].split('|').map(s => s.trim()), rawBlock: m[0] })
   }
   return out
 }
@@ -278,22 +299,44 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
   const results: string[] = []
   for (const a of actions) {
     try {
-      if (a.type === 'note' && a.params.length >= 2) {
-        const id = await window.lk.notesUpsert({ title: a.params[0], body: a.params[1], kind: 'note', sort: Date.now() })
-        results.push(`- Note created: **${a.params[0]}** (id: ${id.slice(0,8)})`)
+      if (a.type === 'kp' && a.params.length >= 4) {
+        await window.lk.kpUpsert({
+          title: a.params[0],
+          description: a.params.slice(1).join(' | '),
+          mastery: 'unseen',
+          chapterId: null,
+          sort: Date.now()
+        })
+        results.push(`- Knowledge point saved: **${a.params[0]}**`)
+      } else if (a.type === 'summary') {
+        const sid = await window.lk.notesUpsert({
+          title: 'AI Summary: ' + (a.params[0] || '').slice(0, 50),
+          body: a.params[0] || '',
+          kind: 'note',
+          sort: Date.now()
+        })
+        results.push(`- Summary saved as note (id: ${sid.slice(0, 8)})`)
+      } else if (a.type === 'mindmap') {
+        const mid = await window.lk.mindmapUpsert({ title: 'AI Mindmap', body: a.params[0] || '' })
+        results.push(`- Mindmap created (id: ${mid.slice(0, 8)})`)
+      } else if (a.type === 'plan') {
+        try {
+          const plan = JSON.parse(a.params[0] || '{}')
+          const pid = await window.lk.planUpsert({ title: plan.goal || 'Study Plan', plan_json: JSON.stringify(plan), template: plan.method || 'custom' })
+          results.push(`- Study plan saved (id: ${pid.slice(0, 8)})`)
+        } catch { results.push('- Plan: invalid JSON, not saved') }
+      } else if (a.type === 'note' && a.params.length >= 2) {
+        await window.lk.notesUpsert({ title: a.params[0], body: a.params[1], kind: 'note', sort: Date.now() })
+        results.push(`- Note created: **${a.params[0]}**`)
       } else if (a.type === 'card' && a.params.length >= 2) {
         const decks = await window.lk.deckList()
         let deckId = decks[0]?.id
         if (!deckId) { const did = await window.lk.uuid(); await window.lk.deckUpsert({ id: did, title: 'Default', sort: 0 }); deckId = did }
         await window.lk.cardSave({ deckId, front: a.params[0], back: a.params[1], kind: 'qa' })
-        results.push(`- Flashcard created: **${a.params[0].slice(0,40)}**`)
-      } else if (a.type === 'mindmap' && a.params.length >= 2) {
-        const id = await window.lk.mindmapUpsert({ title: a.params[0], body: a.params[1] })
-        results.push(`- Mindmap created: **${a.params[0]}** (id: ${id.slice(0,8)})`)
-      } else if (a.type === 'bookmark') {
-        results.push(`- Bookmark noted: ${a.params[0] || '(current page)'}`)
-      } else {
-        results.push(`- Unknown action: ${a.type}`)
+        results.push(`- Flashcard created: **${a.params[0].slice(0, 40)}**`)
+      } else if (a.type === 'mindmap_legacy' && a.params.length >= 2) {
+        await window.lk.mindmapUpsert({ title: a.params[0], body: a.params[1] })
+        results.push(`- Mindmap created: **${a.params[0]}**`)
       }
     } catch (err: any) {
       results.push(`- Failed [${a.type}]: ${err?.message || err}`)
@@ -305,6 +348,7 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
+  window.addEventListener('lk:nav', onNav as EventListener)
   await settings.load(); await chat.refreshGroups(); await chat.refreshConvs(null)
   // silent connection test on startup
   if (settings.currentApiKey()) {
@@ -324,7 +368,20 @@ async function onAiAction(e: Event) {
   await onSend(`${prompt}\n\n---\n${text}`)
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); activeAbort?.() })
+async function onNav(e: Event) {
+  const { href } = (e as CustomEvent).detail as { href: string }
+  const u = new URL(href)
+  const kind = u.hostname
+  const id = u.pathname.replace(/^\//, '')
+  if (!id) return
+  if (kind === 'note') { mode.value = 'notes'; /* NotesView will need to accept a noteId prop to auto-open */ }
+  else if (kind === 'book') { mode.value = 'library'; openBookId.value = id; window.lk.bookUpdate(id, {}).catch(() => {}) }
+  else if (kind === 'conv') { mode.value = 'chat'; const c = chat.convs.find(x => x.id === id); if (c) chat.selectConv(c.id) }
+  else if (kind === 'kp') { mode.value = 'notes'; /* future: KP detail view */ }
+  tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
+}
+
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">

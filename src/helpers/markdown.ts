@@ -1,11 +1,27 @@
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
+import katex from 'katex'
 
 marked.setOptions({
   breaks: true,
   gfm: true
 })
+
+// KaTeX renderer for inline $...$ and block $$...$$
+function renderKatex(text: string): string {
+  // Block math: $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_: string, formula: string) => {
+    try { return `<div class="katex-block">${katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>` }
+    catch { return `<pre>${formula}</pre>` }
+  })
+  // Inline math: $...$
+  text = text.replace(/\$(.*?)\$/g, (_: string, formula: string) => {
+    try { return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false }) }
+    catch { return `$${formula}$` }
+  })
+  return text
+}
 
 const renderer = new marked.Renderer()
 renderer.code = ({ text, lang }): string => {
@@ -21,16 +37,26 @@ renderer.code = ({ text, lang }): string => {
   }
   return `<pre><code class="hljs language-${lang || ''}">${highlighted}</code></pre>`
 }
+// Override paragraph to handle math blocks
+const origParagraph = renderer.paragraph.bind(renderer)
+renderer.paragraph = (args: any) => origParagraph(args)
+// Handle inline code with language for code blocks vs spans
+const origCodespan = renderer.codespan.bind(renderer)
+renderer.codespan = (args: any) => origCodespan(args)
+
 marked.use({ renderer })
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 export function renderMarkdown(src: string): string {
-  const raw = marked.parse(src || '', { async: false }) as string
-  return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] })
+  // Pre-process KaTeX before marked parses (to avoid conflict with markdown escaping)
+  const processed = renderKatex(src || '')
+  const raw = marked.parse(processed, { async: false }) as string
+  return DOMPurify.sanitize(raw, {
+    ADD_ATTR: ['target', 'data-type'],
+    ADD_TAGS: ['span', 'annotation'],
+    ALLOW_DATA_ATTR: true
+  })
 }

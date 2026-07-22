@@ -37,6 +37,7 @@
     "element-plus": "^2.8.4",
     "epubjs": "^0.3.93",
     "highlight.js": "^11.10.0",
+    "katex": "^0.18.1",
     "marked": "^14.1.2",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
