@@ -1,6 +1,5 @@
 <template>
-  <div class="app-root" @drop.prevent @dragover.prevent>
-    <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" @switch="onModeSwitch" @outline-click="onOutlineClick" />
+  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" @switch="onModeSwitch" @outline-click="onOutlineClick">
     <template v-if="mode === 'chat'">
       <SidebarView :style="{ width: sideWidth + 'px' }" class="side chat-side" />
       <div class="resizer" @mousedown="startResize"></div>
@@ -28,12 +27,12 @@
         <ComposeBar @send="onSend" :streaming="streaming" @abort="onAbort" />
       </template>
     </main>
-    <SettingsDialog v-model="settingsVisible" @saved="onSettingsSaved" />
-    <StudyPlanDialog v-model="studyPlanVisible" @created="onStudyPlanCreated" />
-    <ContextOverlay />
-    <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
-    <SelectionToolbar />
-  </div>
+  </Dock>
+  <SettingsDialog v-model="settingsVisible" @saved="onSettingsSaved" />
+  <StudyPlanDialog v-model="studyPlanVisible" @created="onStudyPlanCreated" />
+  <ContextOverlay />
+  <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
+  <SelectionToolbar />
 </template>
 
 <script setup lang="ts">
@@ -260,15 +259,14 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.rem
 </script>
 
 <style scoped lang="scss">
-.app-root { display: flex; height: 100vh; width: 100vw; }
-.side { height: 100vh; }
-.resizer { width: 4px; cursor: col-resize; background: var(--border); &:hover { background: var(--accent); } }
-.content { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100vh; }
-.view-slot { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.side { height: 100%; overflow: hidden; }
+.resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
+.content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .topbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border); }
 .title-area { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
 .title-input { max-width: 360px; background: transparent; }
 .toolbar { display: flex; gap: 8px; }
 .mode-icon { color: var(--accent); font-size: 18px; }
 .mode-title { font-weight: 600; }
+.view-slot { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 </style>
