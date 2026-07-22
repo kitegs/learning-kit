@@ -107,7 +107,7 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     const id = m.id ?? uuid()
     run(`INSERT INTO messages(id,conversation_id,role,content,note,model,sort) VALUES(?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET content=excluded.content, note=excluded.note, model=excluded.model`,
-      [id, m.conversationId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0])
+      [id, m.conversation_id || m.conversationId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0])
     schedulePersist()
     return id
   })
