@@ -235,12 +235,11 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
   const c = await chat.newConv(groupId, '问答 · ' + bookTitle)
   await chat.selectConv(c.id)
   // Record origin context on the conversation
-  await window.lk.convUpsert({
-    id: c.id, group_id: groupId, title: c.title,
-    origin_context: JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask' })
-  } as any)
-  // send the message
-  await onSend(`【电子书选段, 第 ${payload.page} 页】\n> ${payload.quote}\n\n${payload.question || '请解析这段内容'}`)
+  const ctxJson = JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask' })
+  await window.lk.convUpsert({ id: c.id, group_id: groupId, title: c.title, origin_context: ctxJson } as any)
+  // send the message with visible citation
+  const citationText = `> 📖 **${bookTitle}** · 第 ${payload.page} 页\n> *"${payload.quote.slice(0, 300)}${payload.quote.length > 300 ? '...' : ''}"*\n\n`
+  await onSend(citationText + (payload.question || '请解析这段内容'))
 }
 async function onStudyPlanCreated(planText: string) {
   if (!chat.currentConvId) { const c = await chat.newConv(null, '学习方案'); await chat.selectConv(c.id) }
