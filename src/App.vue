@@ -237,9 +237,34 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
   // Record origin context on the conversation
   const ctxJson = JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask' })
   await window.lk.convUpsert({ id: c.id, group_id: groupId, title: c.title, origin_context: ctxJson } as any)
-  // send the message with visible citation
+  // send the message with visible citation, and store citation in message note for CitationBlock
   const citationText = `> 📖 **${bookTitle}** · 第 ${payload.page} 页\n> *"${payload.quote.slice(0, 300)}${payload.quote.length > 300 ? '...' : ''}"*\n\n`
-  await onSend(citationText + (payload.question || '请解析这段内容'))
+  const userMsg: any = {
+    id: await window.lk.uuid(),
+    conversation_id: c.id,
+    role: 'user',
+    content: citationText + (payload.question || '请解析这段内容'),
+    note: JSON.stringify({ _citation: { book: bookTitle, bookId: payload.bookId, page: payload.page, quote: payload.quote } }),
+    sort: Math.floor(Date.now() / 1000)
+  }
+  await window.lk.msgSave(userMsg)
+  chat.activeMessages.push(userMsg)
+
+  const assistantMsg: any = {
+    id: await window.lk.uuid(), conversation_id: c.id, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1
+  }
+  assistantMsg.id = await chat.saveNewMessage(assistantMsg)
+  chat.activeMessages.push(assistantMsg)
+  const rMsg = chat.activeMessages[chat.activeMessages.length - 1]
+  streaming.value = true; activeAbort?.()
+  currentReqId = await window.lk.uuid()
+  const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
+  activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
+    if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
+    if (p.delta) rMsg.content += p.delta
+    if (p.done) { streaming.value = false; window.lk.msgPatch(rMsg.id, { content: rMsg.content }).then(() => window.lk.convTouch(c.id)) }
+  })
+  await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
 }
 async function onStudyPlanCreated(planText: string) {
   if (!chat.currentConvId) { const c = await chat.newConv(null, '学习方案'); await chat.selectConv(c.id) }
@@ -428,7 +453,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.rem
 </script>
 
 <style scoped lang="scss">
-.side { height: 100%; overflow: hidden; }
+.side { flex-shrink: 0; overflow: hidden; }
 .resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .topbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border); }

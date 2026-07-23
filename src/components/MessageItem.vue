@@ -9,6 +9,15 @@
         <span class="model" v-if="msg.model">· {{ msg.model }}</span>
       </div>
 
+      <CitationBlock
+        v-if="citation"
+        :book="citation.book"
+        :book-id="citation.bookId"
+        :page="citation.page"
+        :quote="citation.quote"
+        @go-to-book="onGoToBook"
+      />
+
       <MarkdownView v-if="!editing" :content="displayContent" />
       <el-input
         v-else
@@ -18,7 +27,7 @@
         autofocus
       />
 
-      <div v-if="msg.note" class="note-block">
+      <div v-if="msg.note && !citation" class="note-block">
         <div class="note-head">
           <el-icon><EditPen /></el-icon> 笔记
           <el-button text size="small" @click="openNote">编辑</el-button>
@@ -73,6 +82,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import MarkdownView from './MarkdownView.vue'
+import CitationBlock from './CitationBlock.vue'
 import type { Msg } from '../stores/chat'
 import { useContextMenu } from '../stores/context-menu'
 import { useChatStore } from '../stores/chat'
@@ -93,6 +103,15 @@ const displayContent = computed(() => {
   if (props.msg.role === 'assistant') return '<span class="typing-dots">Thinking<span class="dot-anim">...</span></span>'
   return ''
 })
+const citation = computed(() => {
+  try {
+    if (props.msg.note && props.msg.note.includes('_citation')) {
+      const parsed = JSON.parse(props.msg.note)
+      return parsed._citation || null
+    }
+  } catch { /* not JSON */ }
+  return null
+})
 
 const editing = ref(false)
 const editingDraft = ref('')
@@ -111,6 +130,10 @@ async function copyContent() {
 }
 
 function onDelete() { emit('delete') }
+
+function onGoToBook(bookId: string) {
+  window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://book/${bookId}` } }))
+}
 
 // context menu
 function onCtx(e: MouseEvent) {
