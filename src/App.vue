@@ -17,6 +17,7 @@
           <el-button v-if="mode === 'chat'" size="small" @click="openStudyPlan">学习方案</el-button>
           <el-button size="small" @click="openSettings">设置</el-button>
           <el-button v-if="mode === 'chat'" size="small" type="primary" @click="newBlankConv">新建空笔记</el-button>
+          <el-button v-if="mode === 'chat' && openBookId" size="small" type="warning" @click="goBackToBook">← 回到电子书</el-button>
         </div>
       </header>
       <TabBar />
@@ -139,7 +140,10 @@ watch(openBookId, async (id) => {
   bookKind.value = b?.kind || 'pdf'
 })
 
-function onModeSwitch(m: Mode) { mode.value = m; if (m !== 'library') openBookId.value = null }
+function onModeSwitch(m: Mode) {
+  if (m !== mode.value && m !== 'library') openBookId.value = null
+  mode.value = m
+}
 function startResize(e: MouseEvent) {
   const startX = e.clientX; const startW = sideWidth.value
   const move = (ev: MouseEvent) => { sideWidth.value = Math.max(220, Math.min(560, startW + (ev.clientX - startX))) }
@@ -162,6 +166,7 @@ function applyTitle() {
 }
 function onSettingsSaved() {}
 function onReaderBack() { openBookId.value = null }
+function goBackToBook() { mode.value = 'library'; /* openBookId already set, stays */ }
 function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number }) {
   searchOpen.value = false
   if (target.kind === 'conv' && target.id) { mode.value = 'chat'; chat.selectConv(target.id) }
@@ -211,7 +216,30 @@ function openBook(id: string) {
 }
 async function onAskFromReader(payload: { quote: string; question?: string; bookId: string; page: number }) {
   mode.value = 'chat'
-  if (!chat.currentConvId) { const c = await chat.newConv(null, '电子书问答'); await chat.selectConv(c.id) }
+  // Find or create a folder named after the book
+  const books = await window.lk.bookList()
+  const book = books.find((b: any) => b.id === payload.bookId)
+  const bookTitle = book?.title || 'Ebook'
+  let groupId: string | null = null
+  const existingGroups = await window.lk.groupsTree()
+  const bookGroup = existingGroups.find((g: any) => g.title === bookTitle && !g.parent_id)
+  if (bookGroup) {
+    groupId = bookGroup.id
+  } else {
+    const gid = await window.lk.uuid()
+    await window.lk.groupUpsert({ id: gid, parent_id: null, title: bookTitle, sort: Date.now(), expanded: 1 })
+    groupId = gid
+    await chat.refreshGroups()
+  }
+  // Always create a NEW conversation in this book's folder, with origin_context
+  const c = await chat.newConv(groupId, '问答 · ' + bookTitle)
+  await chat.selectConv(c.id)
+  // Record origin context on the conversation
+  await window.lk.convUpsert({
+    id: c.id, group_id: groupId, title: c.title,
+    origin_context: JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask' })
+  } as any)
+  // send the message
   await onSend(`【电子书选段, 第 ${payload.page} 页】\n> ${payload.quote}\n\n${payload.question || '请解析这段内容'}`)
 }
 async function onStudyPlanCreated(planText: string) {

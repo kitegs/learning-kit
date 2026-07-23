@@ -30,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, provide, ref } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { MoreFilled } from '@element-plus/icons-vue'
 import TreeItem from '../components/TreeItem.vue'
@@ -197,6 +197,10 @@ onMounted(async () => {
     expandedSet.value = new Set(allGroupIds(mergedTree.value))
     persistExpanded()
   }
+})
+
+watch([() => chat.groups, () => chat.convs], () => {
+  treeKey.value++
 })
 </script>
 
