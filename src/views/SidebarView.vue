@@ -160,7 +160,7 @@ async function deleteConv(node: any) {
 async function refresh() {
   await chat.refreshGroups()
   // load ALL conversations regardless of group_id (refreshConvs(null) only loads root-level ones)
-  chat.convs.value = await window.lk.convAll()
+  chat.convs = await window.lk.convAll()
 }
 
 function onBarCommand(cmd: string) {
@@ -183,7 +183,7 @@ provide('treeActions', { isExpanded, toggle, select, ctx, drop, groupAction })
 
 onMounted(async () => {
   await chat.refreshGroups()
-  chat.convs.value = await window.lk.convAll()
+  chat.convs = await window.lk.convAll()
   const saved = await window.lk.getSetting('chatTreeExpanded')
   if (saved) {
     try { expandedSet.value = new Set(JSON.parse(saved)) }
