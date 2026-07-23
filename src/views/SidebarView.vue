@@ -16,7 +16,7 @@
       </el-dropdown>
     </div>
 
-    <div class="ex-tree">
+    <div class="ex-tree" :key="treeKey">
       <TreeItem
         v-for="n in mergedTree"
         :key="n.id"
@@ -41,8 +41,12 @@ const chat = useChatStore()
 const menu = useContextMenu()
 
 const expandedSet = ref<Set<string>>(new Set())
+const treeKey = ref(0)
 
-const mergedTree = computed(() => buildMergedTree(chat.groups, chat.convs))
+const mergedTree = computed(() => {
+  void treeKey.value // re-eval on bump
+  return buildMergedTree(chat.groups, chat.convs)
+})
 
 function buildMergedTree(groups: any[], convs: any[]) {
   const convByGroup = new Map<string | null, any[]>()
@@ -161,6 +165,7 @@ async function refresh() {
   await chat.refreshGroups()
   // load ALL conversations regardless of group_id (refreshConvs(null) only loads root-level ones)
   chat.convs = await window.lk.convAll()
+  treeKey.value++
 }
 
 function onBarCommand(cmd: string) {
