@@ -112,14 +112,14 @@ function drop(target: any, kind: string, e: DragEvent) {
   if (!data) return
   if (kind === 'group') {
     if (data.kind === 'conv' && data.id !== target.id) {
-      window.lk.convUpsert({ id: data.id, group_id: target.id, title: data.title || '对话', sort: Date.now() })
+      window.lk.convUpsert({ id: data.id, group_id: target.id, title: data.title || '对话', sort: data.sort ?? Date.now() })
     } else if (data.kind === 'group' && data.id !== target.id) {
       window.lk.groupUpsert({ id: data.id, parent_id: target.id, title: data.title, sort: data.sort ?? 0, expanded: expandedSet.value.has(data.id) ? 1 : 0 })
       expandedSet.value.add(target.id); expandedSet.value = new Set(expandedSet.value); persistExpanded()
     }
   } else {
     if (data.kind === 'conv' && data.id !== target.id) {
-      window.lk.convUpsert({ id: data.id, group_id: target.group_id ?? null, title: data.title || '对话', sort: Date.now() })
+      window.lk.convUpsert({ id: data.id, group_id: target.group_id ?? null, title: data.title || '对话', sort: data.sort ?? Date.now() })
     }
   }
   refresh()

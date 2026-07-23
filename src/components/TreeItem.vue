@@ -92,7 +92,7 @@ function rel(ts: string | undefined): string {
 }
 
 function onDragStart(e: DragEvent) {
-  e.dataTransfer?.setData('text/plain', JSON.stringify({ id: props.node.id, kind: props.node.kind, group_id: props.node.group_id ?? props.node.parentId }))
+  e.dataTransfer?.setData('text/plain', JSON.stringify({ id: props.node.id, kind: props.node.kind, title: props.node.title, sort: props.node.sort, group_id: props.node.group_id ?? props.node.parentId }))
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
 }
 // group container is the drop zone: dropping anywhere on the group (header or children) nests into it
