@@ -80,8 +80,7 @@ function toggle(id: string) {
   expandedSet.value = new Set(expandedSet.value)
   persistExpanded()
 }
-function select(id: string) { chat.selectConv(id) }
-
+async function select(id: string) { await chat.selectConv(id) }
 function ctx(e: MouseEvent, node: any) { openMenu(e, node) }
 function openMenu(e: MouseEvent, node: any) {
   if (node.kind === 'group') {
@@ -184,7 +183,7 @@ async function newSubGroupRoot() {
   await refresh()
 }
 
-provide('treeActions', { isExpanded, toggle, select, ctx, drop, groupAction })
+provide('treeActions', { isExpanded, toggle, select: select, ctx, drop, groupAction })
 
 onMounted(async () => {
   await chat.refreshGroups()

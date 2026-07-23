@@ -231,17 +231,27 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
     groupId = gid
     await chat.refreshGroups()
   }
-  // Always create a NEW conversation in this book's folder, with origin_context
-  const c = await chat.newConv(groupId, '问答 · ' + bookTitle)
-  await chat.selectConv(c.id)
-  // Record origin context on the conversation
-  const ctxJson = JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask' })
-  await window.lk.convUpsert({ id: c.id, group_id: groupId, title: c.title, origin_context: ctxJson } as any)
-  // send the message with visible citation, and store citation in message note for CitationBlock
+  // Reuse an existing conversation in this book's folder, or create one
+  const existingConvs = await window.lk.convAll()
+  const bookConv = existingConvs.findLast((c: any) => c.group_id === groupId && (c.origin_context || '').includes(payload.bookId))
+  let convId: string
+  if (bookConv) {
+    convId = bookConv.id
+    await chat.selectConv(convId)
+    await window.lk.convTouch(convId)
+  } else {
+    const newC = await chat.newConv(groupId, '问答 · ' + bookTitle)
+    convId = newC.id
+    await chat.selectConv(convId)
+    await window.lk.convUpsert({
+      id: convId, group_id: groupId, title: newC.title,
+      origin_context: JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask', first: true })
+    } as any)
+  }
   const citationText = `> 📖 **${bookTitle}** · 第 ${payload.page} 页\n> *"${payload.quote.slice(0, 300)}${payload.quote.length > 300 ? '...' : ''}"*\n\n`
   const userMsg: any = {
     id: await window.lk.uuid(),
-    conversation_id: c.id,
+    conversation_id: convId,
     role: 'user',
     content: citationText + (payload.question || '请解析这段内容'),
     note: JSON.stringify({ _citation: { book: bookTitle, bookId: payload.bookId, page: payload.page, quote: payload.quote } }),
@@ -251,7 +261,7 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
   chat.activeMessages.push(userMsg)
 
   const assistantMsg: any = {
-    id: await window.lk.uuid(), conversation_id: c.id, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1
+    id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1
   }
   assistantMsg.id = await chat.saveNewMessage(assistantMsg)
   chat.activeMessages.push(assistantMsg)
@@ -262,7 +272,7 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
   activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
     if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
     if (p.delta) rMsg.content += p.delta
-    if (p.done) { streaming.value = false; window.lk.msgPatch(rMsg.id, { content: rMsg.content }).then(() => window.lk.convTouch(c.id)) }
+    if (p.done) { streaming.value = false; window.lk.msgPatch(rMsg.id, { content: rMsg.content }).then(() => window.lk.convTouch(convId)) }
   })
   await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
 }
