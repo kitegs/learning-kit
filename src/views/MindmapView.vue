@@ -115,7 +115,18 @@ function onMessage(e: MessageEvent) {
   if (!e.data || typeof e.data !== 'string') return
   let msg: any
   try { msg = JSON.parse(e.data) } catch { return }
-  if (msg.event === 'init' || msg.event === 'ready') {
+  if (msg.event === 'configure') {
+    // Editor asks for config before init. Hide the file-save menus that would otherwise
+    // call showSaveFilePicker (forbidden in cross-origin iframes) and the exit/print items,
+    // since we own persistence + export via the host toolbar.
+    postToIframe({
+      action: 'configure',
+      config: {
+        hideMenuItems: ['save', 'saveAs', 'exit', 'print', 'share'],
+        suppressNewWindows: true,
+      }
+    })
+  } else if (msg.event === 'init' || msg.event === 'ready') {
     iframeReady = true
     status.value = 'Ready'
     const xml = pendingXml || currentXml.value || emptyXml()
@@ -136,24 +147,34 @@ function onMessage(e: MessageEvent) {
 
 function handleExportResult(msg: any) {
   if (msg.format === 'xml') {
-    currentXml.value = msg.data || msg.xml || ''
+    currentXml.value = msg.xml || msg.data || ''
     if (currentId.value) {
       window.lk.diagUpsert({ id: currentId.value, title: currentTitle.value, xml: currentXml.value })
       status.value = 'Saved'
       ElMessage.success('Saved')
     }
-  } else if (msg.format === 'png' || msg.format === 'svg') {
-    const data = msg.data || ''
-    if (msg.format === 'png') {
-      const a = document.createElement('a'); a.href = 'data:image/png;base64,' + data
-      a.download = (currentTitle.value || 'diagram') + '.png'; a.click()
-    } else {
-      const blob = new Blob([data], { type: 'image/svg+xml' })
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-      a.download = (currentTitle.value || 'diagram') + '.svg'; a.click()
-    }
-    status.value = 'Exported ' + msg.format.toUpperCase()
+    return
   }
+  // draw.io returns `data` as a COMPLETE data URI (e.g. data:image/png;base64,... or
+  // data:image/svg+xml;...). Use it directly as the download href — do NOT prepend another
+  // prefix (that double-prefix broke PNG) and do NOT wrap it in a Blob as text (that put the
+  // literal "data:..." string into the file, which broke SVG with "Start tag expected").
+  let href = msg.data || ''
+  if (!href) return
+  // Defensive: if for some reason we got raw XML/SVG text instead of a data URI, wrap it.
+  if (msg.format === 'svg' && !href.startsWith('data:')) {
+    href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(href)
+  } else if (msg.format === 'png' && !href.startsWith('data:')) {
+    href = 'data:image/png;base64,' + href
+  }
+  const ext = msg.format === 'svg' ? '.svg' : '.png'
+  const a = document.createElement('a')
+  a.href = href
+  a.download = (currentTitle.value || 'diagram') + ext
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  status.value = 'Exported ' + msg.format.toUpperCase()
 }
 
 // ── CRUD ──
@@ -325,7 +346,7 @@ onMounted(async () => {
   // stealth=1 + noDevice=1 + browser=0 => no cloud/device storage UI, we own persistence via SQLite
   // suppressNewWindows=1 => link clicks route to host instead of popping windows
   // splash=0 => skip splash screen
-  iframeSrc.value = `http://127.0.0.1:${port}/?client=1&proto=json&lang=zh&splash=0&stealth=1&noDevice=1&browser=0&suppressNewWindows=1`
+  iframeSrc.value = `http://127.0.0.1:${port}/?client=1&proto=json&configure=1&lang=zh&splash=0&stealth=1&noDevice=1&browser=0&suppressNewWindows=1`
   await loadList()
   if (diagrams.value.length) await selectDiagram(diagrams.value[0].id)
 })
