@@ -25,7 +25,7 @@
         <component :is="contentComponent" :bookIdProp="openBookId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
       </div>
       <template v-if="mode === 'chat'">
-        <ComposeBar @send="onSend" :streaming="streaming" @abort="onAbort" />
+        <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" />
       </template>
     </main>
   </Dock>
@@ -95,11 +95,12 @@ const streaming = ref(false)
 const mode = ref<Mode>('chat')
 const openBookId = ref<string | null>(null)
 const searchOpen = ref(false)
+const pendingCitation = ref<{ bookTitle: string; bookId: string; page: number; quote: string } | null>(null)
 
 let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
   const seq = ++switchSeq
-  if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null }
+  if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null; pendingCitation.value = null }
   if (target !== 'library') openBookId.value = null
   jumpToNoteId.value = null
   jumpToHighlight.value = null
@@ -286,33 +287,8 @@ async function onAskFromReader(payload: { quote: string; question?: string; book
       origin_context: JSON.stringify({ book_id: payload.bookId, book_title: bookTitle, page: payload.page, selected_text: payload.quote, trigger: 'selection_ask', first: true })
     } as any)
   }
-  const citationText = `> 📖 **${bookTitle}** · 第 ${payload.page} 页\n> *"${payload.quote.slice(0, 300)}${payload.quote.length > 300 ? '...' : ''}"*\n\n`
-  const userMsg: any = {
-    id: await window.lk.uuid(),
-    conversation_id: convId,
-    role: 'user',
-    content: citationText + (payload.question || '请解析这段内容'),
-    note: JSON.stringify({ _citation: { book: bookTitle, bookId: payload.bookId, page: payload.page, quote: payload.quote } }),
-    sort: Math.floor(Date.now() / 1000)
-  }
-  await window.lk.msgSave(userMsg)
-  chat.activeMessages.push(userMsg)
-
-  const assistantMsg: any = {
-    id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1
-  }
-  assistantMsg.id = await chat.saveNewMessage(assistantMsg)
-  chat.activeMessages.push(assistantMsg)
-  const rMsg = chat.activeMessages[chat.activeMessages.length - 1]
-  streaming.value = true; activeAbort?.()
-  currentReqId = await window.lk.uuid()
-  const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
-  activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
-    if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
-    if (p.delta) rMsg.content += p.delta
-    if (p.done) { streaming.value = false; window.lk.msgPatch(rMsg.id, { content: rMsg.content }).then(() => window.lk.convTouch(convId)) }
-  })
-  await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+  // Set citation preview — user edits prompt then sends manually
+  pendingCitation.value = { bookTitle, bookId: payload.bookId, page: payload.page, quote: payload.quote }
 }
 async function onStudyPlanCreated(planText: string) {
   if (!chat.currentConvId) { const c = await chat.newConv(null, '学习方案'); await chat.selectConv(c.id) }
@@ -321,6 +297,8 @@ async function onStudyPlanCreated(planText: string) {
 async function onSend(text: string) {
   if (streaming.value) return
   log('send_start', text.slice(0, 60))
+  const citation = pendingCitation.value
+  if (citation) pendingCitation.value = null
   try {
     if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || 'New Chat'); await chat.selectConv(c.id) }
     const convId = chat.currentConvId!
@@ -328,7 +306,15 @@ async function onSend(text: string) {
       chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '**No API Key configured.** Open Settings (gear icon) and enter your API key for ' + settings.provider + '.', model: 'system' } as any)
       return
     }
-    const userMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'user', content: text, note: null, sort: Math.floor(Date.now() / 1000) }
+    const citationText = citation
+      ? `> 📖 **${citation.bookTitle}** · 第 ${citation.page} 页\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
+      : ''
+    const userMsg: any = {
+      id: await window.lk.uuid(), conversation_id: convId, role: 'user',
+      content: citationText + text,
+      note: citation ? JSON.stringify({ _citation: { book: citation.bookTitle, bookId: citation.bookId, page: citation.page, quote: citation.quote } }) : null,
+      sort: Math.floor(Date.now() / 1000)
+    }
     await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
     const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1 }
     assistantMsg.id = await chat.saveNewMessage(assistantMsg)

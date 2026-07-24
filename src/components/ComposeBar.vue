@@ -1,9 +1,16 @@
 <template>
   <div class="composer">
+    <div v-if="citation" class="citation-preview">
+      <div class="citation-body">
+        <span class="citation-label">📖 {{ citation.bookTitle }} · 第 {{ citation.page }} 页</span>
+        <span class="citation-quote">"{{ citation.quote.slice(0, 100) }}{{ citation.quote.length > 100 ? '...' : '' }}"</span>
+      </div>
+      <el-button size="small" text class="citation-close" @click="$emit('dismiss-citation')">✕</el-button>
+    </div>
     <el-input
       v-model="text"
       type="textarea"
-      :rows="3"
+      :rows="citation ? 2 : 3"
       resize="none"
       placeholder="输入问题，Enter 发送 / Shift+Enter 换行"
       @keydown.enter.exact.prevent="send"
@@ -26,10 +33,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const props = defineProps<{ streaming: boolean }>()
+export interface CitationData { bookTitle: string; bookId: string; page: number; quote: string }
+
+const props = defineProps<{ streaming: boolean; citation?: CitationData | null }>()
 const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'abort'): void
+  (e: 'dismiss-citation'): void
 }>()
 const text = ref('')
 
@@ -38,11 +48,8 @@ function send() {
   if (!t || props.streaming) return
   console.log('[ComposeBar] send:', t)
   try {
-    console.log('[ComposeBar] about to emit')
     emit('send', t)
-    console.log('[ComposeBar] emit done')
   } catch (e: any) { console.error('[ComposeBar] send error:', e) }
-  console.log('[ComposeBar] clearing text')
   text.value = ''
 }
 </script>
@@ -58,6 +65,27 @@ function send() {
   margin: 0 auto;
   box-sizing: border-box;
 }
+.citation-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.citation-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.citation-label { color: var(--accent); font-weight: 600; }
+.citation-quote { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.citation-close { flex: 0 0 auto; font-size: 14px; }
 .bar {
   display: flex;
   align-items: center;
