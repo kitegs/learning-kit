@@ -302,12 +302,19 @@ export function getDb(): Database {
 let persistTimer: NodeJS.Timeout | null = null
 export function persist(): void {
   if (!db) return
-  const data = db.export()
-  writeFileSync(dbPath, Buffer.from(data))
+  try {
+    const data = db.export()
+    writeFileSync(dbPath, Buffer.from(data))
+  } catch (e: any) {
+    console.error('[db] persist failed:', e?.message || e)
+  }
 }
 export function schedulePersist(): void {
   if (persistTimer) clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => { persist(); persistTimer = null }, 250)
+  persistTimer = setTimeout(() => {
+    try { persist() } catch (e: any) { console.error('[db] schedulePersist error:', e?.message || e) }
+    persistTimer = null
+  }, 250)
 }
 
 export const uuid = (): string =>

@@ -308,10 +308,10 @@ async function onSend(text: string) {
           const actions = parseActions(rMsg.content)
           if (actions.length) executeActions(actions).then((summary) => {
             if (summary) rMsg.content += '\n\n---\n**App actions executed:**\n' + summary
-            window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+            window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
           })
-          else window.lk.msgPatch(rMsg.id, { content: rMsg.content })
-          window.lk.convTouch(convId)
+          else window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
+          window.lk.convTouch(convId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
         }
       } catch (e) { console.error('[onChunk]', e) }
     })
