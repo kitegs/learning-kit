@@ -300,24 +300,26 @@ async function onSend(text: string) {
     currentReqId = await window.lk.uuid()
     const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
     activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
-      if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
-      if (p.delta) rMsg.content += p.delta
-      if (p.done) {
-        streaming.value = false
-        // parse and execute [[ACTION:...]] tags
-        const actions = parseActions(rMsg.content)
-        if (actions.length) executeActions(actions).then((summary) => {
-          if (summary) rMsg.content += '\n\n---\n**App actions executed:**\n' + summary
-          window.lk.msgPatch(rMsg.id, { content: rMsg.content })
-        })
-        else window.lk.msgPatch(rMsg.id, { content: rMsg.content })
-        window.lk.convTouch(convId)
-      }
+      try {
+        if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
+        if (p.delta) rMsg.content += p.delta
+        if (p.done) {
+          streaming.value = false
+          const actions = parseActions(rMsg.content)
+          if (actions.length) executeActions(actions).then((summary) => {
+            if (summary) rMsg.content += '\n\n---\n**App actions executed:**\n' + summary
+            window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+          })
+          else window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+          window.lk.convTouch(convId)
+        }
+      } catch (e) { console.error('[onChunk]', e) }
     })
     await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
   } catch (err: any) {
     streaming.value = false
     const msg = err?.message || String(err)
+    console.error('[onSend] send failed:', err)
     if (chat.currentConvId) {
       chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: chat.currentConvId, role: 'assistant', content: `**Send failed:** ${msg}\n\nCheck your API key and network connection in Settings.`, model: 'error' } as any)
     }
@@ -424,6 +426,8 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
 }
 
 onMounted(async () => {
+  window.addEventListener('error', (ev) => console.error('[global]', ev.error || ev.message))
+  window.addEventListener('unhandledrejection', (ev) => console.error('[unhandled]', ev.reason))
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
