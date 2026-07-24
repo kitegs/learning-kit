@@ -72,31 +72,12 @@ const mode = ref<Mode>('chat')
 const openBookId = ref<string | null>(null)
 const searchOpen = ref(false)
 
-let switchSeq = 0
-function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
-  const seq = ++switchSeq
-  // clean up streaming when leaving chat
-  if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null }
-  // clear openBookId when leaving library
-  if (target !== 'library') openBookId.value = null
-  // clear jump targets (will be re-set from ctx below if provided)
-  jumpToNoteId.value = null
-  jumpToHighlight.value = null
-  // set mode
-  mode.value = target
-  if (seq !== switchSeq) return
-  // apply context
-  if (ctx?.bookId) openBookId.value = ctx.bookId
-  if (ctx?.noteId) jumpToNoteId.value = ctx.noteId
-  if (ctx?.convId) chat.selectConv(ctx.convId)
-  if (ctx?.highlight) jumpToHighlight.value = ctx.highlight
-}
-
 // watch tab activation -> switch mode + data
 watch(() => tabStore.activeTab, (tab) => {
   if (!tab) return
   const m = tab.type === 'ebook' ? 'library' : tab.type === 'note' ? 'notes' : tab.type === 'mindmap' ? 'mindmap' : tab.type === 'review' ? 'review' : tab.type === 'library' ? 'library' : 'chat'
-  switchMode(m as Mode, { bookId: tab.data.bookId })
+  mode.value = m as Mode
+  if (tab.data.bookId) openBookId.value = tab.data.bookId
 })
 
 const jumpToNoteId = ref<string | null>(null)
@@ -159,7 +140,10 @@ watch(openBookId, async (id) => {
   bookKind.value = b?.kind || 'pdf'
 })
 
-function onModeSwitch(m: Mode) { switchMode(m) }
+function onModeSwitch(m: Mode) {
+  if (m !== mode.value && m !== 'library') openBookId.value = null
+  mode.value = m
+}
 function startResize(e: MouseEvent) {
   const startX = e.clientX; const startW = sideWidth.value
   const move = (ev: MouseEvent) => { sideWidth.value = Math.max(220, Math.min(560, startW + (ev.clientX - startX))) }
@@ -182,16 +166,16 @@ function applyTitle() {
 }
 function onSettingsSaved() {}
 function onReaderBack() { openBookId.value = null }
-function goBackToBook() { switchMode('library') }
+function goBackToBook() { mode.value = 'library'; /* openBookId already set, stays */ }
 function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number }) {
   searchOpen.value = false
-  if (target.kind === 'conv' && target.id) switchMode('chat', { convId: target.id })
-  else if (target.kind === 'msg' && target.conversationId) switchMode('chat', { convId: target.conversationId })
-  else if (target.kind === 'note' && target.id) switchMode('notes', { noteId: target.id })
-  else if (target.kind === 'mindmap') switchMode('mindmap')
-  else if (target.kind === 'book' && target.id) switchMode('library', { bookId: target.id })
-  else if (target.kind === 'highlight' && target.bookId) switchMode('library', { bookId: target.bookId, highlight: { bookId: target.bookId, page: target.page || 1 } })
-  else if (target.kind === 'card') switchMode('review')
+  if (target.kind === 'conv' && target.id) { mode.value = 'chat'; chat.selectConv(target.id) }
+  else if (target.kind === 'msg' && target.conversationId) { mode.value = 'chat'; chat.selectConv(target.conversationId) }
+  else if (target.kind === 'note' && target.id) { mode.value = 'notes'; jumpToNoteId.value = target.id }
+  else if (target.kind === 'mindmap') { mode.value = 'mindmap' }
+  else if (target.kind === 'book' && target.id) { mode.value = 'library'; openBookId.value = target.id }
+  else if (target.kind === 'highlight' && target.bookId) { mode.value = 'library'; openBookId.value = target.bookId; jumpToHighlight.value = { bookId: target.bookId, page: target.page || 1 } }
+  else if (target.kind === 'card') { mode.value = 'review' }
 }
 function matchShortcut(e: KeyboardEvent, sc: string): boolean {
   if (!sc) return false
@@ -226,12 +210,12 @@ function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'w') { e.preventDefault(); tabStore.closeTab(tabStore.activeId); return }
 }
 function openBook(id: string) {
-  switchMode('library', { bookId: id })
+  openBookId.value = id; mode.value = 'library'
   window.lk.bookList().then(books => { const b = books.find((x: any) => x.id === id); tabStore.openTab({ type: 'ebook', title: b?.title || 'Book', data: { bookId: id } }) })
   window.lk.bookUpdate(id, {}).catch(() => {})
 }
 async function onAskFromReader(payload: { quote: string; question?: string; bookId: string; page: number }) {
-  switchMode('chat')
+  mode.value = 'chat'
   // Find or create a folder named after the book
   const books = await window.lk.bookList()
   const book = books.find((b: any) => b.id === payload.bookId)
@@ -443,7 +427,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
-  await settings.load(); await chat.refreshGroups(); chat.convs = await window.lk.convAll()
+  await settings.load(); await chat.refreshGroups(); await chat.refreshConvs(null)
   // silent connection test on startup
   if (settings.currentApiKey()) {
     window.lk.aiTest({ provider: settings.provider, model: settings.model, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
@@ -457,7 +441,7 @@ onMounted(async () => {
 })
 async function onAiAction(e: Event) {
   const { text, prompt, expectXml } = (e as CustomEvent).detail
-  if (!expectXml) switchMode('chat')
+  if (!expectXml) mode.value = 'chat'
   if (!chat.currentConvId) { const c = await chat.newConv(null, 'AI Action'); await chat.selectConv(c.id) }
   await onSend(`${prompt}\n\n---\n${text}`)
 }
@@ -468,10 +452,10 @@ async function onNav(e: Event) {
   const kind = u.hostname
   const id = u.pathname.replace(/^\//, '')
   if (!id) return
-  if (kind === 'note') { switchMode('notes', { noteId: id }) }
-  else if (kind === 'book') { switchMode('library', { bookId: id }); window.lk.bookUpdate(id, {}).catch(() => {}) }
-  else if (kind === 'conv') { switchMode('chat', { convId: id }) }
-  else if (kind === 'kp') { switchMode('notes') }
+  if (kind === 'note') { mode.value = 'notes'; /* NotesView will need to accept a noteId prop to auto-open */ }
+  else if (kind === 'book') { mode.value = 'library'; openBookId.value = id; window.lk.bookUpdate(id, {}).catch(() => {}) }
+  else if (kind === 'conv') { mode.value = 'chat'; const c = chat.convs.find(x => x.id === id); if (c) chat.selectConv(c.id) }
+  else if (kind === 'kp') { mode.value = 'notes'; /* future: KP detail view */ }
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
