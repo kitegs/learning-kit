@@ -39,6 +39,7 @@
         <el-button size="small" @click="resetView">Reset</el-button>
         <el-button v-if="panX!==0||panY!==0" size="small" type="warning" @click="recenterPage">Center</el-button>
         <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">Annotate</el-button>
+        <el-button size="small" type="success" @click="refOpen=true">引用</el-button>
       </div>
       <div v-if="annMode" class="ann-toolbar">
         <el-button-group size="small">
@@ -92,6 +93,9 @@
       <button class="danger" @click="hlActionDelete">Del</button>
     </div>
   </div>
+  <Teleport to="body">
+    <EbookRefPanel :visible="refOpen" :items="outline" :total-pages="totalPages" :current-page="page" @close="refOpen=false" @confirm="handleRef" />
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -100,6 +104,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useContextMenu } from '../stores/context-menu'
+import EbookRefPanel from '../components/EbookRefPanel.vue'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -127,6 +132,7 @@ const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
 const selPopup = ref({ show: false, x: 0, y: 0, text: '', rectX: null as number|null, rectY: null as number|null, rectW: null as number|null, rectH: null as number|null })
 const aiMenuOpen = ref(false)
+const refOpen = ref(false)
 const dragHint = ref<string|null>(null)
 const hlColor = ref<'yellow'|'green'|'blue'|'pink'>('yellow')
 const hlActionBar = ref({ show: false, x: 0, y: 0, id: '', text: '', color: '' })
@@ -667,6 +673,42 @@ function onWheel(e: WheelEvent) {
   const atTop = w.scrollTop <= 0, atBottom = w.scrollTop + w.clientHeight >= w.scrollHeight - 2
   if (e.deltaY > 0 && atBottom) { e.preventDefault(); nextPage() }
   else if (e.deltaY < 0 && atTop && page.value > 1) { e.preventDefault(); prevPage() }
+}
+
+// ── reference panel ──
+async function handleRef(data: { startPage: number; endPage: number; action: string; chapterTitle?: string }) {
+  refOpen.value = false
+  // Extract text from selected pages
+  const pages: string[] = []
+  for (let p = data.startPage; p <= data.endPage; p++) {
+    try {
+      const pageObj = await pdfDoc.getPage(p)
+      const tc = await pageObj.getTextContent()
+      pages.push(tc.items.map((i: any) => i.str).filter(Boolean).join(' '))
+    } catch { pages.push('') }
+  }
+  const quote = pages.join('\n').trim().slice(0, 3000)
+  if (!quote) { ElMessage.warning('未能提取文本'); return }
+
+  const refTitle = data.chapterTitle || `${data.startPage}–${data.endPage} 页`
+
+  if (data.action === 'analyze' || data.action === 'summary') {
+    const question = data.action === 'summary' ? '请总结这段内容' : '请分析这段内容'
+    emit('ask-ai', { quote, question, bookId: bookId.value || '', page: data.startPage })
+  } else if (data.action === 'note') {
+    const noteId = await window.lk.uuid()
+    await window.lk.notesUpsert({ id: noteId, title: '引用 · ' + refTitle, body: quote, kind: 'note', sort: Date.now() })
+    ElMessage.success('笔记已创建')
+  } else if (data.action === 'card') {
+    let decks = await window.lk.deckList()
+    let deckId = decks[0]?.id
+    if (!deckId) {
+      deckId = await window.lk.uuid()
+      await window.lk.deckUpsert({ id: deckId, title: '默认牌组', sort: 0 })
+    }
+    await window.lk.cardSave({ deckId, front: refTitle, back: quote.slice(0, 500), kind: 'qa' })
+    ElMessage.success('闪卡已创建')
+  }
 }
 
 // ── lifecycle hooks ──
