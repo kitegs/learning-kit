@@ -296,7 +296,139 @@ function testResultWrapper() {
   })
 }
 
-// ===== Main =====
+// --- Test: Tree building (simulates the SidebarView race condition) ---
+function testSidebarTreeRace() {
+  const g1 = uuid(), g2 = uuid(), c1 = uuid(), c2 = uuid()
+
+  // setup: 2 groups, 2 conversations under g1, 1 under g2
+  db.run('INSERT INTO groups(id,title,sort,expanded) VALUES(?,?,?,?)', [g1, 'group1', 0, 1])
+  db.run('INSERT INTO groups(id,title,sort,expanded) VALUES(?,?,?,?)', [g2, 'group2', 1, 1])
+  db.run('INSERT INTO conversations(id,group_id,title,sort) VALUES(?,?,?,?)', [c1, g1, 'conv1', 0])
+  db.run('INSERT INTO conversations(id,group_id,title,sort) VALUES(?,?,?,?)', [c2, g1, 'conv2', 1])
+  db.run('INSERT INTO conversations(id,group_id,title,sort) VALUES(?,?,?,?)', [uuid(), g2, 'conv3', 0])
+  db.run('INSERT INTO conversations(id,group_id,title,sort) VALUES(?,?,?,?)', [uuid(), null, 'root-conv', 0])
+
+  // --- Simulate the OLD sequential race ---
+  // Phase 1: only groups loaded (as they would appear after first await in onMounted)
+  const groupRows = db.exec('SELECT id,parent_id,title,sort,expanded FROM groups ORDER BY sort')
+  const groups = groupRows[0].values.map(r => ({
+    id: r[0], parentId: r[1] ?? null, title: r[2], sort: r[3], expanded: !!r[4]
+  }))
+
+  // Phase 2: conversations not yet loaded → tree appears empty
+  // At this point, buildMergedTree would show groups with NO conversations
+  // This is the bug: groups appear as "empty folders"
+
+  // Phase 3: conversations loaded
+  const convRows = db.exec('SELECT id,group_id,title,sort,updated_at FROM conversations')
+  const convs = convRows[0].values.map(r => ({
+    id: r[0], group_id: r[1] ?? null, title: r[2], sort: r[3], updated_at: r[4] || ''
+  }))
+
+  // Verify convs exist (3 in groups + 1 root)
+  const groupConvs = convs.filter(c => c.group_id === g1)
+  if (groupConvs.length !== 2) throw new Error('expected 2 convs in group1')
+
+  // The fix: when both groups and convs are fetched in the same tick,
+  // buildMergedTree should produce correct tree with non-empty groups
+  function buildMergedTree(groups, convs) {
+    const convByGroup = new Map()
+    for (const c of convs) {
+      const k = c.group_id ?? 'null'
+      if (!convByGroup.has(k)) convByGroup.set(k, [])
+      convByGroup.get(k).push(c)
+    }
+    const sortConvs = (arr) => arr.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+    const convNodes = (gid) =>
+      sortConvs(convByGroup.get(gid) || []).map(c => ({ id: c.id, kind: 'conv', title: c.title, group_id: c.group_id }))
+    const mapGroup = (g) => ({
+      id: g.id, kind: 'group', title: g.title, parentId: g.parentId,
+      children: [...(g.children || []).map(mapGroup), ...convNodes(g.id)],
+    })
+    const topGroups = groups.filter(g => !g.parentId).sort((a, b) => a.sort - b.sort)
+    return [...topGroups.map(mapGroup), ...convNodes('null')]
+  }
+
+  // Verify tree with full data (should have convs in groups)
+  const tree = buildMergedTree(groups, convs)
+  if (tree.length !== 3) throw new Error(`expected 3 top-level items, got ${tree.length}`)
+  // group1 should have 2 conversations
+  const group1Node = tree.find(n => n.title === 'group1')
+  if (!group1Node) throw new Error('group1 not found in tree')
+  if (group1Node.children.length !== 2) throw new Error(`group1 expected 2 children, got ${group1Node.children.length}`)
+  // group2 should have 1 conversation
+  const group2Node = tree.find(n => n.title === 'group2')
+  if (!group2Node) throw new Error('group2 not found in tree')
+  if (group2Node.children.length !== 1) throw new Error(`group2 expected 1 child, got ${group2Node.children.length}`)
+  // root should have 1 conversation
+  const rootNode = tree.find(n => n.kind === 'conv')
+  if (!rootNode) throw new Error('root conv not found')
+
+  // Now simulate the race: groups loaded but convs empty
+  const partialTree = buildMergedTree(groups, [])
+  if (partialTree.length !== 2) throw new Error(`expected 2 groups (no root convs), got ${partialTree.length}`)
+  if (partialTree[0].children.length !== 0) throw new Error('groups should appear empty when convs not loaded')
+  // The partial tree groups SHOULD be empty - this is the transient state we want to eliminate
+}
+
+// --- Test: Empty/data states (covers all SidebarView states) ---
+function testEmptyDataStates() {
+  function buildMergedTree(groups, convs) {
+    const convByGroup = new Map()
+    for (const c of convs) {
+      const k = c.group_id ?? 'null'
+      if (!convByGroup.has(k)) convByGroup.set(k, [])
+      convByGroup.get(k).push(c)
+    }
+    const sortConvs = (arr) => arr.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+    const convNodes = (gid) =>
+      sortConvs(convByGroup.get(gid) || []).map(c => ({ id: c.id, kind: 'conv', title: c.title, group_id: c.group_id }))
+    const mapGroup = (g) => ({
+      id: g.id, kind: 'group', title: g.title, parentId: g.parentId,
+      children: [...(g.children || []).map(mapGroup), ...convNodes(g.id)],
+    })
+    const topGroups = groups.filter(g => !g.parentId).sort((a, b) => a.sort - b.sort)
+    return [...topGroups.map(mapGroup), ...convNodes('null')]
+  }
+
+  // 1. Both empty - first launch
+  const empty = buildMergedTree([], [])
+  if (empty.length !== 0) throw new Error('empty->empty should be 0 items')
+
+  // 2. Groups only, no convs (the transient race state)
+  const groups = [
+    { id: 'g1', parentId: null, title: 'folder', sort: 0, expanded: true, children: [] }
+  ]
+  const groupsOnly = buildMergedTree(groups, [])
+  if (groupsOnly.length !== 1) throw new Error('groupsOnly should have 1 item')
+  if (groupsOnly[0].children.length !== 0) throw new Error('groupsOnly group should have 0 children')
+
+  // 3. Groups + convs (normal state)
+  const convs = [
+    { id: 'c1', group_id: 'g1', title: 'conv', sort: 0, updated_at: '2026-01-01' }
+  ]
+  const full = buildMergedTree(groups, convs)
+  if (full.length !== 1) throw new Error('full should have 1 item')
+  if (full[0].children.length !== 1) throw new Error('full group should have 1 child')
+
+  // 4. No groups, only root convs (group_id = null)
+  const rootOnly = buildMergedTree([], [
+    { id: 'r1', group_id: null, title: 'root-conv', sort: 0, updated_at: '2026-01-01' }
+  ])
+  if (rootOnly.length !== 1) throw new Error('rootOnly should have 1 item')
+  if (rootOnly[0].kind !== 'conv') throw new Error('rootOnly item should be conv')
+  if (rootOnly[0].title !== 'root-conv') throw new Error('rootOnly conv title mismatch')
+
+  // 5. Nested groups with convs
+  const parent = { id: 'parent', parentId: null, title: 'parent', sort: 0, expanded: true,
+    children: [{ id: 'child', parentId: 'parent', title: 'child', sort: 0, expanded: true, children: [] }] }
+  const nConvs = [{ id: 'nc', group_id: 'child', title: 'deep-conv', sort: 0, updated_at: '2026-01-01' }]
+  const nested = buildMergedTree([parent], nConvs)
+  if (nested.length !== 1) throw new Error('nested should have 1 item')
+  if (nested[0].children.length !== 1) throw new Error('parent should have 1 child')
+  if (nested[0].children[0].children.length !== 1) throw new Error('child should have 1 conv')
+  if (nested[0].children[0].children[0].title !== 'deep-conv') throw new Error('deep conv title mismatch')
+}
 ;(async () => {
   console.log('\nLearning Kit — 集成测试\n')
   console.log(`用时: ${new Date().toISOString()}`)
@@ -322,6 +454,8 @@ function testResultWrapper() {
   freshDb(); test('电子书 + 高亮链', testEbookChain); db.close()
   freshDb(); test('笔记文件夹树 (parent/child hierarchy)', testFolderTree); db.close()
   test('IPC 错误包装 (result/unwrap 契约)', testResultWrapper)
+  test('侧栏树构建 - 空/部分/完整三种状态', testEmptyDataStates)
+  freshDb(); test('侧栏树构建 - 模拟时序竞态 (groups先加载,convs后加载)', testSidebarTreeRace); db.close()
 
   console.log(`\n━━━ 结果: ${pass} 通过, ${fail} 失败 ━━━\n`)
   process.exit(fail > 0 ? 1 : 0)
