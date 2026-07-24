@@ -474,6 +474,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
+  window.addEventListener('lk:send-with-text', ((e: CustomEvent) => { onSend(e.detail.text) }) as EventListener)
   await settings.load(); await chat.refreshGroups(); chat.convs = await window.lk.convAll()
   // silent connection test on startup
   if (settings.currentApiKey()) {
@@ -508,7 +509,7 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); activeAbort?.() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:send-with-text', (() => {}) as EventListener); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">
