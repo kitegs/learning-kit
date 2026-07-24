@@ -37,7 +37,12 @@ function send() {
   const t = text.value.trim()
   if (!t || props.streaming) return
   console.log('[ComposeBar] send:', t)
-  try { emit('send', t) } catch (e: any) { console.error('[ComposeBar] send error:', e) }
+  try {
+    console.log('[ComposeBar] about to emit')
+    emit('send', t)
+    console.log('[ComposeBar] emit done')
+  } catch (e: any) { console.error('[ComposeBar] send error:', e) }
+  console.log('[ComposeBar] clearing text')
   text.value = ''
 }
 </script>

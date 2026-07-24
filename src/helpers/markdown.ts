@@ -37,12 +37,6 @@ renderer.code = ({ text, lang }): string => {
   }
   return `<pre><code class="hljs language-${lang || ''}">${highlighted}</code></pre>`
 }
-// Override paragraph to handle math blocks
-const origParagraph = renderer.paragraph.bind(renderer)
-renderer.paragraph = (args: any) => origParagraph(args)
-// Handle inline code with language for code blocks vs spans
-const origCodespan = renderer.codespan.bind(renderer)
-renderer.codespan = (args: any) => origCodespan(args)
 
 marked.use({ renderer })
 
