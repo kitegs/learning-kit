@@ -1,9 +1,9 @@
 <template>
   <div class="citation-block" :class="{ compact }">
     <div class="citation-head">
-      <span class="citation-icon">📖</span>
+      <span class="citation-icon">{{ bookId ? '📖' : '📝' }}</span>
       <span class="citation-book">{{ book }}</span>
-      <span v-if="page != null" class="citation-page">· 第 {{ page }} 页</span>
+      <span v-if="page && page > 0" class="citation-page">· 第 {{ page }} 页</span>
       <span class="citation-spacer"></span>
       <el-button v-if="bookId" size="small" text type="warning" @click="goToBook" title="回到电子书">
         <el-icon><Reading /></el-icon>

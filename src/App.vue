@@ -33,7 +33,7 @@
   <StudyPlanDialog v-model="studyPlanVisible" @created="onStudyPlanCreated" />
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
-  <SelectionToolbar />
+  <SelectionToolbar @ai="onSelectionAi" />
 </template>
 
 <script setup lang="ts">
@@ -307,7 +307,9 @@ async function onSend(text: string) {
       return
     }
     const citationText = citation
-      ? `> 📖 **${citation.bookTitle}** · 第 ${citation.page} 页\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
+      ? citation.page
+        ? `> 📖 **${citation.bookTitle}** · 第 ${citation.page} 页\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
+        : `> 📝 **${citation.bookTitle}**\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
       : ''
     const userMsg: any = {
       id: await window.lk.uuid(), conversation_id: convId, role: 'user',
@@ -354,6 +356,12 @@ async function onSend(text: string) {
   }
 }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
+
+function onSelectionAi(text: string, action: string) {
+  log('sel_ai', action + ' ' + text.slice(0, 40))
+  pendingCitation.value = { bookTitle: '笔记选段', bookId: '', page: 0, quote: text }
+  switchMode('chat')
+}
 
 // ── action parser & executor (PRD v3) ──
 interface ParsedAction { type: string; params: string[]; rawBlock: string }
