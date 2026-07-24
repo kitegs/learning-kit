@@ -314,7 +314,7 @@ async function onSend(text: string) {
   try {
     if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || 'New Chat'); await chat.selectConv(c.id) }
     const convId = chat.currentConvId!
-    if (!settings.currentApiKey()) {
+      if (!settings.currentApiKey()) {
       chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '**No API Key configured.** Open Settings (gear icon) and enter your API key for ' + settings.provider + '.', model: 'system' } as any)
       return
     }
