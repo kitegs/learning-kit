@@ -60,6 +60,30 @@ import { useChatStore, useSettingsStore } from './stores/chat'
 
 export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review'
 
+// ── user action log (ring buffer in localStorage) ──
+const LOG_KEY = 'lk_action_log'
+const LOG_MAX = 200
+function log(action: string, detail = '') {
+  try {
+    const log: string[] = JSON.parse(localStorage.getItem(LOG_KEY) || '[]')
+    log.push(`${Date.now()}|${action}|${detail.slice(0, 120)}`)
+    if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX)
+    localStorage.setItem(LOG_KEY, JSON.stringify(log))
+  } catch { /* ignore */ }
+}
+function dumpLog() {
+  try {
+    const log: string[] = JSON.parse(localStorage.getItem(LOG_KEY) || '[]')
+    if (log.length) {
+      console.log('=== LAST', log.length, 'ACTIONS ===')
+      log.forEach(l => console.log('  ' + l))
+    }
+  } catch { /* ignore */ }
+}
+function clearLog() {
+  localStorage.removeItem(LOG_KEY)
+}
+
 const chat = useChatStore()
 const settings = useSettingsStore()
 const tabStore = useTabStore()
@@ -141,6 +165,7 @@ watch(openBookId, async (id) => {
 })
 
 function onModeSwitch(m: Mode) {
+  log('mode_switch', m)
   if (m !== mode.value && m !== 'library') openBookId.value = null
   mode.value = m
 }
@@ -166,8 +191,9 @@ function applyTitle() {
 }
 function onSettingsSaved() {}
 function onReaderBack() { openBookId.value = null }
-function goBackToBook() { mode.value = 'library'; /* openBookId already set, stays */ }
+function goBackToBook() { log('go_back_book'); mode.value = 'library'; /* openBookId already set, stays */ }
 function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number }) {
+  log('search_jump', target.kind + (target.id ? ' ' + target.id.slice(0,8) : ''))
   searchOpen.value = false
   if (target.kind === 'conv' && target.id) { mode.value = 'chat'; chat.selectConv(target.id) }
   else if (target.kind === 'msg' && target.conversationId) { mode.value = 'chat'; chat.selectConv(target.conversationId) }
@@ -210,11 +236,13 @@ function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'w') { e.preventDefault(); tabStore.closeTab(tabStore.activeId); return }
 }
 function openBook(id: string) {
+  log('open_book', id.slice(0, 8))
   openBookId.value = id; mode.value = 'library'
   window.lk.bookList().then(books => { const b = books.find((x: any) => x.id === id); tabStore.openTab({ type: 'ebook', title: b?.title || 'Book', data: { bookId: id } }) })
   window.lk.bookUpdate(id, {}).catch(() => {})
 }
 async function onAskFromReader(payload: { quote: string; question?: string; bookId: string; page: number }) {
+  log('ask_from_reader', `book=${payload.bookId.slice(0,8)} page=${payload.page}`)
   mode.value = 'chat'
   // Find or create a folder named after the book
   const books = await window.lk.bookList()
@@ -282,6 +310,7 @@ async function onStudyPlanCreated(planText: string) {
 }
 async function onSend(text: string) {
   if (streaming.value) return
+  log('send_start', text.slice(0, 60))
   try {
     if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || 'New Chat'); await chat.selectConv(c.id) }
     const convId = chat.currentConvId!
@@ -299,11 +328,13 @@ async function onSend(text: string) {
     streaming.value = true; activeAbort?.()
     currentReqId = await window.lk.uuid()
     const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
+    log('stream_start', currentReqId.slice(0, 8))
     activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
       try {
         if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
         if (p.delta) rMsg.content += p.delta
         if (p.done) {
+          log('stream_done', `len=${rMsg.content.length}`)
           streaming.value = false
           const actions = parseActions(rMsg.content)
           if (actions.length) executeActions(actions).then((summary) => {
@@ -318,6 +349,7 @@ async function onSend(text: string) {
     await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
   } catch (err: any) {
     streaming.value = false
+    log('send_error', err?.message || String(err))
     const msg = err?.message || String(err)
     console.error('[onSend] send failed:', err)
     if (chat.currentConvId) {
@@ -426,12 +458,14 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
 }
 
 onMounted(async () => {
-  window.addEventListener('error', (ev) => console.error('[global]', ev.error || ev.message))
-  window.addEventListener('unhandledrejection', (ev) => console.error('[unhandled]', ev.reason))
+  dumpLog(); clearLog()
+  log('app_start')
+  window.addEventListener('error', (ev) => { console.error('[global]', ev.error || ev.message); log('global_error', String(ev.error || ev.message).slice(0, 100)) })
+  window.addEventListener('unhandledrejection', (ev) => { console.error('[unhandled]', ev.reason); log('unhandled_rej', String(ev.reason).slice(0, 100)) })
   // debug: detect when activeMessages is cleared unexpectedly
-  watch(() => chat.currentConvId, (id, old) => console.log('[debug] currentConvId:', old, '→', id))
+  watch(() => chat.currentConvId, (id, old) => { log('convId', (old||'').slice(0,8) + '->' + (id||'').slice(0,8)) })
   watch(() => chat.activeMessages.length, (n, old) => {
-    if (n === 0 && old > 0) console.trace('[debug] activeMessages cleared! was:', old)
+    if (n === 0 && old > 0) { log('msgs_cleared', 'was ' + old); console.trace('[debug] activeMessages cleared! was:', old) }
   })
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
@@ -450,6 +484,7 @@ onMounted(async () => {
 })
 async function onAiAction(e: Event) {
   const { text, prompt, expectXml } = (e as CustomEvent).detail
+  log('ai_action', (prompt||'').slice(0, 40))
   if (!expectXml) mode.value = 'chat'
   if (!chat.currentConvId) { const c = await chat.newConv(null, 'AI Action'); await chat.selectConv(c.id) }
   await onSend(`${prompt}\n\n---\n${text}`)
@@ -461,6 +496,7 @@ async function onNav(e: Event) {
   const kind = u.hostname
   const id = u.pathname.replace(/^\//, '')
   if (!id) return
+  log('nav', kind + ' ' + id.slice(0, 8))
   if (kind === 'note') { mode.value = 'notes'; /* NotesView will need to accept a noteId prop to auto-open */ }
   else if (kind === 'book') { mode.value = 'library'; openBookId.value = id; window.lk.bookUpdate(id, {}).catch(() => {}) }
   else if (kind === 'conv') { mode.value = 'chat'; const c = chat.convs.find(x => x.id === id); if (c) chat.selectConv(c.id) }
