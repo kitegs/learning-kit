@@ -427,7 +427,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
-  await settings.load(); await chat.refreshGroups(); await chat.refreshConvs(null)
+  await settings.load(); await chat.refreshGroups(); chat.convs = await window.lk.convAll()
   // silent connection test on startup
   if (settings.currentApiKey()) {
     window.lk.aiTest({ provider: settings.provider, model: settings.model, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })

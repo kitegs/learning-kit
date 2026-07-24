@@ -161,12 +161,9 @@ async function deleteConv(node: any) {
 }
 
 async function refresh() {
-  const [groupRows, convsAll] = await Promise.all([
-    window.lk.groupsTree(),
-    window.lk.convAll()
-  ])
-  chat.groups = chat.buildTree(groupRows)
-  chat.convs = convsAll
+  await chat.refreshGroups()
+  // load ALL conversations regardless of group_id (refreshConvs(null) only loads root-level ones)
+  chat.convs = await window.lk.convAll()
   treeKey.value++
 }
 
@@ -189,12 +186,8 @@ async function newSubGroupRoot() {
 provide('treeActions', { isExpanded, toggle, select: select, ctx, drop, groupAction })
 
 onMounted(async () => {
-  const [groupRows, convsAll] = await Promise.all([
-    window.lk.groupsTree(),
-    window.lk.convAll()
-  ])
-  chat.groups = chat.buildTree(groupRows)
-  chat.convs = convsAll
+  await chat.refreshGroups()
+  chat.convs = await window.lk.convAll()
   const saved = await window.lk.getSetting('chatTreeExpanded')
   if (saved) {
     try { expandedSet.value = new Set(JSON.parse(saved)) }
