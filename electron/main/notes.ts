@@ -1,16 +1,17 @@
 import { ipcMain, dialog } from 'electron'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
+import { registerIpc } from './ipc-helpers'
 
 export function registerNoteIpcs(ipc: typeof ipcMain): void {
   ipc.handle('notes:list', () => qAll(getDb(), 'SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY sort, created_at'))
   ipc.handle('notes:get', (_e, id: string) => qOne(getDb(), 'SELECT * FROM notes WHERE id=?', [id]))
-  ipc.handle('notes:upsert', (_e, n: any) => {
+  registerIpc(ipc, 'notes:upsert', (_e, n: any) => {
     const id = n.id ?? uuid()
-    qRun(getDb(), `INSERT INTO notes(id,title,body,parent_id,sort,tags,kind) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,parent_id=excluded.parent_id,sort=excluded.sort,tags=excluded.tags,kind=excluded.kind,updated_at=datetime('now')`,
-      [id, n.title ?? 'untitled', n.body ?? '', n.parent_id ?? null, n.sort ?? 0, n.tags ?? null, n.kind ?? 'note'])
+    qRun(getDb(), `INSERT INTO notes(id,title,body,parent_id,sort,tags,kind) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,parent_id=excluded.parent_id,sort=excluded.sort,tags=excluded.tags,kind=excluded.kind,updated_at=datetime('now')`, [id, n.title ?? 'untitled', n.body ?? '', n.parent_id ?? null, n.sort ?? 0, n.tags ?? null, n.kind ?? 'note'])
     schedulePersist(); return id
   })
-  ipc.handle('notes:patch', (_e, id: string, patch: any) => {
+
+  registerIpc(ipc, 'notes:patch', (_e, id: string, patch: any) => {
     if (patch.title !== undefined) qRun(getDb(), 'UPDATE notes SET title=?,updated_at=datetime("now") WHERE id=?', [patch.title, id])
     if (patch.body !== undefined) qRun(getDb(), 'UPDATE notes SET body=?,updated_at=datetime("now") WHERE id=?', [patch.body, id])
     if (patch.tags !== undefined) qRun(getDb(), 'UPDATE notes SET tags=?,updated_at=datetime("now") WHERE id=?', [patch.tags, id])

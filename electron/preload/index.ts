@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
+// Wraps an IPC result — throws if !ok, passes through data otherwise.
+// Handles both old-style (direct return) and new-style ({ok,data,error}) responses.
+function u<T>(r: any): T {
+  if (r && typeof r === 'object' && 'ok' in r && r.ok === false) throw new Error(r.error || 'IPC error')
+  return r as T
+}
+
 const api = {
   // settings
   getSetting: (key: string) => ipcRenderer.invoke('db:settings:get', key),
@@ -14,15 +21,15 @@ const api = {
   // conversations
   convList: (groupId) => ipcRenderer.invoke('db:conv:list', groupId),
   convAll: () => ipcRenderer.invoke('db:conv:all'),
-  convUpsert: (c) => ipcRenderer.invoke('db:conv:upsert', c),
+  convUpsert: (c) => ipcRenderer.invoke('db:conv:upsert', c).then(u),
   convDelete: (id) => ipcRenderer.invoke('db:conv:delete', id),
   convRename: (id, title) => ipcRenderer.invoke('db:conv:rename', id, title),
   convTouch: (id) => ipcRenderer.invoke('db:conv:touch', id),
 
   // messages
   msgList: (convId) => ipcRenderer.invoke('db:msg:list', convId),
-  msgSave: (m) => ipcRenderer.invoke('db:msg:save', m),
-  msgPatch: (id, patch) => ipcRenderer.invoke('db:msg:patch', id, patch),
+  msgSave: (m) => ipcRenderer.invoke('db:msg:save', m).then(u),
+  msgPatch: (id, patch) => ipcRenderer.invoke('db:msg:patch', id, patch).then(u),
   msgDelete: (id) => ipcRenderer.invoke('db:msg:delete', id),
   uuid: () => ipcRenderer.invoke('db:uuid'),
 
@@ -63,8 +70,8 @@ const api = {
   // notes & mindmaps
   notesList: () => ipcRenderer.invoke('notes:list'),
   notesGet: (id: string) => ipcRenderer.invoke('notes:get', id),
-  notesUpsert: (n: any) => ipcRenderer.invoke('notes:upsert', n),
-  notesPatch: (id: string, patch: any) => ipcRenderer.invoke('notes:patch', id, patch),
+  notesUpsert: (n: any) => ipcRenderer.invoke('notes:upsert', n).then(u),
+  notesPatch: (id: string, patch: any) => ipcRenderer.invoke('notes:patch', id, patch).then(u),
   notesDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
   notesExport: (id: string) => ipcRenderer.invoke('notes:export', id),
 

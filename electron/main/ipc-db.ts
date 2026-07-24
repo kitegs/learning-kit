@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
+import { registerIpc } from './ipc-helpers'
 
 export function registerDbIpcs(ipc: typeof ipcMain): void {
   ipc.handle('db:settings:get', (_e, key: string) => {
@@ -38,7 +39,7 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
 
   ipc.handle('db:conv:all', () => qAll(getDb(), 'SELECT * FROM conversations WHERE deleted_at IS NULL ORDER BY updated_at DESC'))
 
-  ipc.handle('db:conv:upsert', (_e, c: any) => {
+  registerIpc(ipc, 'db:conv:upsert', (_e, c: any) => {
     const title = (c.title ?? c.label) || 'new conversation'
     qRun(getDb(), `INSERT INTO conversations(id,group_id,title,sort,origin_context,folder_id) VALUES(?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET group_id=excluded.group_id, title=excluded.title, sort=excluded.sort, updated_at=datetime('now')`,
@@ -70,7 +71,7 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     qAll(getDb(), 'SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL ORDER BY sort, created_at', [convId])
   )
 
-  ipc.handle('db:msg:save', (_e, m: any) => {
+  registerIpc(ipc, 'db:msg:save', (_e, m: any) => {
     const id = m.id ?? uuid()
     const convId = m.conversation_id || m.conversationId
     qRun(getDb(), `INSERT INTO messages(id,conversation_id,role,content,note,model,sort) VALUES(?,?,?,?,?,?,?)
@@ -80,7 +81,7 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     return id
   })
 
-  ipc.handle('db:msg:patch', (_e, id: string, patch: any) => {
+  registerIpc(ipc, 'db:msg:patch', (_e, id: string, patch: any) => {
     if (patch.content !== undefined) qRun(getDb(), 'UPDATE messages SET content=? WHERE id=?', [patch.content, id])
     if (patch.note !== undefined) qRun(getDb(), 'UPDATE messages SET note=? WHERE id=?', [patch.note ?? null, id])
     schedulePersist()
