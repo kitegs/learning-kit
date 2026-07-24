@@ -428,6 +428,11 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
 onMounted(async () => {
   window.addEventListener('error', (ev) => console.error('[global]', ev.error || ev.message))
   window.addEventListener('unhandledrejection', (ev) => console.error('[unhandled]', ev.reason))
+  // debug: detect when activeMessages is cleared unexpectedly
+  watch(() => chat.currentConvId, (id, old) => console.log('[debug] currentConvId:', old, '→', id))
+  watch(() => chat.activeMessages.length, (n, old) => {
+    if (n === 0 && old > 0) console.trace('[debug] activeMessages cleared! was:', old)
+  })
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
