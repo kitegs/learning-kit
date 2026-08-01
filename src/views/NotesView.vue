@@ -49,17 +49,16 @@
           <el-button size="small" @click="insertCmd('**','**')">B</el-button>
           <el-button size="small" @click="insertCmd('*','*')">I</el-button>
           <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
-          <el-button size="small" @click="insertCmd('$','$')">行内公式</el-button>
-          <el-button size="small" @click="insertCmd('$$\n','\n$$')">公式块</el-button>
-          <el-button size="small" @click="insertPage">新页</el-button>
+          <el-button size="small" @click="insertFormula">公式</el-button>
+          <el-button size="small" @click="nextNotebookSpread">新双页</el-button>
           <span class="spacer"></span>
           <el-button size="small" @click="imagePicker?.click()">图片/截图</el-button>
-          <el-button size="small" @click="sketchOpen=true">手写</el-button>
+          <el-button size="small" @click="toggleNotebookPen">手写</el-button>
           <el-button size="small" @click="citeBook">引用电子书</el-button>
           <el-button size="small" @click="citeConversation">引用对话</el-button>
           <el-button size="small" @click="saveSticky">复用便签</el-button>
-          <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '编辑纸页' : '纸质翻页' }}</el-button>
-          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="切换块编辑器">{{ useBlockEditor ? 'Markdown' : '块编辑' }}</el-button>
+          <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸质笔记本' : '打开笔记本' }}</el-button>
+          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="兼容旧笔记">{{ useBlockEditor ? '纯文本' : '富文本' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
           <el-button size="small" @click="makeCard">闪卡</el-button>
           <el-button size="small" @click="exportMd">导出</el-button>
@@ -83,14 +82,7 @@
           </div>
           <div class="preview markdown-body" v-html="html" @click="onPreviewClick"></div>
         </div>
-        <div v-else-if="!useBlockEditor" class="paper-stage">
-          <div class="paper-page markdown-body" @click="onPreviewClick">
-            <div class="paper-title">{{ current.title || '未命名笔记' }}</div>
-            <div class="paper-index">第 {{ paperIndex + 1 }} / {{ notePages.length }} 页</div>
-            <div v-html="currentPageHtml"></div>
-          </div>
-          <div class="paper-controls"><el-button @click="prevPage" :disabled="paperIndex===0">← 上一页</el-button><el-button @click="nextPage" :disabled="paperIndex >= notePages.length - 1">下一页 →</el-button></div>
-        </div>
+        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" />
         <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
       </div>
     </main>
@@ -107,6 +99,7 @@ import { useContextMenu } from '../stores/context-menu'
 import { useSettingsStore } from '../stores/chat'
 import BlockEditor from '../components/BlockEditor.vue'
 import NotebookSketchDialog from '../components/NotebookSketchDialog.vue'
+import OpenNotebookEditor from '../components/OpenNotebookEditor.vue'
 
 const props = defineProps<{ jumpNoteId?: string | null }>()
 
@@ -131,13 +124,13 @@ const gutterRef = ref<HTMLElement|null>(null)
 const cursorLine = ref(1)
 const lineCount = computed(() => (current.value?.body || '').split('\n').length)
 const useBlockEditor = ref(false)
-const paperMode = ref(false)
+const paperMode = ref(true)
 const paperIndex = ref(0)
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; nextSpread: () => void; getText: () => string } | null>(null)
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
-const currentPageHtml = computed(() => renderMarkdown(notePages.value[paperIndex.value] || ''))
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
@@ -304,6 +297,13 @@ function onGutterCtx(e: MouseEvent, line: number) {
   ])
 }
 function insertCmd(pre: string, post: string) {
+  if (paperMode.value) {
+    const shortcuts: Record<string, string> = {
+      '# ': '<h1>标题</h1>', '## ': '<h2>标题</h2>', '### ': '<h3>标题</h3>', '- ': '<ul><li>列表项目</li></ul>', '> ': '<blockquote>引用内容</blockquote>', '**': '<strong>加粗文字</strong>', '*': '<em>斜体文字</em>', '~~': '<s>删除线文字</s>', '```\n': '<pre><code>代码</code></pre>'
+    }
+    notebookRef.value?.insertHtml(shortcuts[pre] || `<span>${pre}${post}</span>`)
+    return
+  }
   pushUndo()
   const t = ta.value; if (!t) return
   const s = t.selectionStart; const e = t.selectionEnd; const sel = current.value.body.slice(s, e)
@@ -481,18 +481,20 @@ async function makeCard() {
 function askAiAboutNote() {
   if (!current.value) return
   const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim()
-  const text = selected || current.value.body.trim()
+  const text = selected || (paperMode.value ? notebookRef.value?.getText() : current.value.body.trim()) || ''
   if (!text) { ElMessage.warning('先输入或选中需要 AI 处理的内容'); return }
   window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt: '请根据这段笔记整理要点、发现薄弱点，并给出下一步学习建议。' } }))
 }
+function insertFormula() { if (paperMode.value) notebookRef.value?.insertFormula(); else insertCmd('$', '$') }
+function nextNotebookSpread() { if (paperMode.value) notebookRef.value?.nextSpread(); else insertPage() }
+function toggleNotebookPen() { if (paperMode.value) notebookRef.value?.togglePen(); else sketchOpen.value = true }
 function insertPage() {
   insertCmd(`\n\n${PAGE_BREAK}\n\n`, '')
   paperIndex.value = notePages.value.length - 1
 }
-function prevPage() { paperIndex.value = Math.max(0, paperIndex.value - 1) }
-function nextPage() { paperIndex.value = Math.min(notePages.value.length - 1, paperIndex.value + 1) }
 function insertPlain(text: string) {
   if (!current.value) return
+  if (paperMode.value) { notebookRef.value?.insertHtml(renderMarkdown(text)); return }
   pushUndo()
   const t = ta.value
   const pos = t?.selectionStart ?? current.value.body.length
@@ -504,10 +506,11 @@ async function onImagePicked(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) })
-  insertPlain(`\n\n![${file.name.replace(/[\[\]]/g, '')}](${data})\n\n`)
+  if (paperMode.value) notebookRef.value?.insertImage(data, file.name.replace(/[\[\]]/g, ''))
+  else insertPlain(`\n\n![${file.name.replace(/[\[\]]/g, '')}](${data})\n\n`)
   ;(e.target as HTMLInputElement).value = ''
 }
-function insertSketch(data: string) { insertPlain(`\n\n![手写便签](${data})\n\n`) }
+function insertSketch(data: string) { if (paperMode.value) notebookRef.value?.insertImage(data, '手写便签'); else insertPlain(`\n\n![手写便签](${data})\n\n`) }
 async function citeBook() {
   if (!current.value) return
   const books = await window.lk.bookList()
@@ -542,7 +545,7 @@ async function citeConversation() {
 }
 async function saveSticky() {
   if (!current.value) return
-  const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim() || current.value.body.slice(0, 800)
+  const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim() || (paperMode.value ? notebookRef.value?.getText() : current.value.body.slice(0, 800)) || ''
   const result = await ElMessageBox.prompt('便签标题', '保存为可复用便签', { inputValue: current.value.title ? `${current.value.title} · 便签` : '新便签' })
   const id = await window.lk.notesUpsert({ title: result.value || '新便签', body: selected, kind: 'sticky', sort: Date.now() })
   await loadTree()
