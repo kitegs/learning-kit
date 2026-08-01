@@ -155,11 +155,24 @@ function onCtx(e: MouseEvent) {
     { label: '复制', icon: 'CopyDocument', shortcut: 'Ctrl+C', action: copyContent },
     { label: '引用此回答', icon: 'ChatLineSquare', shortcut: 'Ctrl+Q', action: () => emit('edit', props.msg.content) },
     { separator: true },
+    { label: 'AI 辅助', icon: 'MagicStick', children: [
+      { label: '解释这条内容', icon: 'Reading', action: () => askAi('请解释下面这条内容，并指出学习重点。') },
+      { label: '续写 / 延伸', icon: 'Right', action: () => askAi('请基于下面内容继续展开，补充下一步学习方向。') },
+      { label: '改写得更清楚', icon: 'EditPen', action: () => askAi('请将下面内容改写得更清楚、结构更适合学习。') },
+      { label: '生成复习题', icon: 'QuestionFilled', action: () => askAi('请基于下面内容生成 3 道复习问答题，并提出可确认的闪卡操作。') },
+      { label: '提出工具操作', icon: 'Tools', action: () => askAi('请根据下面内容提出需要的笔记、闪卡、计划或思维导图工具操作；仅提出，不要假设已经执行。') },
+    ] },
+    { label: '重新生成', icon: 'RefreshRight', action: () => askAi('请在不重复原话的前提下，为下面问题重新生成一个更好的回答。') },
+    { separator: true },
     { label: '生成闪卡', icon: 'Plus', danger: false, action: makeCard },
     { label: '复用到另一对话', icon: 'CopyDocument', action: openReuse },
     { separator: true },
     { label: '删除', icon: 'Delete', danger: true, action: onDelete }
   ])
+}
+function askAi(prompt: string) {
+  if (!props.msg.content.trim()) return
+  window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text: props.msg.content, prompt } }))
 }
 
 async function saveToKnowledge() {

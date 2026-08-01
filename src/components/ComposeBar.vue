@@ -16,6 +16,13 @@
       @keydown.enter.exact.prevent="send"
       @keydown.shift.enter="() => {}"
     />
+    <div class="utility-bar">
+      <el-tooltip content="AI 工具管理中心：预览并确认 AI 的数据操作"><el-button text @click="$emit('open-tools')">🪄 工具中心</el-button></el-tooltip>
+      <el-tooltip content="总结当前对话"><el-button text @click="$emit('quick', 'summary')">☷ 总结</el-button></el-tooltip>
+      <el-tooltip content="生成下一步学习计划"><el-button text @click="$emit('quick', 'study')">💡 学习计划</el-button></el-tooltip>
+      <el-tooltip content="从当前对话生成闪卡"><el-button text @click="$emit('quick', 'cards')">▣ 闪卡</el-button></el-tooltip>
+      <span class="utility-tip">AI 操作均需确认</span>
+    </div>
     <div class="bar">
       <div class="hint">
         <el-tooltip content="粘贴的内容会作为一条用户消息发送" placement="top">
@@ -40,6 +47,8 @@ const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'abort'): void
   (e: 'dismiss-citation'): void
+  (e: 'open-tools'): void
+  (e: 'quick', action: 'summary' | 'study' | 'cards'): void
 }>()
 const text = ref('')
 
@@ -94,5 +103,6 @@ function send() {
   font-size: 12px;
   color: var(--text-dim);
 }
+.utility-bar { display:flex; align-items:center; gap:3px; margin-top:6px; padding:4px 2px; border-bottom:1px dashed var(--border); }.utility-bar :deep(.el-button) { padding:3px 7px; color:var(--text-dim); }.utility-bar :deep(.el-button:hover) { color:var(--accent); background:var(--accent-dim); }.utility-tip { margin-left:auto; color:var(--text-dim); font-size:11px; }
 .right { display: flex; gap: 8px; }
 </style>

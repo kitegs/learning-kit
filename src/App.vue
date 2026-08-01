@@ -25,7 +25,7 @@
         <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-page="jumpToHighlight?.page" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
-        <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" />
+        <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" @open-tools="toolCenterOpen = true" @quick="onChatQuickAction" />
       </template>
     </main>
   </Dock>
@@ -34,6 +34,7 @@
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
   <SelectionToolbar @ai="onSelectionAi" />
+  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" @apply="applyToolProposals" @reject="toolProposals = []; toolCenterOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -56,6 +57,7 @@ import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import SelectionToolbar from './components/SelectionToolbar.vue'
 import TabBar from './components/TabBar.vue'
+import AiToolCenter, { type AiToolProposal } from './components/AiToolCenter.vue'
 import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
 
@@ -97,6 +99,8 @@ const mode = ref<Mode>('chat')
 const openBookId = ref<string | null>(null)
 const searchOpen = ref(false)
 const pendingCitation = ref<{ bookTitle: string; bookId: string; page: number; quote: string } | null>(null)
+const toolCenterOpen = ref(false)
+const toolProposals = ref<AiToolProposal[]>([])
 
 let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
@@ -347,11 +351,12 @@ async function onSend(text: string, parentTurnId: string | null = null) {
           log('stream_done', `len=${rMsg.content.length}`)
           streaming.value = false
           const actions = parseActions(rMsg.content)
-          if (actions.length) executeActions(actions).then((summary) => {
-            if (summary) rMsg.content += '\n\n---\n**App actions executed:**\n' + summary
-            window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
-          })
-          else window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
+          if (actions.length) {
+            toolProposals.value = actions.map((action, index) => ({ id: `${rMsg.id}:${index}`, type: action.type, params: action.params, rawBlock: action.rawBlock }))
+            toolCenterOpen.value = true
+            rMsg.content += '\n\n---\n> AI 已提出工具操作，请在“AI 工具管理中心”确认后执行。'
+          }
+          window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
           window.lk.convTouch(convId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
         }
       } catch (e) { console.error('[onChunk]', e) }
@@ -369,6 +374,10 @@ async function onSend(text: string, parentTurnId: string | null = null) {
 }
 function onFollowup(payload: { text: string; parentTurnId: string }) { onSend(payload.text, payload.parentTurnId) }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
+function onChatQuickAction(action: 'summary' | 'study' | 'cards') {
+  const prompts = { summary: '请总结当前对话的要点，并提出一个可确认的摘要笔记操作。', study: '请根据当前对话生成下一步学习计划，并提出一个可确认的学习计划操作。', cards: '请从当前对话生成 3 张高质量闪卡，并分别提出可确认的闪卡操作。' }
+  onSend(prompts[action])
+}
 
 function onSelectionAi(text: string, action: string) {
   log('sel_ai', action + ' ' + text.slice(0, 40))
@@ -466,12 +475,34 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
       } else if (a.type === 'mindmap_legacy' && a.params.length >= 2) {
         await window.lk.mindmapUpsert({ title: a.params[0], body: a.params[1] })
         results.push(`- Mindmap created: **${a.params[0]}**`)
+      } else if (a.type === 'conversation' && a.params[0] === 'create' && a.params[1]) {
+        const id = await window.lk.uuid()
+        await window.lk.convUpsert({ id, group_id: null, title: a.params[1], sort: Date.now() })
+        await chat.refreshConvs(null)
+        results.push(`- Conversation created: **${a.params[1]}**`)
+      } else if (a.type === 'bookmark' && a.params.length >= 2) {
+        await window.lk.bookmarkAdd({ bookId: a.params[0], page: Number(a.params[1]) || 1, label: a.params[2] || 'AI 书签' })
+        results.push(`- Bookmark added: 第 ${a.params[1] || 1} 页`)
       }
     } catch (err: any) {
       results.push(`- Failed [${a.type}]: ${err?.message || err}`)
     }
   }
   return results.join('\n')
+}
+async function applyToolProposals(proposals: AiToolProposal[]) {
+  const actions: ParsedAction[] = proposals.map(({ type, params, rawBlock }) => ({ type, params, rawBlock }))
+  const summary = await executeActions(actions)
+  toolProposals.value = []
+  toolCenterOpen.value = false
+  if (summary) {
+    const convId = chat.currentConvId
+    if (convId) {
+      const audit: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: `✅ 已确认执行 AI 工具操作：\n${summary}`, model: 'tool-center', sort: Date.now() }
+      await window.lk.msgSave(audit)
+      chat.activeMessages.push(audit)
+    }
+  }
 }
 
 onMounted(async () => {
