@@ -59,14 +59,14 @@ function onDrop(idx: number) {
 
 function onTabCtx(e: MouseEvent, tab: Tab) {
   menu.open(e, [
-    { label: 'Close', icon: 'Close' as any, action: () => store.closeTab(tab.id) },
-    { label: 'Close Others', icon: 'CloseBold' as any, action: () => store.closeOthers(tab.id) },
-    { label: 'Close Right', icon: 'ArrowRight' as any, action: () => store.closeRight(tab.id) },
+    { label: '关闭标签页', icon: 'Close' as any, action: () => store.closeTab(tab.id) },
+    { label: '关闭其他标签页', icon: 'CloseBold' as any, action: () => store.closeOthers(tab.id) },
+    { label: '关闭右侧标签页', icon: 'ArrowRight' as any, action: () => store.closeRight(tab.id) },
     { separator: true },
-    { label: tab.pinned ? 'Unpin' : 'Pin', icon: 'Paperclip' as any, action: () => store.pinTab(tab.id) },
+    { label: tab.pinned ? '取消固定' : '固定标签页', icon: 'Paperclip' as any, action: () => store.pinTab(tab.id) },
     { separator: true },
-    { label: 'Rename', icon: 'Edit' as any, action: () => {
-      const name = prompt('Tab name:', tab.title)
+    { label: '重命名', icon: 'Edit' as any, action: () => {
+      const name = prompt('标签页名称：', tab.title)
       if (name) store.renameTab(tab.id, name)
     }},
   ])

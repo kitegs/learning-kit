@@ -38,22 +38,24 @@
         <el-button size="small" text @click="sideOpen=!sideOpen">☰</el-button>
         <span class="title">{{ book?.title }}</span>
         <span class="spacer"></span>
-        <el-button size="small" :type="flowLayout==='scrolled-doc'?'primary':'default'" @click="toggleFlow">{{ flowLayout==='scrolled-doc'?'Scroll':'Page' }}</el-button>
+        <el-button size="small" :type="flowLayout==='scrolled-doc'?'primary':'default'" @click="toggleFlow">{{ flowLayout==='scrolled-doc'?'滚动阅读':'分页阅读' }}</el-button>
         <el-button-group v-if="flowLayout==='paginated'">
-          <el-button size="small" @click="rendition?.prev()">-</el-button>
+          <el-button size="small" @click="rendition?.prev()">上一页</el-button>
           <span class="loc">{{ locText }}</span>
-          <el-button size="small" @click="rendition?.next()">+</el-button>
+          <el-button size="small" @click="rendition?.next()">下一页</el-button>
         </el-button-group>
         <el-slider v-model="epubZoom" :min="70" :max="200" :step="10" style="width:100px;margin:0 6px" @change="onEpubZoomChange" />
+        <el-button-group><el-button size="small" :type="readerTheme==='paper'?'primary':'default'" @click="setReaderTheme('paper')">护眼</el-button><el-button size="small" :type="readerTheme==='sepia'?'primary':'default'" @click="setReaderTheme('sepia')">米黄</el-button><el-button size="small" :type="readerTheme==='night'?'primary':'default'" @click="setReaderTheme('night')">夜间</el-button></el-button-group>
         <span class="loc" v-if="flowLayout==='scrolled-doc'">{{ locText }}</span>
         <button class="fab" @click="onAskFloating">AI</button>
       </div>
-      <div ref="viewer" class="viewer" @mouseup="onSelectionEnd"></div>
+      <div ref="viewer" class="viewer" @mouseup="onSelectionEnd" @contextmenu.prevent="onViewerContext"></div>
     </div>
 
     <div v-if="selPopup.show" class="sel-popup" :style="{ top: selPopup.y + 'px', left: selPopup.x + 'px' }">
       <button @click="askSel('请解析这段内容。')">解析</button>
       <button @click="askSel('请帮我整理要点。')">要点</button>
+      <button @click="copySelection">复制</button>
       <button @click="saveSel">加入划线</button>
     </div>
 
@@ -71,6 +73,7 @@
 import { onMounted, ref, nextTick } from 'vue'
 import ePub, { type Book } from 'epubjs'
 import { ElMessage } from 'element-plus'
+import { useContextMenu } from '../stores/context-menu'
 
 const props = defineProps<{ bookIdProp: string | null }>()
 const emit = defineEmits<{
@@ -91,10 +94,12 @@ let rendition: any = null
 const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
 const askDialog = ref({ open: false, question: '' })
 const currentCfi = ref('')
+const menu = useContextMenu()
 
 const locText = ref('')
 const epubZoom = ref(100)
 const flowLayout = ref<'paginated' | 'scrolled-doc'>('paginated')
+const readerTheme = ref<'paper' | 'sepia' | 'night'>('paper')
 
 function flattenToc(items: any[], depth = 0): any[] {
   const out: any[] = []
@@ -129,11 +134,10 @@ async function load() {
       height: (viewer.value?.clientHeight || 700) + 'px',
       flow: 'paginated'
     } as any)
-    rendition.display()
-    rendition.on('relocated', (loc: any) => {
-      currentCfi.value = loc.start.cfi
-      locText.value = `章节 ${loc.start.index + 1} / ${(epubBook!.spine as any).items.length}`
-    })
+    bindRenditionEvents()
+    const savedSection = book.value?.last_page ? (epubBook!.spine as any).get(book.value.last_page - 1)?.href : undefined
+    rendition.display(savedSection)
+    applyReaderTheme()
   }
 }
 
@@ -168,6 +172,8 @@ function askSel(prefix: string) {
   emit('ask-ai', { quote: selPopup.value.text, question: prefix, bookId: bookId.value!, page: 0 })
   selPopup.value.show = false
 }
+
+async function copySelection() { await navigator.clipboard.writeText(selPopup.value.text); ElMessage.success('已复制'); selPopup.value.show = false }
 
 async function saveSel() {
   await window.lk.highlightAdd({
@@ -211,6 +217,21 @@ async function delHl(id: string) {
 function onAskFloating() {
   askDialog.value = { open: true, question: '' }
 }
+
+function onViewerContext(e: MouseEvent) {
+  const hasSelection = Boolean(selPopup.value.show && selPopup.value.text)
+  menu.open(e, [
+    ...(hasSelection ? [
+      { label: '复制所选文字', icon: 'CopyDocument' as any, action: copySelection },
+      { label: '加入划线', icon: 'EditPen' as any, action: saveSel },
+      { label: '询问 AI', icon: 'ChatDotRound' as any, action: () => askSel('请解析这段内容。') },
+      { separator: true }
+    ] : []),
+    { label: '添加当前位置书签', icon: 'Star' as any, action: addBookmark },
+    { label: '询问当前章节', icon: 'ChatDotRound' as any, action: onAskFloating },
+    { label: flowLayout.value === 'paginated' ? '切换为滚动阅读' : '切换为分页阅读', icon: 'Switch' as any, action: toggleFlow },
+  ])
+}
 function confirmAsk() {
   emit('ask-ai', { quote: '', question: askDialog.value.question, bookId: bookId.value!, page: 0 })
   askDialog.value.open = false
@@ -229,17 +250,51 @@ function toggleFlow() {
     height: (viewer.value?.clientHeight || 700) + 'px',
     flow: flowLayout.value
   } as any)
-  rendition.display()
-  rendition.on('relocated', (loc: any) => {
-    currentCfi.value = loc.start.cfi
-    locText.value = flowLayout.value === 'paginated'
-      ? `Chapter ${loc.start.index + 1} / ${(epubBook!.spine as any).items.length}`
-      : `Chapter ${loc.start.index + 1}`
-  })
+  bindRenditionEvents()
+  rendition.display(currentCfi.value || undefined)
+  applyReaderTheme()
 }
 
 function onEpubZoomChange() {
   if (!rendition) return
+  rendition.themes.fontSize(`${epubZoom.value}%`)
+}
+
+function bindRenditionEvents() {
+  rendition.on('relocated', (loc: any) => {
+    currentCfi.value = loc.start.cfi
+    const chapter = loc.start.index + 1
+    locText.value = flowLayout.value === 'paginated'
+      ? `章节 ${chapter} / ${(epubBook!.spine as any).items.length}`
+      : `章节 ${chapter}`
+    if (bookId.value) window.lk.bookUpdate(bookId.value, { last_page: chapter })
+  })
+  rendition.on('selected', (_cfiRange: string, contents: any) => {
+    const text = contents.window?.getSelection?.().toString().trim() || ''
+    if (!text || !viewer.value) return
+    const frame = contents.document?.defaultView?.frameElement as HTMLElement | null
+    const frameRect = frame?.getBoundingClientRect() || viewer.value.getBoundingClientRect()
+    const rect = viewer.value.getBoundingClientRect()
+    selPopup.value = { show: true, x: Math.min(frameRect.left - rect.left + 24, rect.width - 230), y: Math.max(36, frameRect.top - rect.top + 18), text }
+  })
+  rendition.on('rendered', (_section: any, contents: any) => {
+    contents.document?.addEventListener('contextmenu', (event: MouseEvent) => {
+      event.preventDefault()
+      const frame = contents.document?.defaultView?.frameElement as HTMLElement | null
+      const frameRect = frame?.getBoundingClientRect()
+      const proxy = { clientX: (frameRect?.left || 0) + event.clientX, clientY: (frameRect?.top || 0) + event.clientY } as MouseEvent
+      onViewerContext(proxy)
+    })
+  })
+}
+
+function setReaderTheme(theme: 'paper' | 'sepia' | 'night') { readerTheme.value = theme; applyReaderTheme() }
+function applyReaderTheme() {
+  if (!rendition) return
+  rendition.themes.register('lk-paper', { body: { color: '#29313d', background: '#f8f4e9', 'font-family': 'Georgia, "Noto Serif SC", serif', 'line-height': '1.85' } })
+  rendition.themes.register('lk-sepia', { body: { color: '#4b3827', background: '#f1e2c3', 'font-family': 'Georgia, "Noto Serif SC", serif', 'line-height': '1.9' } })
+  rendition.themes.register('lk-night', { body: { color: '#d9dfeb', background: '#1c2230', 'font-family': 'Georgia, "Noto Serif SC", serif', 'line-height': '1.85' } })
+  rendition.themes.select(`lk-${readerTheme.value}`)
   rendition.themes.fontSize(`${epubZoom.value}%`)
 }
 
@@ -267,7 +322,7 @@ function onEpubWheel(e: WheelEvent) {
 
 <style scoped lang="scss">
 .epub-root { flex: 1; display: flex; min-width: 0; background: var(--bg); }
-.side { width: 260px; background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.side { width: 260px; background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; transition: width .2s; overflow: hidden; }.side:not(.open) { width: 0; border-right: 0; }
 .side-tabs { display: flex; border-bottom: 1px solid var(--border); }
 .side-tabs button { flex: 1; padding: 8px 4px; border: none; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 13px; }
 .side-tabs button.active { color: var(--accent); border-bottom: 2px solid var(--accent); }

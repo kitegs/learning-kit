@@ -490,17 +490,17 @@ function onContextMenu(e: MouseEvent) {
 
 function showMenuA(e: MouseEvent) {
   const items: any[] = [
-    { label: 'Sticky Note Here', icon: 'EditPen' as any, action: () => addStickyAt(e) },
-    { label: 'Ask AI about this page', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: `(Page ${page.value})`, question: 'What is this page about?', bookId: bookId.value!, page: page.value }) },
-    { label: 'Add Bookmark', icon: 'Star' as any, action: addBookmark },
+    { label: '在此添加便签', icon: 'EditPen' as any, action: () => addStickyAt(e) },
+    { label: '询问 AI：本页内容', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: `(第 ${page.value} 页)`, question: '请概述这一页的内容。', bookId: bookId.value!, page: page.value }) },
+    { label: '添加书签', icon: 'Star' as any, action: addBookmark },
     { separator: true },
-    { label: annMode.value ? 'Exit Annotate' : 'Enter Annotate', icon: 'Edit' as any, action: () => { annMode.value = !annMode.value; renderPage() } },
-    { label: 'Clear Page Annotations', icon: 'Delete' as any, danger: true, action: clearPageAnnotations },
+    { label: annMode.value ? '退出批注模式' : '进入批注模式', icon: 'Edit' as any, action: () => { annMode.value = !annMode.value; renderPage() } },
+    { label: '清除本页批注', icon: 'Delete' as any, danger: true, action: clearPageAnnotations },
     { separator: true },
   ]
-  if (panX.value !== 0 || panY.value !== 0) items.push({ label: 'Center Page', icon: 'Aim' as any, action: recenterPage })
-  items.push({ label: 'Fit Width', icon: 'FullScreen' as any, action: fitZoom })
-  items.push({ label: 'Reset View', icon: 'RefreshLeft' as any, action: resetView })
+  if (panX.value !== 0 || panY.value !== 0) items.push({ label: '页面居中', icon: 'Aim' as any, action: recenterPage })
+  items.push({ label: '适应宽度', icon: 'FullScreen' as any, action: fitZoom })
+  items.push({ label: '重置视图', icon: 'RefreshLeft' as any, action: resetView })
   menu.open(e, items)
 }
 
@@ -518,34 +518,34 @@ function showMenuB(e: MouseEvent) {
     } catch {}
   }
   menu.open(e, [
-    { label: 'Copy', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('Copied') } },
-    { label: 'Highlight', icon: 'EditPen' as any, children: [
-      { label: 'Yellow', icon: 'Sunny' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
-      { label: 'Green', icon: 'Sunny' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-      { label: 'Blue', icon: 'Sunny' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-      { label: 'Pink', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+    { label: '复制', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('已复制') } },
+    { label: '添加划线', icon: 'EditPen' as any, children: [
+      { label: '黄色', icon: 'Sunny' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
+      { label: '绿色', icon: 'Sunny' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+      { label: '蓝色', icon: 'Sunny' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+      { label: '粉色', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
     ]},
-    { label: 'Ask AI about this', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: 'Analyze this passage', bookId: bookId.value!, page: page.value }) },
+    { label: '询问 AI', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: '请分析这段内容。', bookId: bookId.value!, page: page.value }) },
     { separator: true },
-    { label: 'Sticky Note (quote)', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },
-    { label: 'Add Bookmark', icon: 'Star' as any, action: addBookmark },
+    { label: '添加引用便签', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },
+    { label: '添加书签', icon: 'Star' as any, action: addBookmark },
   ])
 }
 
 function showMenuC(e: MouseEvent, stickyEl: HTMLElement) {
   const annId = stickyEl.dataset.annId || ''
   const colors = ['#fff9c4', '#c8e6c9', '#bbdefb', '#f8bbd0']
-  const colorLabels = ['Yellow', 'Green', 'Blue', 'Pink']
+  const colorLabels = ['黄色', '绿色', '蓝色', '粉色']
   menu.open(e, [
     ...colors.map((c, i) => ({ label: colorLabels[i], icon: 'CircleCheck' as any, action: () => changeStickyColor(annId, c) })),
     { separator: true },
-    { label: 'Duplicate', icon: 'CopyDocument' as any, action: () => duplicateSticky(annId, stickyEl) },
-    { label: 'Ask AI about this note', icon: 'ChatDotRound' as any, action: () => {
+    { label: '复制便签', icon: 'CopyDocument' as any, action: () => duplicateSticky(annId, stickyEl) },
+    { label: '询问 AI：此便签', icon: 'ChatDotRound' as any, action: () => {
       const ta = stickyEl.querySelector('textarea')
       emit('ask-ai', { quote: ta?.value || '', question: 'Explain this note', bookId: bookId.value!, page: page.value })
     }},
     { separator: true },
-    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => { window.lk.annDelete(annId).then(() => renderPage()) } },
+    { label: '删除', icon: 'Delete' as any, danger: true, action: () => { window.lk.annDelete(annId).then(() => renderPage()) } },
   ])
 }
 

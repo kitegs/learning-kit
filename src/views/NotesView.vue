@@ -264,13 +264,13 @@ function onGutterCtx(e: MouseEvent, line: number) {
   const lines = current.value.body.split('\n')
   const lineText = lines[line - 1] || ''
   menu.open(e, [
-    { label: 'Duplicate line', icon: 'CopyDocument' as any, action: () => { pushUndo(); lines.splice(line, 0, lineText); current.value.body = lines.join('\n'); markDirty() } },
-    { label: 'Delete line', icon: 'Delete' as any, danger: true, action: () => { pushUndo(); lines.splice(line - 1, 1); current.value.body = lines.join('\n'); markDirty() } },
-    { label: 'Move up', icon: 'ArrowUp' as any, action: () => { if (line > 1) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line - 2, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
-    { label: 'Move down', icon: 'ArrowDown' as any, action: () => { if (line < lines.length) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
+    { label: '复制本行', icon: 'CopyDocument' as any, action: () => { pushUndo(); lines.splice(line, 0, lineText); current.value.body = lines.join('\n'); markDirty() } },
+    { label: '删除本行', icon: 'Delete' as any, danger: true, action: () => { pushUndo(); lines.splice(line - 1, 1); current.value.body = lines.join('\n'); markDirty() } },
+    { label: '上移一行', icon: 'ArrowUp' as any, action: () => { if (line > 1) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line - 2, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
+    { label: '下移一行', icon: 'ArrowDown' as any, action: () => { if (line < lines.length) { pushUndo(); const t2 = lines.splice(line - 1, 1)[0]; lines.splice(line, 0, t2); current.value.body = lines.join('\n'); markDirty() } } },
     { separator: true },
-    { label: 'Select line', icon: 'Select' as any, action: () => goToLine(line) },
-    { label: 'Make card from line', icon: 'Plus' as any, action: () => { window.lk.srsFromNote('', lineText.slice(0, 200), '', current.value.id).then(() => ElMessage.success('card created')) } },
+    { label: '选中本行', icon: 'Select' as any, action: () => goToLine(line) },
+    { label: '由本行生成闪卡', icon: 'Plus' as any, action: () => { window.lk.srsFromNote('', lineText.slice(0, 200), '', current.value.id).then(() => ElMessage.success('已创建闪卡')) } },
   ])
 }
 function insertCmd(pre: string, post: string) {
@@ -314,23 +314,23 @@ async function onTreeCtx(e: any, data: any) {
   const items: any[] = []
   if (data.kind === 'folder') {
     items.push(
-      { label: 'New note here', icon: 'Document' as any, action: () => newNote(data.id) },
-      { label: 'New subfolder', icon: 'Folder' as any, action: () => newSubFolder(data.id) },
+      { label: '在此新建笔记', icon: 'Document' as any, action: () => newNote(data.id) },
+      { label: '新建子文件夹', icon: 'Folder' as any, action: () => newSubFolder(data.id) },
       { separator: true },
-      { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
+      { label: '重命名', icon: 'Edit' as any, action: () => renameNode(data) },
     )
   } else {
     items.push(
-      { label: 'Open', icon: 'Document' as any, action: () => open(data.id) },
-      { label: 'Rename', icon: 'Edit' as any, action: () => renameNode(data) },
+      { label: '打开', icon: 'Document' as any, action: () => open(data.id) },
+      { label: '重命名', icon: 'Edit' as any, action: () => renameNode(data) },
       { separator: true },
-      { label: 'Make card', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
-      { label: 'Export', icon: 'Download' as any, action: () => exportNode(data) },
+      { label: '生成闪卡', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
+      { label: '导出', icon: 'Download' as any, action: () => exportNode(data) },
     )
   }
   items.push(
     { separator: true },
-    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => delNode(data) },
+    { label: '删除', icon: 'Delete' as any, danger: true, action: () => delNode(data) },
   )
   menu.open(e, items)
 }
@@ -361,28 +361,28 @@ function onEditorCtx(e: MouseEvent) {
   const sel = window.getSelection()?.toString().trim() || ''
   const aiChildren = buildAiMenuItems(sel || current.value.body.slice(0, 500))
   menu.open(e, [
-    { label: 'Save', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
+    { label: '保存', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
     { separator: true },
     { label: 'H1', shortcut: '#', action: () => insertCmd('# ', '') },
     { label: 'H2', shortcut: '##', action: () => insertCmd('## ', '') },
-    { label: 'Code block', action: () => insertCmd('```\n', '\n```') },
-    { label: 'List', action: () => insertCmd('- ', '') },
+    { label: '代码块', action: () => insertCmd('```\n', '\n```') },
+    { label: '列表', action: () => insertCmd('- ', '') },
     { separator: true },
     { label: 'AI', icon: 'ChatDotRound' as any, children: aiChildren },
     { separator: true },
-    { label: 'Make card', icon: 'Plus' as any, action: makeCard },
-    { label: 'Export', icon: 'Download' as any, action: exportMd },
+    { label: '生成闪卡', icon: 'Plus' as any, action: makeCard },
+    { label: '导出', icon: 'Download' as any, action: exportMd },
   ])
 }
 
 function buildAiMenuItems(text: string) {
   const builtIn = [
-    { label: 'Continue writing', action: () => aiAction(text, 'Continue writing from where this text left off. Match the style and tone.') },
-    { label: 'Summarize', action: () => aiAction(text, 'Summarize the key points in 3-5 bullet points.') },
-    { label: 'Brainstorm', action: () => aiAction(text, 'Based on this content, brainstorm 5 related ideas or questions for further exploration.') },
-    { label: 'Fix grammar', action: () => aiAction(text, 'Fix any grammar, spelling, or style issues. Return the corrected text only.') },
-    { label: 'Explain simply', action: () => aiAction(text, 'Explain this in simple terms as if teaching a beginner.') },
-    { label: 'Generate flashcards', action: () => aiAction(text, 'Generate 3-5 flashcard Q&A pairs from this content. Format: Q: ...\nA: ...') },
+    { label: '续写', action: () => aiAction(text, 'Continue writing from where this text left off. Match the style and tone.') },
+    { label: '总结要点', action: () => aiAction(text, 'Summarize the key points in 3-5 bullet points.') },
+    { label: '头脑风暴', action: () => aiAction(text, 'Based on this content, brainstorm 5 related ideas or questions for further exploration.') },
+    { label: '润色语法', action: () => aiAction(text, 'Fix any grammar, spelling, or style issues. Return the corrected text only.') },
+    { label: '通俗解释', action: () => aiAction(text, 'Explain this in simple terms as if teaching a beginner.') },
+    { label: '生成闪卡', action: () => aiAction(text, 'Generate 3-5 flashcard Q&A pairs from this content. Format: Q: ...\nA: ...') },
   ]
   // custom actions from localStorage
   let customs: {name:string;prompt:string}[] = []
@@ -392,7 +392,7 @@ function buildAiMenuItems(text: string) {
     ...builtIn,
     ...(customItems.length ? [{ separator: true } as any, ...customItems] : []),
     { separator: true },
-    { label: 'Manage custom actions...', action: manageAiActions },
+    { label: '管理自定义 AI 操作…', action: manageAiActions },
   ]
 }
 

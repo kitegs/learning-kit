@@ -257,21 +257,21 @@ async function delDeck(id: string) {
 function onDeckCtx(e: MouseEvent, d: any) {
   e.preventDefault()
   menu.open(e, [
-    { label: 'Select', icon: 'Select' as any, action: () => selectDeck(d.id) },
-    { label: 'Rename', icon: 'Edit' as any, action: () => renameDeck(d) },
-    { label: 'New Card', icon: 'Plus' as any, action: () => addCardPrompt(d.id) },
+    { label: '选择牌组', icon: 'Select' as any, action: () => selectDeck(d.id) },
+    { label: '重命名', icon: 'Edit' as any, action: () => renameDeck(d) },
+    { label: '新建卡片', icon: 'Plus' as any, action: () => addCardPrompt(d.id) },
     { separator: true },
-    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => delDeck(d.id) },
+    { label: '删除', icon: 'Delete' as any, danger: true, action: () => delDeck(d.id) },
   ])
 }
 
 function onCardCtx(row: any, _col: any, e: MouseEvent) {
   e.preventDefault()
   menu.open(e, [
-    { label: 'Edit', icon: 'Edit' as any, action: () => editCard(row) },
-    { label: 'Reset Progress', icon: 'Refresh' as any, action: () => resetCard(row.id) },
+    { label: '编辑', icon: 'Edit' as any, action: () => editCard(row) },
+    { label: '重置复习进度', icon: 'Refresh' as any, action: () => resetCard(row.id) },
     { separator: true },
-    { label: 'Delete', icon: 'Delete' as any, danger: true, action: () => delCard(row.id) },
+    { label: '删除', icon: 'Delete' as any, danger: true, action: () => delCard(row.id) },
   ])
 }
 
