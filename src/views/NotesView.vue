@@ -430,7 +430,8 @@ function buildAiMenuItems(text: string) {
 }
 
 function aiAction(text: string, prompt: string) {
-  // dispatch to chat with the text + prompt
+  if (paperMode.value) { openNotebookAi({ context: text, label: '当前笔记', action: prompt }); return }
+  // 旧文本模式保留原有全局对话行为
   window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt } }))
 }
 

@@ -18,7 +18,7 @@
       <el-button size="small" @click="zoomBy(-.1)">−</el-button><span>{{ Math.round(viewScale * 100) }}%</span><el-button size="small" @click="zoomBy(.1)">＋</el-button>
       <el-button size="small" @click="resetView">居中</el-button>
     </div>
-    <div class="book-table" :class="{ grabbing: panning }" @wheel.prevent="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.prevent="onContextMenu">
+    <div class="book-table" :class="{ grabbing: panning }" @wheel.prevent="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper">
@@ -152,7 +152,7 @@ function onContextMenu(event: MouseEvent) {
   const selected = window.getSelection()?.toString().trim() || ''
   const context = selected || getText()
   const common = [
-    { label: '打开笔记 AI', icon: 'ChatDotRound' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字' : '当前双页' }) },
+    { label: '在笔记内打开 AI 小窗口', icon: 'ChatDotRound' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字' : '当前双页' }) },
     { label: 'AI 解释', icon: 'Reading' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 解释' : '当前双页 · 解释', action: '请解释这段笔记。' }) },
     { label: 'AI 润色', icon: 'EditPen' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 润色' : '当前双页 · 润色', action: '请润色这段笔记。' }) },
     { label: 'AI 生成复习题', icon: 'QuestionFilled' as any, action: () => emit('open-ai', { context, label: '当前双页 · 复习题', action: '请生成 3 道复习问答题。' }) },
