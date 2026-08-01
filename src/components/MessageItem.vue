@@ -40,6 +40,7 @@
         <el-button text size="small" type="primary" @click="saveEdit" v-else>保存</el-button>
         <el-button text size="small" @click="cancelEdit" v-if="editing">取消</el-button>
         <el-button text size="small" @click="openNote">加笔记</el-button>
+        <el-button text size="small" type="primary" @click="saveToKnowledge">保存到知识库</el-button>
         <el-button text size="small" @click="copyContent">复制</el-button>
         <el-button text size="small" type="danger" @click="onDelete">删除</el-button>
       </div>
@@ -141,6 +142,7 @@ function onCtx(e: MouseEvent) {
   menu.open(e, [
     { label: '编辑', icon: 'Edit', action: startEdit },
     { label: '加笔记 / 标注', icon: 'EditPen', action: openNote },
+    { label: '保存到知识库', icon: 'FolderAdd', action: saveToKnowledge },
     { label: '复制', icon: 'CopyDocument', shortcut: 'Ctrl+C', action: copyContent },
     { label: '引用此回答', icon: 'ChatLineSquare', shortcut: 'Ctrl+Q', action: () => emit('edit', props.msg.content) },
     { separator: true },
@@ -149,6 +151,17 @@ function onCtx(e: MouseEvent) {
     { separator: true },
     { label: '删除', icon: 'Delete', danger: true, action: onDelete }
   ])
+}
+
+async function saveToKnowledge() {
+  if (!props.msg.content.trim()) { ElMessage.warning('这条消息还没有可保存的内容'); return }
+  try {
+    const noteId = await window.lk.notesCreateFromMessage({ messageId: props.msg.id })
+    ElMessage.success('已保存到“收集箱”')
+    window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${noteId}` } }))
+  } catch (err: unknown) {
+    ElMessage.error('保存失败：' + (err instanceof Error ? err.message : String(err)))
+  }
 }
 
 async function makeCard() {

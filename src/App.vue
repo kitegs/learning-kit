@@ -22,7 +22,7 @@
       </header>
       <TabBar />
       <div class="view-slot">
-        <component :is="contentComponent" :bookIdProp="openBookId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
+        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
       </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" />
@@ -38,7 +38,7 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
-import { ChatDotRound, Reading, Edit, Share, DataLine } from '@element-plus/icons-vue'
+import { ChatDotRound, Reading, Edit, Share, DataLine, Collection } from '@element-plus/icons-vue'
 import Dock from './components/Dock.vue'
 import SidebarView from './views/SidebarView.vue'
 import ChatView from './views/ChatView.vue'
@@ -51,6 +51,7 @@ import EpubReaderView from './views/EpubReaderView.vue'
 import NotesView from './views/NotesView.vue'
 import MindmapView from './views/MindmapView.vue'
 import ReviewView from './views/ReviewView.vue'
+import KnowledgeView from './views/KnowledgeView.vue'
 import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import SelectionToolbar from './components/SelectionToolbar.vue'
@@ -58,7 +59,7 @@ import TabBar from './components/TabBar.vue'
 import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
 
-export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review'
+export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge'
 
 // ── user action log (ring buffer in localStorage) ──
 const LOG_KEY = 'lk_action_log'
@@ -156,11 +157,12 @@ const modeIcon = computed(() => {
     case 'notes': return Edit
     case 'mindmap': return Share
     case 'review': return DataLine
+    case 'knowledge': return Collection
     default: return ChatDotRound
   }
 })
 const modeTitle = computed(() => {
-  const m: Record<string, string> = { library: '图书馆', notes: '笔记', mindmap: '思维导图', review: '复习' }
+  const m: Record<string, string> = { library: '图书馆', notes: '笔记', mindmap: '思维导图', review: '复习', knowledge: '知识库' }
   return m[mode.value] || '对话'
 })
 const contentComponent = computed(() => {
@@ -170,6 +172,7 @@ const contentComponent = computed(() => {
   if (mode.value === 'notes') return NotesView
   if (mode.value === 'mindmap') return MindmapView
   if (mode.value === 'review') return ReviewView
+  if (mode.value === 'knowledge') return KnowledgeView
   return ChatView
 })
 watch(openBookId, async (id) => {

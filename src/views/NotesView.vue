@@ -80,11 +80,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
 import BlockEditor from '../components/BlockEditor.vue'
+
+const props = defineProps<{ jumpNoteId?: string | null }>()
 
 const menu = useContextMenu()
 const sideW = ref(260)
@@ -455,6 +457,10 @@ onMounted(async () => {
   const saved = await window.lk.getSetting('notesExpanded')
   if (saved) defaultExpand.value = JSON.parse(saved)
 })
+
+watch(() => props.jumpNoteId, (id) => {
+  if (id && id !== currentId.value) open(id)
+}, { immediate: true })
 onBeforeUnmount(async () => {
   window.removeEventListener('beforeunload', saveCurrent)
   if (dirty.value && current.value) await saveCurrent()

@@ -56,6 +56,7 @@ interface LkApi {
   notesGet: (id: string) => Promise<any>
   notesUpsert: (n: any) => Promise<string>
   notesPatch: (id: string, patch: any) => Promise<boolean>
+  notesCreateFromMessage: (args: { messageId: string; title?: string; tags?: string }) => Promise<string>
   notesDelete: (id: string) => Promise<boolean>
   notesExport: (id: string) => Promise<boolean>
 
