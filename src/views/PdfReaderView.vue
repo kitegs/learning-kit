@@ -43,17 +43,17 @@
       </div>
       <div v-if="annMode" class="ann-toolbar">
         <el-button-group size="small">
-          <el-button :type="annTool==='pen'?'primary':'default'" @click="annTool='pen'">Pen</el-button>
-          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">Hi-Light</el-button>
-          <el-button :type="annTool==='rect'?'primary':'default'" @click="annTool='rect'">Rect</el-button>
-          <el-button :type="annTool==='circle'?'primary':'default'" @click="annTool='circle'">Circle</el-button>
-          <el-button :type="annTool==='line'?'primary':'default'" @click="annTool='line'">Line</el-button>
-          <el-button :type="annTool==='eraser'?'primary':'default'" @click="annTool='eraser'">Eraser</el-button>
-          <el-button :type="annTool==='sticky'?'primary':'default'" @click="annTool='sticky'">Sticky</el-button>
+          <el-button :type="annTool==='pen'?'primary':'default'" @click="annTool='pen'">画笔</el-button>
+          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">荧光笔</el-button>
+          <el-button :type="annTool==='rect'?'primary':'default'" @click="annTool='rect'">矩形</el-button>
+          <el-button :type="annTool==='circle'?'primary':'default'" @click="annTool='circle'">圆形</el-button>
+          <el-button :type="annTool==='line'?'primary':'default'" @click="annTool='line'">直线</el-button>
+          <el-button :type="annTool==='eraser'?'primary':'default'" title="点击要删除的图形">橡皮擦</el-button>
+          <el-button :type="annTool==='sticky'?'primary':'default'" @click="annTool='sticky'">便签</el-button>
         </el-button-group>
         <el-color-picker v-model="annColor" size="small" style="margin-left:6px" />
         <el-slider v-model="annWidth" :min="1" :max="12" :step="0.5" style="width:80px;margin-left:6px" />
-        <el-button size="small" @click="clearPageAnnotations">Clear Page</el-button>
+        <el-button size="small" @click="clearPageAnnotations">清除本页批注</el-button>
       </div>
       <div class="canvas-wrap" ref="wrap"
         @pointerdown="onPointerDown"
@@ -240,6 +240,7 @@ async function renderPage() {
     annCanvas.addEventListener('mousedown', onAnnMouseDown)
     annCanvas.addEventListener('mousemove', onAnnMouseMove)
     annCanvas.addEventListener('mouseup', onAnnMouseUp)
+    annCanvas.addEventListener('mouseleave', onAnnMouseUp)
     annCanvas.style.cursor = 'crosshair'
   } else {
     // in reading mode, annotation canvas should not block text selection
@@ -423,6 +424,10 @@ function onAnnMouseDown(e: MouseEvent) {
     window.lk.annSave({ bookId: bookId.value, page: page.value, type: 'sticky', data: JSON.stringify({ x, y, w: 130, h: 60, text: '', color: '#fff9c4' }) }).then(() => renderPage())
     return
   }
+  if (annTool.value === 'eraser') {
+    eraseAnnotationAt(x, y)
+    return
+  }
   drawing = true; aSX = x; aSY = y; annPts = [[x, y]]
 }
 function onAnnMouseMove(e: MouseEvent) {
@@ -438,12 +443,8 @@ function onAnnMouseMove(e: MouseEvent) {
     annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'; annCtx.beginPath()
     for (let i = 0; i < annPts.length; i++) { i === 0 ? annCtx.moveTo(annPts[i][0], annPts[i][1]) : annCtx.lineTo(annPts[i][0], annPts[i][1]) }
     annCtx.stroke(); annCtx.restore()
-  } else if (annTool.value === 'eraser') {
-    annPts.push([x, y]); annCtx.save()
-    annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = annWidth.value * 3; annCtx.lineCap = 'round'
-    annCtx.beginPath(); for (let i = 0; i < annPts.length; i++) { i === 0 ? annCtx.moveTo(annPts[i][0], annPts[i][1]) : annCtx.lineTo(annPts[i][0], annPts[i][1]) }
-    annCtx.stroke(); annCtx.restore()
   } else if (annTool.value === 'rect' || annTool.value === 'circle' || annTool.value === 'line') {
+    annPts[1] = [x, y]
     window.lk.annList(bookId.value!, page.value).then((rows) => { if (annCtx) { annCtx.clearRect(0, 0, annCtx.canvas.width, annCtx.canvas.height); renderAnnotations(rows) } })
     annCtx.save(); annCtx.strokeStyle = annColor.value; annCtx.lineWidth = annWidth.value
     if (annTool.value === 'rect') annCtx.strokeRect(aSX, aSY, x - aSX, y - aSY)
@@ -452,8 +453,12 @@ function onAnnMouseMove(e: MouseEvent) {
     annCtx.restore()
   }
 }
-function onAnnMouseUp() {
+function onAnnMouseUp(e: MouseEvent) {
   if (!drawing || !annMode.value) return; drawing = false
+  if (annCanvas && (annTool.value === 'rect' || annTool.value === 'circle' || annTool.value === 'line')) {
+    const rect = annCanvas.getBoundingClientRect()
+    annPts[1] = [(e.clientX - rect.left) * (annCanvas.width / rect.width), (e.clientY - rect.top) * (annCanvas.height / rect.height)]
+  }
   const c = annColor.value, w = annWidth.value
   const last = annPts[annPts.length - 1] || [aSX, aSY]
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
@@ -471,9 +476,35 @@ function onAnnMouseUp() {
 }
 
 async function clearPageAnnotations() {
-  await ElMessageBox.confirm('Clear all annotations on this page?', 'Clear', { type: 'warning' })
+  await ElMessageBox.confirm('确定清除本页所有手绘批注和便签吗？', '清除本页批注', { type: 'warning' })
   await window.lk.annClear(bookId.value!, page.value)
   renderPage()
+}
+
+function distToSegment(x: number, y: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1
+  const t = dx || dy ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy))) : 0
+  return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy))
+}
+function annotationHit(row: any, x: number, y: number) {
+  let d: any
+  try { d = JSON.parse(row.data || '{}') } catch { return false }
+  const tolerance = Math.max(10, (d.width || annWidth.value) * 3)
+  if (row.type === 'pen' || row.type === 'highlighter') {
+    const pts = d.points || []
+    return pts.some((p: number[], index: number) => index > 0 && distToSegment(x, y, pts[index - 1][0], pts[index - 1][1], p[0], p[1]) <= tolerance)
+  }
+  if (row.type === 'line') return distToSegment(x, y, d.x1, d.y1, d.x2, d.y2) <= tolerance
+  if (row.type === 'rect') return x >= d.x - tolerance && x <= d.x + d.w + tolerance && y >= d.y - tolerance && y <= d.y + d.h + tolerance
+  if (row.type === 'circle') { const rx = Math.max(1, d.rx), ry = Math.max(1, d.ry); return Math.abs(Math.hypot((x - d.x) / rx, (y - d.y) / ry) - 1) <= tolerance / Math.max(rx, ry) }
+  return false
+}
+async function eraseAnnotationAt(x: number, y: number) {
+  const rows = await window.lk.annList(bookId.value!, page.value)
+  const hit = [...rows].reverse().find((row: any) => annotationHit(row, x, y))
+  if (!hit) { ElMessage.info('未选中批注，请点击线条或图形边缘'); return }
+  await window.lk.annDelete(hit.id)
+  await renderPage()
 }
 
 // ── context menus (A / B / C) ──

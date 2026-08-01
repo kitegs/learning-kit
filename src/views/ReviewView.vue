@@ -2,7 +2,7 @@
   <div class="rev-root" @keydown="onRevKey" tabindex="0" ref="revRoot">
     <aside class="side">
       <div class="head">
-        <el-button size="small" type="primary" plain @click="newDeck">+ Deck</el-button>
+        <el-button size="small" type="primary" plain @click="newDeck">+ 新建牌组</el-button>
       </div>
       <div class="decks">
         <div v-for="d in decks" :key="d.id" class="deck" :class="{active: currentDeckId === d.id}" @click="selectDeck(d.id)" @contextmenu="(e: MouseEvent) => onDeckCtx(e, d)">
@@ -16,19 +16,21 @@
 
     <main class="main">
       <div class="tabs">
-        <button :class="{active: view==='review'}" @click="view='review'">Review</button>
-        <button :class="{active: view==='dash'}" @click="view='dash'">Stats</button>
-        <button :class="{active: view==='cards'}" @click="view='cards'">Cards</button>
+        <button :class="{active: view==='review'}" @click="view='review'">开始复习</button>
+        <button :class="{active: view==='dash'}" @click="view='dash'">学习统计</button>
+        <button :class="{active: view==='cards'}" @click="view='cards'">卡片管理</button>
         <span class="spacer"></span>
-        <el-button size="small" @click="askProgress">AI Progress</el-button>
+        <el-button size="small" @click="askProgress">AI 学习建议</el-button>
       </div>
 
       <!-- Review session -->
       <div v-if="view==='review'" class="review">
         <div v-if="!queue.length" class="empty">
-          <div class="empty-icon">&#x2714;</div>
-          <p class="empty-title">All caught up!</p>
-          <p class="muted">No due cards right now. Great job staying on track.</p>
+          <div class="empty-icon">{{ decks.length ? '✓' : '📚' }}</div>
+          <p class="empty-title">{{ decks.length ? '当前没有待复习卡片' : '从一组闪卡开始复习' }}</p>
+          <p class="muted">{{ decks.length ? '可以新建卡片，或在笔记、AI 回复和电子书划线中一键生成闪卡。' : '先创建牌组和卡片；新卡会立刻进入本次复习。' }}</p>
+          <div class="empty-actions"><el-button type="primary" @click="decks.length ? addCardPrompt(currentDeckId) : newDeck()">{{ decks.length ? '新建卡片' : '新建牌组' }}</el-button><el-button plain @click="createSampleCard">创建一张示例卡片</el-button></div>
+          <p class="review-guide">使用方式：先点“显示答案”，再按掌握程度选择“重来 / 困难 / 良好 / 简单”。也可用空格、1、2、3、4 键操作。</p>
           <div class="empty-stats">
             <div class="es"><span class="es-v">{{ stats.total ?? 0 }}</span><span class="es-k">Total</span></div>
             <div class="es"><span class="es-v">{{ stats.streak ?? 0 }}</span><span class="es-k">Streak</span></div>
@@ -41,7 +43,7 @@
               <span class="c-new">{{ newReviewed }}/{{ totalNew }}</span>
               <span class="c-sep">+</span>
               <span class="c-old">{{ oldReviewed }}/{{ totalOld }}</span>
-              <span class="c-sep">remain</span>
+              <span class="c-sep">剩余</span>
               <span class="c-remain">{{ queue.length }}</span>
             </span>
             <span class="deck-label">{{ currentDeckTitle }}</span>
@@ -57,35 +59,35 @@
           <div class="card-actions">
             <template v-if="!revealed">
               <button class="btn-show" @click="reveal">
-                <span class="btn-show-label">Show Answer</span>
-                <span class="btn-show-key">Space</span>
+                <span class="btn-show-label">显示答案</span>
+                <span class="btn-show-key">空格</span>
               </button>
             </template>
             <template v-else>
-              <button class="rate-btn rate-again" @click="rate(1)" title="Again (1)">
+              <button class="rate-btn rate-again" @click="rate(1)" title="重来（1）">
                 <span class="rate-emoji">&#x1F648;</span>
-                <span class="rate-label">Again</span>
+                <span class="rate-label">重来</span>
                 <span class="rate-key">1</span>
               </button>
-              <button class="rate-btn rate-hard" @click="rate(3)" title="Hard (2)">
+              <button class="rate-btn rate-hard" @click="rate(3)" title="困难（2）">
                 <span class="rate-emoji">&#x1F62C;</span>
-                <span class="rate-label">Hard</span>
+                <span class="rate-label">困难</span>
                 <span class="rate-key">2</span>
               </button>
-              <button class="rate-btn rate-good" @click="rate(4)" title="Good (3)">
+              <button class="rate-btn rate-good" @click="rate(4)" title="良好（3）">
                 <span class="rate-emoji">&#x1F60A;</span>
-                <span class="rate-label">Good</span>
+                <span class="rate-label">良好</span>
                 <span class="rate-key">3</span>
               </button>
-              <button class="rate-btn rate-easy" @click="rate(5)" title="Easy (4)">
+              <button class="rate-btn rate-easy" @click="rate(5)" title="简单（4）">
                 <span class="rate-emoji">&#x1F308;</span>
-                <span class="rate-label">Easy</span>
+                <span class="rate-label">简单</span>
                 <span class="rate-key">4</span>
               </button>
             </template>
           </div>
           <div class="card-hint" v-if="revealed">
-            <span>Next interval: <strong>{{ previewInterval }}</strong></span>
+            <span>下次复习：<strong>{{ previewInterval }}</strong></span>
           </div>
         </div>
       </div>
@@ -93,20 +95,20 @@
       <!-- Dashboard -->
       <div v-else-if="view==='dash'" class="dash">
         <div class="cards-grid">
-          <div class="stat"><div class="v">{{ stats.dueCount ?? 0 }}</div><div class="k">Due Today</div></div>
-          <div class="stat"><div class="v">{{ stats.total ?? 0 }}</div><div class="k">Total Cards</div></div>
-          <div class="stat"><div class="v">{{ stats.streak ?? 0 }}</div><div class="k">Day Streak</div></div>
-          <div class="stat"><div class="v">{{ todayReviewed }}</div><div class="k">Reviewed Today</div></div>
+          <div class="stat"><div class="v">{{ stats.dueCount ?? 0 }}</div><div class="k">今日待复习</div></div>
+          <div class="stat"><div class="v">{{ stats.total ?? 0 }}</div><div class="k">全部卡片</div></div>
+          <div class="stat"><div class="v">{{ stats.streak ?? 0 }}</div><div class="k">连续学习天数</div></div>
+          <div class="stat"><div class="v">{{ todayReviewed }}</div><div class="k">今日已复习</div></div>
         </div>
-        <div class="h2">Interval Distribution</div>
+        <div class="h2">复习间隔分布</div>
         <div class="bars">
           <div v-for="b in intervalRows" :key="b.interval" class="bar-row">
-            <span class="lbl">{{ b.interval === 0 ? 'New' : 'I=' + b.interval }}</span>
+            <span class="lbl">{{ b.interval === 0 ? '新卡' : b.interval + ' 天' }}</span>
             <div class="bar"><div class="fill" :style="{ width: barWidth(b.c) }"></div></div>
             <span class="n">{{ b.c }}</span>
           </div>
         </div>
-        <div class="h2">Activity (60 days)</div>
+        <div class="h2">学习活跃度（60 天）</div>
         <div class="heatmap">
           <div v-for="d in heatDays" :key="d.date" class="cell" :style="{ background: heatColor(d.count) }" :title="d.date + ': ' + d.count"></div>
         </div>
@@ -115,16 +117,16 @@
       <!-- Cards manager -->
       <div v-else class="cards-mgr">
         <div class="cards-mgr-head">
-          <span>Deck: {{ currentDeckTitle || '(none)' }}</span>
-          <el-button size="small" @click="addCardPrompt(currentDeckId)">+ New Card</el-button>
+          <span>当前牌组：{{ currentDeckTitle || '未选择' }}</span>
+          <el-button size="small" @click="addCardPrompt(currentDeckId)">+ 新建卡片</el-button>
         </div>
         <el-table :data="cards" stripe @row-contextmenu="onCardCtx">
-          <el-table-column prop="front" label="Front" />
-          <el-table-column prop="back" label="Back" />
-          <el-table-column label="Actions" width="180">
+          <el-table-column prop="front" label="问题" />
+          <el-table-column prop="back" label="答案" />
+          <el-table-column label="操作" width="180">
             <template #default="{ row }">
-              <el-button text size="small" @click="editCard(row)">Edit</el-button>
-              <el-button text size="small" type="danger" @click="delCard(row.id)">Del</el-button>
+              <el-button text size="small" @click="editCard(row)">编辑</el-button>
+              <el-button text size="small" type="danger" @click="delCard(row.id)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -132,35 +134,35 @@
     </main>
 
     <!-- card edit dialog -->
-    <el-dialog v-model="cardDialog.open" :title="(cardDialog.id ? 'Edit' : 'New') + ' Card'" width="640px">
+    <el-dialog v-model="cardDialog.open" :title="cardDialog.id ? '编辑卡片' : '新建卡片'" width="640px">
       <el-form label-position="top">
-        <el-form-item label="Deck">
+        <el-form-item label="牌组">
           <el-select v-model="cardDialog.deckId">
             <el-option v-for="d in decks" :key="d.id" :label="d.title" :value="d.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Front (Question)">
-          <el-input v-model="cardDialog.front" type="textarea" :rows="3" placeholder="Use --- to separate visible hint from hidden answer" />
+        <el-form-item label="问题">
+          <el-input v-model="cardDialog.front" type="textarea" :rows="3" placeholder="可用 --- 分隔题干与额外提示" />
         </el-form-item>
-        <el-form-item label="Back (Answer)">
+        <el-form-item label="答案">
           <el-input v-model="cardDialog.back" type="textarea" :rows="5" />
         </el-form-item>
-        <el-form-item label="Type">
+        <el-form-item label="类型">
           <el-radio-group v-model="cardDialog.kind">
-            <el-radio value="qa">Q&A</el-radio>
-            <el-radio value="cloze">Cloze</el-radio>
+            <el-radio value="qa">问答</el-radio>
+            <el-radio value="cloze">填空</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="cardDialog.open = false">Cancel</el-button>
-        <el-button type="primary" @click="saveCard">Save</el-button>
+        <el-button @click="cardDialog.open = false">取消</el-button>
+        <el-button type="primary" @click="saveCard">保存</el-button>
       </template>
     </el-dialog>
 
     <!-- AI progress -->
-    <el-dialog v-model="progress.open" title="Learning Progress (AI)" width="700px">
-      <div v-if="progress.loading" class="progress-loading"><el-icon class="rot"><Loading /></el-icon> Analyzing...</div>
+    <el-dialog v-model="progress.open" title="AI 学习建议" width="700px">
+      <div v-if="progress.loading" class="progress-loading"><el-icon class="rot"><Loading /></el-icon> 正在分析学习数据…</div>
       <MarkdownView v-else :content="progress.text" />
     </el-dialog>
   </div>
@@ -240,11 +242,11 @@ async function selectDeck(id: string) {
 }
 
 async function newDeck() {
-  const v = await ElMessageBox.prompt('Deck name', 'New Deck', { inputValue: 'New Deck' })
+  const v = await ElMessageBox.prompt('牌组名称', '新建牌组', { inputValue: '默认牌组' })
   if (!v.value) return
   const id = await window.lk.uuid()
   await window.lk.deckUpsert({ id, title: v.value, sort: Date.now() })
-  await loadDecks(); currentDeckId.value = id; cards.value = []
+  await loadDecks(); await selectDeck(id)
 }
 
 async function delDeck(id: string) {
@@ -282,7 +284,7 @@ async function renameDeck(d: any) {
 async function resetCard(id: string) {
   await window.lk.cardReset(id)
   if (currentDeckId.value) cards.value = await window.lk.cardList(currentDeckId.value)
-  ElMessage.success('Reset')
+  ElMessage.success('已重置复习进度')
 }
 
 async function refreshQueue() {
@@ -308,7 +310,7 @@ async function rate(rating: 1|3|4|5) {
   await window.lk.srsReview(card.id, rating)
   revealed.value = false
   if (!queue.value.length) {
-    ElMessage.success('Session complete!')
+    ElMessage.success('本轮复习完成！')
     await loadStats()
   }
   revRoot.value?.focus()
@@ -337,10 +339,21 @@ function editCard(row: any) {
 }
 async function saveCard() {
   const { id, deckId, front, back, kind } = cardDialog.value
-  if (!deckId || !front.trim()) { ElMessage.warning('Deck/Front required'); return }
+  if (!deckId || !front.trim()) { ElMessage.warning('请选择牌组并填写问题'); return }
   await window.lk.cardSave({ id: id || undefined, deckId, front, back, kind })
-  cardDialog.value.open = false; ElMessage.success('Saved')
+  cardDialog.value.open = false; ElMessage.success('已保存，新卡已加入待复习队列')
   if (currentDeckId.value === deckId) cards.value = await window.lk.cardList(deckId)
+  await loadDecks(); await refreshQueue()
+}
+async function createSampleCard() {
+  let deckId = currentDeckId.value || decks.value[0]?.id
+  if (!deckId) {
+    deckId = await window.lk.uuid()
+    await window.lk.deckUpsert({ id: deckId, title: '默认牌组', sort: Date.now() })
+  }
+  await window.lk.cardSave({ deckId, front: '什么是间隔重复？', back: '一种根据掌握程度安排下次复习时间的方法。', kind: 'qa' })
+  await loadDecks(); await selectDeck(deckId)
+  ElMessage.success('已创建示例卡片，现在可开始复习')
 }
 async function delCard(id: string) {
   await window.lk.cardDelete(id)
@@ -400,7 +413,7 @@ onUnmounted(() => {})
 .empty { text-align:center; margin-top:60px; }
 .empty-icon { font-size:56px; color:var(--accent); opacity:.6; margin-bottom:12px; }
 .empty-title { font-size:20px; font-weight:700; color:var(--text); margin-bottom:4px; }
-.empty-stats { display:flex; gap:24px; justify-content:center; margin-top:24px; }
+.empty-actions { display:flex; justify-content:center; gap:8px; margin-top:18px; }.review-guide { max-width:460px; margin:16px auto 0; color:var(--text-dim); font-size:12px; line-height:1.7; }.empty-stats { display:flex; gap:24px; justify-content:center; margin-top:24px; }
 .es { text-align:center; } .es-v { display:block; font-size:24px; font-weight:700; color:var(--accent); } .es-k { font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.5px; }
 
 .card-box { width:100%; max-width:680px; border:1px solid var(--border); border-radius:12px; background:var(--bg-soft); overflow:hidden; transition:box-shadow .2s; &.revealed { box-shadow:0 4px 24px rgba(78,161,255,.08); } }

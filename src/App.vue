@@ -16,7 +16,7 @@
           <el-button size="small" @click="searchOpen=true">搜索</el-button>
           <el-button v-if="mode === 'chat'" size="small" @click="openStudyPlan">学习方案</el-button>
           <el-button size="small" @click="openSettings">设置</el-button>
-          <el-button v-if="mode === 'chat'" size="small" type="primary" @click="newBlankConv">新建空笔记</el-button>
+          <el-button size="small" type="primary" @click="newBlankNote">新建笔记</el-button>
           <el-button v-if="mode === 'chat' && openBookId" size="small" type="warning" @click="goBackToBook">← 回到电子书</el-button>
         </div>
       </header>
@@ -117,7 +117,7 @@ function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; conv
 watch(() => tabStore.activeTab, (tab) => {
   if (!tab) return
   const m = tab.type === 'ebook' ? 'library' : tab.type === 'note' ? 'notes' : tab.type === 'mindmap' ? 'mindmap' : tab.type === 'review' ? 'review' : tab.type === 'library' ? 'library' : 'chat'
-  switchMode(m as Mode, { bookId: tab.data.bookId })
+  switchMode(m as Mode, { bookId: tab.data.bookId, noteId: tab.data.noteId })
 })
 
 const jumpToNoteId = ref<string | null>(null)
@@ -195,6 +195,12 @@ async function newBlankConv() {
   const c = await chat.newConv(null, '空白笔记 ' + new Date().toLocaleTimeString())
   await chat.refreshConvs(null); await chat.selectConv(c.id)
 }
+async function newBlankNote() {
+  const title = '未命名笔记'
+  const id = await window.lk.notesUpsert({ title, body: '', kind: 'note', sort: Date.now() })
+  switchMode('notes', { noteId: id })
+  tabStore.openTab({ type: 'note', title, data: { noteId: id } })
+}
 function watchCurrentConv() { titleDraft.value = chat.convs.find((c) => c.id === chat.currentConvId)?.title || '' }
 watch(() => chat.currentConvId, watchCurrentConv)
 function applyTitle() {
@@ -241,6 +247,7 @@ function onKeyDown(e: KeyboardEvent) {
   const sc = settings.getShortcut
   if (matchShortcut(e, sc('search'))) { e.preventDefault(); searchOpen.value = true; return }
   if (matchShortcut(e, sc('newConv'))) { e.preventDefault(); newBlankConv(); return }
+  if (matchShortcut(e, sc('newNote'))) { e.preventDefault(); newBlankNote(); return }
   if (matchShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
   if (matchShortcut(e, sc('saveNote'))) {
     e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:save-note')); return

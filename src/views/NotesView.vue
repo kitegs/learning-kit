@@ -50,8 +50,9 @@
           <el-button size="small" @click="insertCmd('*','*')">I</el-button>
           <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
           <span class="spacer"></span>
-          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="Toggle block editor">{{ useBlockEditor ? 'MD' : 'Block' }}</el-button>
-          <el-button size="small" @click="makeCard">Card</el-button>
+          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="切换块编辑器">{{ useBlockEditor ? 'Markdown' : '块编辑' }}</el-button>
+          <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
+          <el-button size="small" @click="makeCard">闪卡</el-button>
           <el-button size="small" @click="exportMd">导出</el-button>
           <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
         </div>
@@ -196,7 +197,7 @@ async function newNote(parentId: string | null = null) {
       const cur = rawTree.value.find((r: any) => r.id === currentId.value)
       if (cur && cur.kind === 'folder') parentId = cur.id
     }
-    const id = await window.lk.notesUpsert({ title: 'New note', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
+    const id = await window.lk.notesUpsert({ title: '未命名笔记', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
     await loadTree(); await open(id)
   } catch (e: any) { ElMessage.error('Failed to create note: ' + (e?.message || e)) }
 }
@@ -447,6 +448,13 @@ async function makeCard() {
   if (!dId) { await window.lk.deckUpsert({ id: await window.lk.uuid(), title: 'Default', sort: 0 }); dId = (await window.lk.deckList())[0]?.id }
   await window.lk.srsFromNote(dId, current.value.title.slice(0, 200), current.value.body.split('\n\n')[0].slice(0, 600), current.value.id)
   ElMessage.success('card created')
+}
+function askAiAboutNote() {
+  if (!current.value) return
+  const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim()
+  const text = selected || current.value.body.trim()
+  if (!text) { ElMessage.warning('先输入或选中需要 AI 处理的内容'); return }
+  window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt: '请根据这段笔记整理要点、发现薄弱点，并给出下一步学习建议。' } }))
 }
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
 onMounted(async () => {
