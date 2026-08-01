@@ -15,15 +15,19 @@
           />
           <span class="kbd">Ctrl+K</span>
         </div>
+        <div class="scope-bar" v-if="query">
+          <button v-for="item in scopes" :key="item.id" :class="{ active: scope === item.id }" @click="scope = item.id">{{ item.label }}</button>
+          <span class="tag-tip">输入 #标签 可筛选标签</span>
+        </div>
         <div class="results" v-if="hasAny">
-          <Section v-if="r.books.length" title="图书馆" :items="r.books" :label="(it)=>it.title + (it.author ? ' · '+it.author : '')" :sel="selIdx" :start="start.book" @run="(it) => $emit('jump', { kind: 'book', id: it.id })" />
-          <Section v-if="r.conversations.length" title="对话" :items="r.conversations" :label="(it)=>it.title || '(未命名)'" :sel="selIdx" :start="start.conv" @run="(it) => $emit('jump', { kind: 'conv', id: it.id })" />
-          <Section v-if="r.messages.length" title="消息" :items="r.messages" :label="(it)=>(it.role === 'user' ? '我：' : 'AI：') + it.snippet" :sel="selIdx" :start="start.msg" @run="(it) => $emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id })" />
-          <Section v-if="r.notes.length" title="笔记" :items="r.notes" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.note" @run="(it) => $emit('jump', { kind: 'note', id: it.id })" />
-          <Section v-if="r.mindmaps.length" title="思维导图" :items="r.mindmaps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.mindmap" @run="(it) => $emit('jump', { kind: 'mindmap', id: it.id })" />
-          <Section v-if="r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
-          <Section v-if="r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
-          <Section v-if="r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
+          <Section v-if="show('reading') && r.books.length" title="图书馆" :items="r.books" :label="(it)=>it.title + (it.author ? ' · '+it.author : '')" :sel="selIdx" :start="start.book" @run="(it) => $emit('jump', { kind: 'book', id: it.id })" />
+          <Section v-if="show('chat') && r.conversations.length" title="对话" :items="r.conversations" :label="(it)=>it.title || '(未命名)'" :sel="selIdx" :start="start.conv" @run="(it) => $emit('jump', { kind: 'conv', id: it.id })" />
+          <Section v-if="show('chat') && r.messages.length" title="消息" :items="r.messages" :label="(it)=>(it.role === 'user' ? '我：' : 'AI：') + it.snippet" :sel="selIdx" :start="start.msg" @run="(it) => $emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id })" />
+          <Section v-if="show('notes') && r.notes.length" title="笔记" :items="r.notes" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.note" @run="(it) => $emit('jump', { kind: 'note', id: it.id })" />
+          <Section v-if="show('notes') && r.mindmaps.length" title="思维导图" :items="r.mindmaps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.mindmap" @run="(it) => $emit('jump', { kind: 'mindmap', id: it.id })" />
+          <Section v-if="show('reading') && r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
+          <Section v-if="show('review') && r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
+          <Section v-if="show('notes') && r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
         </div>
         <div v-else-if="!query && history.length" class="history-section">
           <div class="hist-header"><span>Recent Searches</span><button @click="clearHistory">Clear</button></div>
@@ -59,24 +63,33 @@ const history = ref<string[]>([])
 const HISTORY_KEY = 'lk_search_history'
 const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] })
 const selIdx = ref(0)
+const scope = ref<'all' | 'notes' | 'chat' | 'reading' | 'review'>('all')
+const scopes = [
+  { id: 'all' as const, label: '全部' }, { id: 'notes' as const, label: '笔记' }, { id: 'chat' as const, label: '对话' },
+  { id: 'reading' as const, label: '阅读' }, { id: 'review' as const, label: '复习' },
+]
 let timer: any = null
 
 const start = computed(() => {
   let s = 0
   const map: Record<string, number> = {}
   const accum = (key: string, items: any[]) => { map[key] = s; s += items.length }
-  accum('book', r.value.books)
-  accum('conv', r.value.conversations)
-  accum('msg', r.value.messages)
-  accum('note', r.value.notes)
-  accum('mindmap', r.value.mindmaps)
-  accum('hl', r.value.highlights)
-  accum('card', r.value.cards)
-  accum('kp', r.value.kps)
+  accum('book', visibleItems(r.value.books, 'reading'))
+  accum('conv', visibleItems(r.value.conversations, 'chat'))
+  accum('msg', visibleItems(r.value.messages, 'chat'))
+  accum('note', visibleItems(r.value.notes, 'notes'))
+  accum('mindmap', visibleItems(r.value.mindmaps, 'notes'))
+  accum('hl', visibleItems(r.value.highlights, 'reading'))
+  accum('card', visibleItems(r.value.cards, 'review'))
+  accum('kp', visibleItems(r.value.kps, 'notes'))
   return map
 })
 
-const total = computed(() => r.value.books.length + r.value.conversations.length + r.value.messages.length + r.value.notes.length + r.value.mindmaps.length + r.value.highlights.length + r.value.cards.length + r.value.kps.length)
+const total = computed(() =>
+  visibleItems(r.value.books, 'reading').length + visibleItems(r.value.conversations, 'chat').length + visibleItems(r.value.messages, 'chat').length +
+  visibleItems(r.value.notes, 'notes').length + visibleItems(r.value.mindmaps, 'notes').length + visibleItems(r.value.highlights, 'reading').length +
+  visibleItems(r.value.cards, 'review').length + visibleItems(r.value.kps, 'notes').length
+)
 const hasAny = computed(() => total.value > 0)
 
 watch(() => props.open, (v) => {
@@ -84,6 +97,7 @@ watch(() => props.open, (v) => {
     query.value = ''
     r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] }
     selIdx.value = 0
+    scope.value = 'all'
     try { history.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { history.value = [] }
     nextTick(() => input.value?.focus())
   }
@@ -97,8 +111,11 @@ watch(query, (v) => {
     selIdx.value = 0
   }, 180)
 })
+watch(scope, () => { selIdx.value = 0 })
 
 function close() { emit('close') }
+function show(group: Exclude<typeof scope.value, 'all'>) { return scope.value === 'all' || scope.value === group }
+function visibleItems(items: any[], group: Exclude<typeof scope.value, 'all'>) { return show(group) ? items : [] }
 function moveSel(d: number) { selIdx.value = Math.max(0, Math.min(total.value - 1, selIdx.value + d)) }
 function clearHistory() { history.value = []; localStorage.removeItem(HISTORY_KEY) }
 function removeHistory(i: number) { history.value.splice(i, 1); localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value)) }
@@ -117,14 +134,14 @@ function openSel() {
       if (startI + i === selIdx.value) fn(it)
     })
   }
-  wrap('book', r.value.books, (it) => emit('jump', { kind: 'book', id: it.id }))
-  wrap('conv', r.value.conversations, (it) => emit('jump', { kind: 'conv', id: it.id }))
-  wrap('msg', r.value.messages, (it) => emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id }))
-  wrap('note', r.value.notes, (it) => emit('jump', { kind: 'note', id: it.id }))
-  wrap('mindmap', r.value.mindmaps, (it) => emit('jump', { kind: 'mindmap', id: it.id }))
-  wrap('hl', r.value.highlights, (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page }))
-  wrap('card', r.value.cards, (it) => emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id }))
-  wrap('kp', r.value.kps, (it) => emit('jump', { kind: 'kp', id: it.id }))
+  wrap('book', visibleItems(r.value.books, 'reading'), (it) => emit('jump', { kind: 'book', id: it.id }))
+  wrap('conv', visibleItems(r.value.conversations, 'chat'), (it) => emit('jump', { kind: 'conv', id: it.id }))
+  wrap('msg', visibleItems(r.value.messages, 'chat'), (it) => emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id }))
+  wrap('note', visibleItems(r.value.notes, 'notes'), (it) => emit('jump', { kind: 'note', id: it.id }))
+  wrap('mindmap', visibleItems(r.value.mindmaps, 'notes'), (it) => emit('jump', { kind: 'mindmap', id: it.id }))
+  wrap('hl', visibleItems(r.value.highlights, 'reading'), (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page }))
+  wrap('card', visibleItems(r.value.cards, 'review'), (it) => emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id }))
+  wrap('kp', visibleItems(r.value.kps, 'notes'), (it) => emit('jump', { kind: 'kp', id: it.id }))
 }
 </script>
 
@@ -167,6 +184,8 @@ function openSel() {
   }
   .kbd { color: var(--text-dim); font-size: 12px; }
 }
+.scope-bar { display:flex; align-items:center; gap:6px; padding:7px 16px; border-bottom:1px solid var(--border); background:var(--bg-soft); }
+.scope-bar button { border:1px solid var(--border); border-radius:12px; padding:3px 9px; color:var(--text-dim); background:var(--bg-elev); cursor:pointer; font-size:11px; }.scope-bar button.active { border-color:var(--accent); background:var(--accent-dim); color:var(--accent-text); }.tag-tip { margin-left:auto; color:var(--text-dim); font-size:11px; }
 .results {
   flex: 1;
   overflow: auto;

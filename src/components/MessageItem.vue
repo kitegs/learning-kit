@@ -204,8 +204,8 @@ async function makeCard() {
   }
   const deckId = decks[0].id
   const front = (props.msg.content.split('\n').slice(0, 3).join('\n') || '').slice(0, 240)
-  await window.lk.cardSave({ deckId, front, back: props.msg.content.slice(0, 800), kind: 'qa' })
-  ElMessage.success('已生成闪卡，去"复习"中查看')
+  await window.lk.srsFromSource(deckId, front, props.msg.content.slice(0, 800), 'conversation', props.msg.conversation_id)
+  ElMessage.success('已生成闪卡，可从复习卡跳回这段对话')
 }
 
 // reuse dialogs

@@ -558,10 +558,23 @@ function showMenuB(e: MouseEvent) {
       { label: '粉色', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
     ]},
     { label: '询问 AI', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: '请分析这段内容。', bookId: bookId.value!, page: page.value }) },
+    { label: '生成闪卡', icon: 'Plus' as any, action: () => makeCardFromSelection(text) },
     { separator: true },
     { label: '添加引用便签', icon: 'EditPen' as any, action: () => addStickyAt(e, text) },
     { label: '添加书签', icon: 'Star' as any, action: addBookmark },
   ])
+}
+
+async function makeCardFromSelection(text: string) {
+  if (!text || !bookId.value) { ElMessage.warning('请先选中一段电子书文字'); return }
+  let decks = await window.lk.deckList()
+  if (!decks.length) {
+    await window.lk.deckUpsert({ id: await window.lk.uuid(), title: '默认牌组', sort: 0 })
+    decks = await window.lk.deckList()
+  }
+  const front = `请解释《${book.value?.title || '电子书'}》第 ${page.value} 页的这段内容：\n${text.slice(0, 240)}`
+  await window.lk.srsFromSource(decks[0].id, front, text.slice(0, 1000), 'book', bookId.value)
+  ElMessage.success('已生成闪卡，可从复习卡跳回本书')
 }
 
 function showMenuC(e: MouseEvent, stickyEl: HTMLElement) {

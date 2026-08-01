@@ -49,6 +49,7 @@
               <span class="c-remain">{{ queue.length }}</span>
             </span>
             <span class="deck-label">{{ currentDeckTitle }}</span>
+            <button v-if="cardSource" class="source-link" @click="openCardSource">查看来源 ↗</button>
           </div>
 
           <div class="card-body">
@@ -101,6 +102,8 @@
           <div class="stat"><div class="v">{{ stats.total ?? 0 }}</div><div class="k">全部卡片</div></div>
           <div class="stat"><div class="v">{{ stats.streak ?? 0 }}</div><div class="k">连续学习天数</div></div>
           <div class="stat"><div class="v">{{ todayReviewed }}</div><div class="k">今日已复习</div></div>
+          <div class="stat"><div class="v">{{ stats.mastery?.learning ?? 0 }}</div><div class="k">待巩固</div></div>
+          <div class="stat"><div class="v">{{ stats.mastery?.mastered ?? 0 }}</div><div class="k">已掌握</div></div>
         </div>
         <div class="h2">复习间隔分布</div>
         <div class="bars">
@@ -113,6 +116,12 @@
         <div class="h2">学习活跃度（60 天）</div>
         <div class="heatmap">
           <div v-for="d in heatDays" :key="d.date" class="cell" :style="{ background: heatColor(d.count) }" :title="d.date + ': ' + d.count"></div>
+        </div>
+        <div v-if="weakCards.length" class="h2">易错回链</div>
+        <div v-if="weakCards.length" class="weak-list">
+          <button v-for="card in weakCards" :key="card.id" @click="navigateCardSource(card.id)">
+            <span>{{ card.front.slice(0, 72) }}</span><em>遗忘 {{ card.lapses }} 次 · 查看原文 ↗</em>
+          </button>
         </div>
       </div>
 
@@ -171,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownView from '../components/MarkdownView.vue'
 import { renderMarkdown } from '../helpers/markdown'
@@ -197,6 +206,8 @@ const newReviewed = ref(0)
 const oldReviewed = ref(0)
 const totalNew = ref(0)
 const totalOld = ref(0)
+const cardSource = ref<{ type: string; id: string } | null>(null)
+const weakCards = ref<any[]>([])
 
 const cur = computed(() => queue.value[0] || {})
 const currentDeckTitle = computed(() => decks.value.find((d) => d.id === currentDeckId.value)?.title || 'All')
@@ -226,6 +237,34 @@ const previewInterval = computed(() => {
 
 const cardDialog = ref({ open: false, id: '', deckId: '', front: '', back: '', kind: 'qa' })
 const progress = ref({ open: false, loading: false, text: '' })
+
+watch(() => cur.value.id, async (cardId) => {
+  cardSource.value = null
+  if (!cardId) return
+  const links = await window.lk.linkAllForEntity('card', cardId)
+  const source = links.find((link: any) => link.target_type === 'card' && link.target_id === cardId && link.link_type === 'derived_from')
+  if (source) cardSource.value = { type: source.source_type, id: source.source_id }
+}, { immediate: true })
+
+function openCardSource() {
+  if (!cardSource.value) return
+  navigateSource(cardSource.value)
+}
+
+async function navigateCardSource(cardId: string) {
+  const links = await window.lk.linkAllForEntity('card', cardId)
+  const source = links.find((link: any) => link.target_type === 'card' && link.target_id === cardId && link.link_type === 'derived_from')
+  if (!source) { ElMessage.info('该卡片没有可回跳的来源'); return }
+  navigateSource({ type: source.source_type, id: source.source_id })
+}
+
+function navigateSource(source: { type: string; id: string }) {
+  const { type, id } = source
+  if (type === 'note') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${id}` } }))
+  else if (type === 'conversation') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://conv/${id}` } }))
+  else if (type === 'book') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://book/${id}` } }))
+  else ElMessage.info('该卡片来源暂不支持跳转')
+}
 
 async function loadDecks() {
   decks.value = await window.lk.deckList()
@@ -386,6 +425,7 @@ async function importSrs() {
 async function loadStats() {
   const s = await window.lk.srsStats()
   stats.value = s; intervalRows.value = s.masteryByInterval || []
+  weakCards.value = (await window.lk.cardAll()).filter((card: any) => (card.lapses || 0) > 0).sort((a: any, b: any) => b.lapses - a.lapses).slice(0, 6)
   todayReviewed.value = s.overdueReviewed || 0
   const set = new Map((s.streakDays || []).map((d: any) => [d.date, d.count]))
   const days: any[] = []; const today = new Date()
@@ -427,6 +467,8 @@ onUnmounted(() => {})
 .head { padding:8px 10px; border-bottom:1px solid var(--border); }
 .decks { overflow:auto; flex:1; }
 .deck { display:flex; align-items:center; padding:7px 10px; cursor:pointer; border-bottom:1px dashed var(--border); transition:background .12s; &:hover { background:rgba(127,127,127,.06); } &.active { background:rgba(78,161,255,.14); } .d-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; } .d-count { font-size:11px; color:var(--accent); margin-right:4px; min-width:18px; text-align:center; } }
+.source-link { margin-left:8px; border:0; border-radius:12px; padding:3px 8px; background:var(--accent-dim); color:var(--accent-text); cursor:pointer; font-size:11px; }
+.weak-list { display:grid; gap:7px; }.weak-list button { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 11px; color:var(--text); background:var(--bg-elev); text-align:left; cursor:pointer; }.weak-list button:hover { border-color:var(--accent); }.weak-list span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.weak-list em { color:var(--text-dim); font-size:11px; font-style:normal; white-space:nowrap; }
 .main { flex:1; display:flex; flex-direction:column; min-width:0; }
 .tabs { display:flex; align-items:center; gap:4px; padding:6px 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); }
 .tabs button { background:transparent; border:none; color:var(--text-dim); padding:5px 12px; cursor:pointer; border-radius:4px; font-size:13px; transition:all .12s; &:hover { background:rgba(127,127,127,.08); color:var(--text); } &.active { color:var(--accent); border-bottom:2px solid var(--accent); font-weight:600; } }

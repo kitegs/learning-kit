@@ -10,15 +10,19 @@
       <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
       <el-button size="small" :type="tool === 'line' ? 'primary' : 'default'" @click="setTool('line')">直线</el-button>
       <el-button size="small" :type="tool === 'arrow' ? 'primary' : 'default'" @click="setTool('arrow')">箭头</el-button>
+      <el-button size="small" :type="tool === 'rectangle' ? 'primary' : 'default'" @click="setTool('rectangle')">方框</el-button>
+      <el-button size="small" :type="tool === 'ellipse' ? 'primary' : 'default'" @click="setTool('ellipse')">圆形</el-button>
       <el-button size="small" :type="tool === 'eraser' ? 'primary' : 'default'" @click="setTool('eraser')">橡皮</el-button>
       <el-select v-model="inkColor" size="small" style="width:98px"><el-option label="铅笔灰" value="#4d4a42" /><el-option label="墨水蓝" value="#315b8a" /><el-option label="批注红" value="#b44b45" /></el-select>
       <el-slider v-model="inkWidth" :min="1" :max="9" style="width:110px" />
       <el-button size="small" @click="clearInk">清除本页笔迹</el-button>
+      <el-button size="small" @click="undo" :disabled="!undoHistory.length">撤销</el-button>
+      <el-button size="small" @click="redo" :disabled="!redoHistory.length">重做</el-button>
       <span class="tool-sep"></span>
       <el-button size="small" @click="zoomBy(-.1)">−</el-button><span>{{ Math.round(viewScale * 100) }}%</span><el-button size="small" @click="zoomBy(.1)">＋</el-button>
       <el-button size="small" @click="resetView">居中</el-button>
     </div>
-    <div class="book-table" :class="{ grabbing: panning }" @wheel.prevent="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
+    <div class="book-table" :class="{ grabbing: panning }" tabindex="0" @wheel.prevent="onWheel" @keydown="onKeydown" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper">
@@ -54,7 +58,7 @@ const rightCanvas = ref<HTMLCanvasElement | null>(null)
 const pages = ref<Sheet[]>([])
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
-type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'eraser'
+type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
 const tool = ref<Tool>('select')
 const inkColor = ref('#4d4a42')
 const inkWidth = ref(3)
@@ -68,6 +72,9 @@ let startPoint: { x: number; y: number } | null = null
 let panning = false
 let panStart = { x: 0, y: 0, left: 0, top: 0 }
 let lastSerialized = ''
+const undoHistory = ref<string[]>([])
+const redoHistory = ref<string[]>([])
+const MAX_HISTORY = 80
 
 function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '' } }
 function parse(value: string): Sheet[] {
@@ -85,8 +92,15 @@ function syncPage() {
   paint(rightCanvas.value, page.rightInk)
 }
 function syncOut() {
-  lastSerialized = serialize()
-  emit('update:modelValue', lastSerialized)
+  const next = serialize()
+  if (next === lastSerialized) return
+  if (lastSerialized) {
+    undoHistory.value.push(lastSerialized)
+    if (undoHistory.value.length > MAX_HISTORY) undoHistory.value.shift()
+    redoHistory.value = []
+  }
+  lastSerialized = next
+  emit('update:modelValue', next)
   emit('dirty')
 }
 function turn(direction: number) {
@@ -113,7 +127,7 @@ function moveInk(event: PointerEvent) {
   if (!drawing || !drawingEnabled.value) return
   const canvas = currentCanvas(drawingSide); if (!canvas) return
   const c = canvas.getContext('2d')!; const p = point(canvas, event)
-  if (tool.value === 'line' || tool.value === 'arrow') return
+  if (tool.value === 'line' || tool.value === 'arrow' || tool.value === 'rectangle' || tool.value === 'ellipse') return
   c.globalCompositeOperation = tool.value === 'eraser' ? 'destination-out' : 'source-over'
   c.globalAlpha = tool.value === 'highlighter' ? .28 : 1
   c.strokeStyle = inkColor.value; c.lineWidth = (tool.value === 'eraser' ? inkWidth.value * 7 : inkWidth.value * 3) * (event.pressure && event.pressure > 0 ? .7 + event.pressure : 1); c.lineCap = 'round'; c.lineJoin = 'round'; c.lineTo(p.x, p.y); c.stroke()
@@ -124,16 +138,35 @@ function endInk(event: PointerEvent) {
   drawing = false
   const canvas = currentCanvas(drawingSide)
   if (!canvas) return
-  if ((tool.value === 'line' || tool.value === 'arrow') && startPoint) {
+  if ((tool.value === 'line' || tool.value === 'arrow' || tool.value === 'rectangle' || tool.value === 'ellipse') && startPoint) {
     const c = canvas.getContext('2d')!; const last = point(canvas, event)
     c.strokeStyle = inkColor.value; c.lineWidth = inkWidth.value * 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(startPoint.x, startPoint.y); c.lineTo(last.x, last.y); c.stroke()
     if (tool.value === 'arrow') { const angle = Math.atan2(last.y - startPoint.y, last.x - startPoint.x); const size = 18 + inkWidth.value; c.beginPath(); c.moveTo(last.x, last.y); c.lineTo(last.x - size * Math.cos(angle - .45), last.y - size * Math.sin(angle - .45)); c.moveTo(last.x, last.y); c.lineTo(last.x - size * Math.cos(angle + .45), last.y - size * Math.sin(angle + .45)); c.stroke() }
+    if (tool.value === 'rectangle') c.strokeRect(startPoint.x, startPoint.y, last.x - startPoint.x, last.y - startPoint.y)
+    if (tool.value === 'ellipse') { const cx = (startPoint.x + last.x) / 2; const cy = (startPoint.y + last.y) / 2; c.beginPath(); c.ellipse(cx, cy, Math.abs(last.x - startPoint.x) / 2, Math.abs(last.y - startPoint.y) / 2, 0, 0, Math.PI * 2); c.stroke() }
   }
   const page = pages.value[spread.value]
   if (drawingSide === 'left') page.leftInk = canvas.toDataURL('image/png'); else page.rightInk = canvas.toDataURL('image/png')
   syncOut()
 }
 function clearInk() { const page = pages.value[spread.value]; if (activeSide.value === 'left') page.leftInk = ''; else page.rightInk = ''; syncPage(); syncOut() }
+function restore(serialized: string) {
+  pages.value = parse(serialized); spread.value = 0; lastSerialized = serialized
+  nextTick(syncPage)
+  emit('update:modelValue', serialized); emit('dirty')
+}
+function undo() {
+  const previous = undoHistory.value.pop(); if (!previous) return
+  redoHistory.value.push(lastSerialized); restore(previous)
+}
+function redo() {
+  const next = redoHistory.value.pop(); if (!next) return
+  undoHistory.value.push(lastSerialized); restore(next)
+}
+function onKeydown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
+  event.preventDefault(); if (event.shiftKey) redo(); else undo()
+}
 function paint(canvas: HTMLCanvasElement | null, data: string) {
   if (!canvas) return
   const c = canvas.getContext('2d')!; c.clearRect(0, 0, canvas.width, canvas.height)
@@ -162,10 +195,12 @@ function onContextMenu(event: MouseEvent) {
     { label: '荧光笔', icon: 'Brush' as any, action: () => setTool('highlighter') },
     { label: '直线', icon: 'Minus' as any, action: () => setTool('line') },
     { label: '箭头', icon: 'Right' as any, action: () => setTool('arrow') },
+    { label: '方框', icon: 'FullScreen' as any, action: () => setTool('rectangle') },
+    { label: '圆形', icon: 'CircleCheck' as any, action: () => setTool('ellipse') },
     { label: '橡皮擦', icon: 'Delete' as any, action: () => setTool('eraser') },
     { label: '移动纸张', icon: 'Rank' as any, action: () => setTool('hand') },
   ]
-  menu.open(event, [...common, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
+  menu.open(event, [...common, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
 }
 function insertHtml(html: string) {
   const el = activeSide.value === 'left' ? leftText.value : rightText.value
@@ -176,12 +211,14 @@ function insertHtml(html: string) {
 function insertImage(dataUrl: string, alt = '图片') { insertHtml(`<p><img src="${dataUrl}" alt="${alt}" /></p>`) }
 function insertFormula() { insertHtml('<span class="lk-formula">公式： </span>') }
 function getText() { const page = pages.value[spread.value]; return `${page?.left || ''}\n${page?.right || ''}`.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }
-defineExpose({ insertHtml, insertImage, insertFormula, togglePen, nextSpread: () => turn(1), getText })
+defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
   pages.value = parse(value || '')
   spread.value = 0
+  lastSerialized = value?.startsWith(MARKER) ? value : serialize()
+  undoHistory.value = []; redoHistory.value = []
   nextTick(syncPage)
 }, { immediate: true })
 </script>

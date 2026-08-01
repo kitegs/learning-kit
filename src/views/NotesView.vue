@@ -51,12 +51,15 @@
           <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
           <el-button size="small" @click="insertFormula">公式</el-button>
           <el-button size="small" @click="nextNotebookSpread">新双页</el-button>
+          <el-button size="small" @click="undoNote">撤销</el-button>
+          <el-button size="small" @click="redoNote">重做</el-button>
           <span class="spacer"></span>
           <el-button size="small" @click="imagePicker?.click()">图片/截图</el-button>
           <el-button size="small" @click="toggleNotebookPen">手写</el-button>
           <el-button size="small" @click="citeBook">引用电子书</el-button>
           <el-button size="small" @click="citeConversation">引用对话</el-button>
           <el-button size="small" @click="saveSticky">复用便签</el-button>
+          <el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button>
           <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸质笔记本' : '打开笔记本' }}</el-button>
           <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="兼容旧笔记">{{ useBlockEditor ? '纯文本' : '富文本' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
@@ -85,6 +88,12 @@
         <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" />
         <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
         <NotebookAiPanel v-model="notebookAi.open" :context="notebookAi.context" :context-label="notebookAi.label" :suggested-prompt="notebookAi.action" @insert="insertAiAnswer" @append="appendAiAnswer" />
+        <el-dialog v-model="backlinksOpen" title="本笔记的关联与回链" width="520px">
+          <div v-if="!backlinks.length" class="backlink-empty">还没有关联内容。引用电子书、对话或由本笔记创建闪卡后，它们会出现在这里。</div>
+          <div v-for="link in backlinks" :key="link.id" class="backlink-row" @click="jumpRelated(link)">
+            <span class="backlink-type">{{ relatedType(link) }}</span><span>{{ relatedHint(link) }}</span><span class="backlink-arrow">↗</span>
+          </div>
+        </el-dialog>
       </div>
     </main>
     <input ref="imagePicker" type="file" accept="image/*" hidden @change="onImagePicked" />
@@ -128,9 +137,11 @@ const lineCount = computed(() => (current.value?.body || '').split('\n').length)
 const useBlockEditor = ref(false)
 const paperMode = ref(true)
 const paperIndex = ref(0)
+const backlinks = ref<any[]>([])
+const backlinksOpen = ref(false)
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
-const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; nextSpread: () => void; getText: () => string } | null>(null)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string } | null>(null)
 const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
@@ -206,7 +217,7 @@ async function open(id: string) {
     if (dirty.value) await saveCurrent()
     const n = await window.lk.notesGet(id)
     if (n) {
-      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim()
+      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); await loadBacklinks()
       undoStack.value = []; redoStack.value = []
     } else {
       ElMessage.warning('Note not found')
@@ -272,6 +283,28 @@ function doRedo() {
   undoStack.value.push(current.value.body)
   current.value.body = redoStack.value.pop()!
   dirty.value = true
+}
+function undoNote() { if (paperMode.value) notebookRef.value?.undo(); else doUndo() }
+function redoNote() { if (paperMode.value) notebookRef.value?.redo(); else doRedo() }
+async function loadBacklinks() {
+  backlinks.value = current.value ? await window.lk.linkAllForEntity('note', current.value.id) : []
+}
+async function openBacklinks() { await loadBacklinks(); backlinksOpen.value = true }
+function relatedEnd(link: any) {
+  return link.source_type === 'note' && link.source_id === current.value?.id
+    ? { type: link.target_type, id: link.target_id }
+    : { type: link.source_type, id: link.source_id }
+}
+function relatedType(link: any) { return ({ note: '笔记', card: '闪卡', conversation: '对话', book: '电子书', message: '消息', highlight: '划线' } as Record<string, string>)[relatedEnd(link).type] || relatedEnd(link).type }
+function relatedHint(link: any) { return link.link_type === 'derived_from' ? '由此笔记生成' : '引用关系' }
+function jumpRelated(link: any) {
+  const related = relatedEnd(link)
+  if (related.type === 'note') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${related.id}` } }))
+  else if (related.type === 'conversation') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://conv/${related.id}` } }))
+  else if (related.type === 'book') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://book/${related.id}` } }))
+  else if (related.type === 'card') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: 'app://review/cards' } }))
+  else { ElMessage.info('该关联仍保留在本地，暂不支持直接跳转') ; return }
+  backlinksOpen.value = false
 }
 function updateCursorLine() {
   const t = ta.value; if (!t) return
@@ -639,6 +672,7 @@ function getAllIds(nodes: any[]): string[] {
 .editor-wrap { position:relative; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; flex-shrink: 0; }
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
+.backlink-empty { color:var(--text-dim); padding:18px 4px; font-size:13px; }.backlink-row { display:flex; align-items:center; gap:9px; padding:10px 4px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }.backlink-row:hover { color:var(--accent-text); background:var(--bg-hover); }.backlink-type { border-radius:10px; padding:2px 7px; background:var(--accent-dim); color:var(--accent-text); font-size:11px; }.backlink-arrow { margin-left:auto; color:var(--text-dim); }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
 .split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 .paper-stage { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:center; padding:28px; background:linear-gradient(135deg, #d7d0be, #eee8da 48%, #cfc4ae); }

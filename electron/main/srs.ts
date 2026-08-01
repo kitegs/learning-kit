@@ -74,13 +74,18 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     const due = (qOne(getDb(), 'SELECT COUNT(*) c FROM cards WHERE due <= ?', [today]) as any)?.c ?? 0
     const total = (qOne(getDb(), 'SELECT COUNT(*) c FROM cards') as any)?.c ?? 0
     const overdue = (qOne(getDb(), 'SELECT COUNT(*) c FROM review_log WHERE reviewed_at >= ?', [today]) as any)?.c ?? 0
+    const mastery = qOne(getDb(), `SELECT
+      SUM(CASE WHEN reps=0 THEN 1 ELSE 0 END) AS fresh,
+      SUM(CASE WHEN reps>0 AND (interval < 21 OR lapses > 1) THEN 1 ELSE 0 END) AS learning,
+      SUM(CASE WHEN reps>0 AND interval >= 21 AND lapses <= 1 THEN 1 ELSE 0 END) AS mastered
+      FROM cards`) as { fresh?: number; learning?: number; mastered?: number } | undefined
     const naive = qAll(getDb(), 'SELECT interval, COUNT(*) c FROM cards GROUP BY interval')
     const streakRows = qAll(getDb(), 'SELECT date FROM streak ORDER BY date DESC LIMIT 60')
     let streak = 0
     const dateSet = new Set(streakRows.map((r: any) => r.date))
     let cursor = new Date()
     while (dateSet.has(cursor.toISOString().slice(0, 10))) { streak++; cursor = new Date(cursor.getTime() - DAY) }
-    return { due, dueCount: due, total, overdueReviewed: overdue, masteryByInterval: naive, streak, streakDays: streakRows }
+    return { due, dueCount: due, total, overdueReviewed: overdue, masteryByInterval: naive, mastery: { fresh: mastery?.fresh ?? 0, learning: mastery?.learning ?? 0, mastered: mastery?.mastered ?? 0 }, streak, streakDays: streakRows }
   })
 
   ipc.handle('srs:fromNote', async (_e, deckId: string, front: string, back: string, sourceNoteId?: string) => {
@@ -94,6 +99,23 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     if (sourceNoteId) {
       qRun(getDb(), 'INSERT INTO links(id,source_type,source_id,target_type,target_id,link_type,created_at) VALUES(?,?,?,?,?,?,unixepoch())',
         [uuid(), 'note', sourceNoteId, 'card', id, 'derived_from'])
+    }
+    schedulePersist()
+    return id
+  })
+
+  // Create a card while preserving a navigable learning source (note / conversation / book).
+  ipc.handle('srs:fromSource', async (_e, deckId: string, front: string, back: string, sourceType?: string, sourceId?: string) => {
+    if (!deckId) {
+      const existing = qOne(getDb(), 'SELECT id FROM decks ORDER BY sort, created_at LIMIT 1') as { id?: string } | undefined
+      deckId = existing?.id || uuid()
+      if (!existing?.id) qRun(getDb(), 'INSERT INTO decks(id,title,parent_id,sort) VALUES(?,?,?,?)', [deckId, '默认牌组', null, Date.now()])
+    }
+    const id = uuid()
+    qRun(getDb(), 'INSERT INTO cards(id,deck_id,front,back,kind) VALUES(?,?,?,?,?)', [id, deckId, front, back, 'qa'])
+    if (sourceType && sourceId) {
+      qRun(getDb(), 'INSERT INTO links(id,source_type,source_id,target_type,target_id,link_type,created_at) VALUES(?,?,?,?,?,?,unixepoch())',
+        [uuid(), sourceType, sourceId, 'card', id, 'derived_from'])
     }
     schedulePersist()
     return id

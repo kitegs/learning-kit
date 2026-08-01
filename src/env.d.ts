@@ -85,6 +85,7 @@ interface LkApi {
   srsReview: (id: string, rating: 1 | 3 | 4 | 5) => Promise<any>
   srsStats: () => Promise<any>
   srsFromNote: (deckId: string, front: string, back: string, sourceNoteId?: string) => Promise<string>
+  srsFromSource: (deckId: string, front: string, back: string, sourceType?: string, sourceId?: string) => Promise<string>
   srsExport: () => Promise<boolean>
   srsImport: () => Promise<{ decks: number; cards: number }>
 
