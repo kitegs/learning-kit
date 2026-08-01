@@ -16,7 +16,7 @@ import { useChatStore, type Msg } from '../stores/chat'
 import { useContextMenu } from '../stores/context-menu'
 import MessageItem from './MessageItem.vue'
 
-export type Turn = { id: string; parentTurnId: string | null; user?: Msg; assistant?: Msg; collapsed: boolean; depth: number; childrenCount: number }
+export type Turn = { id: string; parentTurnId: string | null; user?: Msg; assistant?: Msg; collapsed: boolean; depth: number; childrenCount: number; foldId: string | null }
 const props = defineProps<{ turn: Turn }>()
 const emit = defineEmits<{ (e: 'followup', value: { text: string; parentTurnId: string }): void; (e: 'toggle-collapse', turn: Turn): void; (e: 'drag-start', turnId: string): void; (e: 'drop', targetTurnId: string): void; (e: 'move-request', turn: Turn): void }>()
 const chat = useChatStore()

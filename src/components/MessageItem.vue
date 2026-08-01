@@ -227,12 +227,13 @@ async function doReuse() {
 .msg {
   display: flex;
   gap: 10px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--bg-soft);
+  padding: 10px 13px;
+  border-radius: 12px;
   border: 1px solid transparent;
-  &.user { border-color: rgba(78,161,255,0.25); }
-  &.assistant { background: var(--bg-elev); }
+  transition: background .15s, border-color .15s, box-shadow .15s;
+  &.user { margin-left: 26px; background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }
+  &.assistant { margin-right: 22px; background: color-mix(in srgb, var(--bg-elev) 78%, transparent); border-color: var(--border); }
+  &:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 8px 22px rgba(0,0,0,.1); }
 }
 .avatar {
   width: 28px; height: 28px;
@@ -250,7 +251,7 @@ async function doReuse() {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
-  opacity: 0.6;
+  opacity: 0.35;
 }
 .msg:hover .actions { opacity: 1; }
 .note-block {

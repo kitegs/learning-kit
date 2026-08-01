@@ -43,9 +43,20 @@ CREATE TABLE IF NOT EXISTS messages (
   turn_id         TEXT,
   parent_turn_id  TEXT,
   collapsed       INTEGER NOT NULL DEFAULT 0,
+  fold_id         TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, sort);
+
+CREATE TABLE IF NOT EXISTS conversation_folds (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  sort            INTEGER NOT NULL DEFAULT 0,
+  collapsed       INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_folds_conversation ON conversation_folds(conversation_id, sort);
 
 CREATE TABLE IF NOT EXISTS notes (
   id         TEXT PRIMARY KEY,
@@ -264,6 +275,7 @@ function migrate(d: Database): void {
   if (!messageCols.includes('turn_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN turn_id TEXT') } catch {} }
   if (!messageCols.includes('parent_turn_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN parent_turn_id TEXT') } catch {} }
   if (!messageCols.includes('collapsed')) { try { d.exec('ALTER TABLE messages ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0') } catch {} }
+  if (!messageCols.includes('fold_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN fold_id TEXT') } catch {} }
   d.exec("UPDATE messages SET turn_id=id WHERE turn_id IS NULL OR turn_id='' ")
 
   // Highlights: add rect columns

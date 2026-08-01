@@ -32,7 +32,11 @@ const api = {
   msgPatch: (id, patch) => ipcRenderer.invoke('db:msg:patch', id, patch).then(u),
   msgDelete: (id) => ipcRenderer.invoke('db:msg:delete', id),
   turnCollapse: (turnId: string, collapsed: boolean) => ipcRenderer.invoke('db:turn:collapse', turnId, collapsed).then(u),
-  turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null }) => ipcRenderer.invoke('db:turn:move', args).then(u),
+  turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null; targetFoldId?: string | null }) => ipcRenderer.invoke('db:turn:move', args).then(u),
+  foldList: (conversationId: string) => ipcRenderer.invoke('db:fold:list', conversationId),
+  foldCreate: (fold: { conversationId: string; title?: string; sort?: number }) => ipcRenderer.invoke('db:fold:create', fold).then(u),
+  foldPatch: (id: string, patch: { title?: string; collapsed?: boolean }) => ipcRenderer.invoke('db:fold:patch', id, patch).then(u),
+  foldDelete: (id: string) => ipcRenderer.invoke('db:fold:delete', id).then(u),
   uuid: () => ipcRenderer.invoke('db:uuid'),
 
   // ai

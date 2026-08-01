@@ -8,3 +8,4 @@
 | 2026-07-22 | DEV-20260722-01-phase2-4-features.md | Phase 2-4 标签页/子菜单/主题/Dock/Tiptap | done |
 | 2026-08-01 | DEV-20260801-01-unified-knowledge-inbox.md | 统一知识收集箱：第一阶段方案 | implemented |
 | 2026-08-01 | DEV-20260801-02-conversation-turns.md | 对话轮次技术方案 | implemented |
+| 2026-08-01 | DEV-20260801-03-flow-fold-groups.md | 流内折叠组方案 | implemented |

@@ -74,9 +74,9 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
   registerIpc(ipc, 'db:msg:save', (_e, m: any) => {
     const id = m.id ?? uuid()
     const convId = m.conversation_id || m.conversationId
-    qRun(getDb(), `INSERT INTO messages(id,conversation_id,role,content,note,model,sort,turn_id,parent_turn_id,collapsed) VALUES(?,?,?,?,?,?,?,?,?,?)
+    qRun(getDb(), `INSERT INTO messages(id,conversation_id,role,content,note,model,sort,turn_id,parent_turn_id,collapsed,fold_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET content=excluded.content, note=excluded.note, model=excluded.model`,
-      [id, convId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0, m.turn_id ?? id, m.parent_turn_id ?? null, m.collapsed ?? 0])
+      [id, convId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0, m.turn_id ?? id, m.parent_turn_id ?? null, m.collapsed ?? 0, m.fold_id ?? null])
     schedulePersist()
     return id
   })
@@ -92,14 +92,26 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     qRun(getDb(), 'UPDATE messages SET collapsed=? WHERE turn_id=?', [collapsed ? 1 : 0, turnId])
     schedulePersist(); return true
   })
-  registerIpc(ipc, 'db:turn:move', (_e, args: { turnId: string; targetConversationId: string; afterTurnId?: string | null }) => {
+  registerIpc(ipc, 'db:turn:move', (_e, args: { turnId: string; targetConversationId: string; afterTurnId?: string | null; targetFoldId?: string | null }) => {
     const target = args.afterTurnId ? qAll(getDb(), 'SELECT MAX(sort) AS sort FROM messages WHERE turn_id=?', [args.afterTurnId])[0] as { sort?: number } | undefined : undefined
     const sort = (target?.sort ?? Date.now()) + 1
     qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
       SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
-    ) UPDATE messages SET conversation_id=?, sort=? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, sort])
+    ) UPDATE messages SET conversation_id=?, fold_id=?, sort=? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, args.targetFoldId ?? null, sort])
     schedulePersist(); return true
   })
+  ipc.handle('db:fold:list', (_e, conversationId: string) => qAll(getDb(), 'SELECT * FROM conversation_folds WHERE conversation_id=? ORDER BY sort, created_at', [conversationId]))
+  registerIpc(ipc, 'db:fold:create', (_e, fold: { conversationId: string; title?: string; sort?: number }) => {
+    const id = uuid()
+    qRun(getDb(), 'INSERT INTO conversation_folds(id,conversation_id,title,sort) VALUES(?,?,?,?)', [id, fold.conversationId, fold.title ?? '折叠组', fold.sort ?? Date.now()])
+    schedulePersist(); return id
+  })
+  registerIpc(ipc, 'db:fold:patch', (_e, id: string, patch: { title?: string; collapsed?: boolean }) => {
+    if (patch.title !== undefined) qRun(getDb(), 'UPDATE conversation_folds SET title=? WHERE id=?', [patch.title, id])
+    if (patch.collapsed !== undefined) qRun(getDb(), 'UPDATE conversation_folds SET collapsed=? WHERE id=?', [patch.collapsed ? 1 : 0, id])
+    schedulePersist(); return true
+  })
+  ipc.handle('db:fold:delete', (_e, id: string) => { qRun(getDb(), 'UPDATE messages SET fold_id=NULL WHERE fold_id=?', [id]); qRun(getDb(), 'DELETE FROM conversation_folds WHERE id=?', [id]); schedulePersist(); return true })
 
   ipc.handle('db:msg:delete', (_e, id: string) => {
     qRun(getDb(), 'UPDATE messages SET deleted_at=unixepoch() WHERE id=?', [id])
