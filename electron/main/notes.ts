@@ -20,7 +20,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     schedulePersist(); return true
   })
 
-  registerIpc(ipc, 'notes:create-from-message', (_e, args: { messageId: string; title?: string; tags?: string }) => {
+  registerIpc(ipc, 'notes:create-from-message', (_e, args: { messageId: string; title?: string; tags?: string; parentId?: string | null }) => {
     const row = qOne(getDb(), `SELECT m.id, m.content, m.role, c.title AS conversation_title
       FROM messages m LEFT JOIN conversations c ON c.id=m.conversation_id
       WHERE m.id=? AND m.deleted_at IS NULL`, [args.messageId]) as {
@@ -37,6 +37,8 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
       inbox = { id: inboxId }
     }
 
+    const requestedFolder = args.parentId ? qOne(getDb(), `SELECT id FROM notes WHERE id=? AND kind='folder' AND deleted_at IS NULL`, [args.parentId]) as { id: string } | undefined : undefined
+    const parentId = requestedFolder?.id || inbox.id
     const noteId = uuid()
     const conversationTitle = row.conversation_title || '未命名对话'
     const content = row.content || ''
@@ -44,7 +46,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     const title = (args.title || fallbackTitle).trim().slice(0, 120) || 'AI 知识片段'
     const body = `> 来源：${row.role === 'assistant' ? 'AI 回答' : '我的消息'} · ${conversationTitle}\n> 已保存至知识库\n\n${content}`
     qRun(getDb(), 'INSERT INTO notes(id,title,body,parent_id,sort,tags,kind) VALUES(?,?,?,?,?,?,?)',
-      [noteId, title, body, inbox.id, Date.now(), args.tags ?? 'AI,收集箱', 'note'])
+      [noteId, title, body, parentId, Date.now(), args.tags ?? 'AI,收集箱', 'note'])
     qRun(getDb(), 'INSERT INTO links(id,source_type,source_id,target_type,target_id,link_type,created_at) VALUES(?,?,?,?,?,?,unixepoch())',
       [uuid(), 'message', row.id, 'note', noteId, 'saved_to_knowledge'])
     schedulePersist()

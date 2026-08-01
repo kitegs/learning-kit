@@ -54,6 +54,15 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="knowledgeDialog.open" title="保存到知识库" width="520px">
+      <el-form label-position="top">
+        <el-form-item label="笔记标题"><el-input v-model="knowledgeDialog.title" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="knowledgeDialog.tags" placeholder="例如：数学，错题，重点" /></el-form-item>
+        <el-form-item label="保存到"><el-select v-model="knowledgeDialog.parentId" placeholder="收集箱"><el-option label="收集箱" value="" /><el-option v-for="folder in knowledgeDialog.folders" :key="folder.id" :label="folder.title" :value="folder.id" /></el-select></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="knowledgeDialog.open = false">取消</el-button><el-button type="primary" :loading="knowledgeDialog.saving" @click="confirmSaveToKnowledge">保存</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="reuseDialog.open" title="复用本条内容" width="640px">
       <el-form label-position="top">
         <el-form-item label="目标对话">
@@ -155,12 +164,21 @@ function onCtx(e: MouseEvent) {
 
 async function saveToKnowledge() {
   if (!props.msg.content.trim()) { ElMessage.warning('这条消息还没有可保存的内容'); return }
+  const notes = await window.lk.notesList()
+  knowledgeDialog.value = { open: true, saving: false, title: (props.msg.content.replace(/\s+/g, ' ').trim().slice(0, 48) || 'AI 知识片段'), tags: 'AI', parentId: '', folders: notes.filter((note: any) => note.kind === 'folder').map((note: any) => ({ id: note.id, title: note.title })) }
+}
+const knowledgeDialog = ref({ open: false, saving: false, title: '', tags: 'AI', parentId: '', folders: [] as Array<{ id: string; title: string }> })
+async function confirmSaveToKnowledge() {
   try {
-    const noteId = await window.lk.notesCreateFromMessage({ messageId: props.msg.id })
-    ElMessage.success('已保存到“收集箱”')
+    knowledgeDialog.value.saving = true
+    const noteId = await window.lk.notesCreateFromMessage({ messageId: props.msg.id, title: knowledgeDialog.value.title, tags: knowledgeDialog.value.tags, parentId: knowledgeDialog.value.parentId || null })
+    knowledgeDialog.value.open = false
+    ElMessage.success('已保存到知识库')
     window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${noteId}` } }))
   } catch (err: unknown) {
     ElMessage.error('保存失败：' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    knowledgeDialog.value.saving = false
   }
 }
 

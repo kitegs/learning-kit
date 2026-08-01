@@ -5,11 +5,12 @@ export function registerSearchIpcs(ipc: typeof ipcMain): void {
   ipc.handle('search:all', (_e, q: string) => {
     const k = '%' + (q || '').replace(/[%_\\]/g, (c) => '\\' + c) + '%'
 
-    // FTS5 search
-    qAll(getDb(), `SELECT c.rowid, c.id, c.title FROM conversations c JOIN fts_conversations f ON c.rowid = f.rowid WHERE fts_conversations MATCH ? AND c.deleted_at IS NULL LIMIT 15`, [q])
-    const ftsMsg = qAll(getDb(), `SELECT m.rowid, m.id, m.conversation_id, m.role, m.content FROM messages m JOIN fts_messages f ON m.rowid = f.rowid WHERE fts_messages MATCH ? AND m.deleted_at IS NULL LIMIT 30`, [q])
-    qAll(getDb(), `SELECT n.rowid, n.id, n.title, n.body FROM notes n JOIN fts_notes f ON n.rowid = f.rowid WHERE fts_notes MATCH ? AND n.deleted_at IS NULL LIMIT 20`, [q])
-    const ftsHL = qAll(getDb(), `SELECT h.rowid, h.id, h.book_id, h.page, h.text FROM highlights h JOIN fts_highlights f ON h.rowid = f.rowid WHERE fts_highlights MATCH ? LIMIT 30`, [q])
+    // FTS5 search. Normalize user input so symbols cannot turn into FTS syntax errors.
+    const ftsQuery = (q || '').replace(/[^\p{L}\p{N}_]+/gu, ' ').trim()
+    const ftsConvs = ftsQuery ? qAll(getDb(), `SELECT c.id, c.title FROM conversations c JOIN fts_conversations f ON c.rowid = f.rowid WHERE fts_conversations MATCH ? AND c.deleted_at IS NULL LIMIT 15`, [ftsQuery]) : []
+    const ftsMsg = ftsQuery ? qAll(getDb(), `SELECT m.id, m.conversation_id, m.role, m.content FROM messages m JOIN fts_messages f ON m.rowid = f.rowid WHERE fts_messages MATCH ? AND m.deleted_at IS NULL LIMIT 30`, [ftsQuery]) : []
+    const ftsNotes = ftsQuery ? qAll(getDb(), `SELECT n.id, n.title, n.body FROM notes n JOIN fts_notes f ON n.rowid = f.rowid WHERE fts_notes MATCH ? AND n.deleted_at IS NULL LIMIT 20`, [ftsQuery]) : []
+    const ftsHL = ftsQuery ? qAll(getDb(), `SELECT h.id, h.book_id, h.page, h.text FROM highlights h JOIN fts_highlights f ON h.rowid = f.rowid WHERE fts_highlights MATCH ? LIMIT 30`, [ftsQuery]) : []
 
     // Fallback LIKE search for entities without FTS
     const convs = qAll(getDb(), `SELECT id, title FROM conversations WHERE title LIKE ? ESCAPE '\\' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 10`, [k])
@@ -28,11 +29,12 @@ export function registerSearchIpcs(ipc: typeof ipcMain): void {
       return (i > 30 ? '...' : '') + s.slice(Math.max(0, i - 30), i + 90) + (i + 90 < s.length ? '...' : '')
     }
 
+    const unique = <T extends { id: string }>(items: T[]): T[] => [...new Map(items.map((item) => [item.id, item])).values()]
     return {
       query: q,
-      conversations: convs.map((c: any) => ({ id: c.id, title: c.title!, kind: 'conv' })),
+      conversations: unique([...ftsConvs, ...convs].map((c: any) => ({ id: c.id, title: c.title!, kind: 'conv' }))),
       messages: [...ftsMsg.map((m: any) => ({ id: m.id, conversation_id: m.conversation_id, role: m.role, snippet: snippet(m.content), kind: 'msg' }))],
-      notes: notes2.map((n: any) => ({ id: n.id, title: n.title!, snippet: snippet(n.body), kind: 'note' })),
+      notes: unique([...ftsNotes, ...notes2].map((n: any) => ({ id: n.id, title: n.title!, snippet: snippet(n.body), kind: 'note' }))),
       mindmaps: mindmaps.map((m: any) => ({ id: m.id, title: m.title!, snippet: snippet(m.body), kind: 'mindmap' })),
       books: books.map((b: any) => ({ id: b.id, title: b.title!, author: b.author, kind: 'book' })),
       cards: cards.map((c: any) => ({ id: c.id, deck_id: c.deck_id, snippet: snippet(c.front), back: snippet(c.back), kind: 'card' })),

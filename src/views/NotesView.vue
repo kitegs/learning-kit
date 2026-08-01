@@ -108,6 +108,7 @@ const gutterRef = ref<HTMLElement|null>(null)
 const cursorLine = ref(1)
 const lineCount = computed(() => (current.value?.body || '').split('\n').length)
 const useBlockEditor = ref(false)
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
   { label: '# H1', hint: 'Heading 1', md: { pre: '# ', post: '' }, tags: ['h1','heading','title','biaoti'] },
@@ -205,14 +206,20 @@ async function newFolder() {
   await window.lk.notesUpsert({ title: v.value, body: '', kind: 'folder', parent_id: null, sort: Date.now() })
   await loadTree()
 }
-function markDirty() { dirty.value = true }
-async function saveCurrent() {
+function markDirty() {
+  dirty.value = true
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(() => { if (dirty.value) saveCurrentSilently() }, 900)
+}
+function saveCurrent() { return persistCurrent(false) }
+function saveCurrentSilently() { return persistCurrent(true) }
+async function persistCurrent(silent: boolean) {
   if (!current.value) return
   try {
     // sync textarea value explicitly in case v-model lag
     if (ta.value) current.value.body = ta.value.value
     await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
-    dirty.value = false; await loadTree(); ElMessage.success('saved')
+    dirty.value = false; await loadTree(); if (!silent) ElMessage.success('已保存')
   } catch (e: any) { ElMessage.error('Failed to save: ' + (e?.message || e)) }
 }
 function updateTags() { markDirty() }
@@ -462,6 +469,7 @@ watch(() => props.jumpNoteId, (id) => {
   if (id && id !== currentId.value) open(id)
 }, { immediate: true })
 onBeforeUnmount(async () => {
+  if (autosaveTimer) clearTimeout(autosaveTimer)
   window.removeEventListener('beforeunload', saveCurrent)
   if (dirty.value && current.value) await saveCurrent()
 })

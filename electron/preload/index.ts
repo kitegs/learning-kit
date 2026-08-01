@@ -72,7 +72,7 @@ const api = {
   notesGet: (id: string) => ipcRenderer.invoke('notes:get', id),
   notesUpsert: (n: any) => ipcRenderer.invoke('notes:upsert', n).then(u),
   notesPatch: (id: string, patch: any) => ipcRenderer.invoke('notes:patch', id, patch).then(u),
-  notesCreateFromMessage: (args: { messageId: string; title?: string; tags?: string }) =>
+  notesCreateFromMessage: (args: { messageId: string; title?: string; tags?: string; parentId?: string | null }) =>
     ipcRenderer.invoke('notes:create-from-message', args).then(u),
   notesDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
   notesExport: (id: string) => ipcRenderer.invoke('notes:export', id),

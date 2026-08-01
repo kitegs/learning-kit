@@ -216,6 +216,7 @@ function onSearchJump(target: { kind: string; id?: string; conversationId?: stri
   else if (target.kind === 'book' && target.id) switchMode('library', { bookId: target.id })
   else if (target.kind === 'highlight' && target.bookId) switchMode('library', { bookId: target.bookId, highlight: { bookId: target.bookId, page: target.page || 1 } })
   else if (target.kind === 'card') switchMode('review')
+  else if (target.kind === 'kp') switchMode('notes')
 }
 function matchShortcut(e: KeyboardEvent, sc: string): boolean {
   if (!sc) return false

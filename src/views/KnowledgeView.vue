@@ -8,6 +8,9 @@
       <div class="tag-title">标签</div>
       <button v-for="tag in tags" :key="tag" class="tag-filter" :class="{ active: activeTag === tag }" @click="activeTag = activeTag === tag ? '' : tag">#{{ tag }}</button>
       <div v-if="!tags.length" class="muted">还没有标签</div>
+      <div class="tag-title">目录</div>
+      <button class="filter" :class="{ active: !activeFolderId }" @click="activeFolderId = ''"><span>所有目录</span></button>
+      <button v-for="folder in folders" :key="folder.id" class="filter" :class="{ active: activeFolderId === folder.id }" @click="activeFolderId = folder.id"><span>📁 {{ folder.title }}</span><small>{{ countInFolder(folder.id) }}</small></button>
     </aside>
     <main class="knowledge-main">
       <header class="knowledge-head">
@@ -19,7 +22,7 @@
           <div class="card-top"><span class="source" :class="note.isAi ? 'ai' : 'own'">{{ note.isAi ? 'AI 沉淀' : '我的笔记' }}</span><span class="card-actions"><span class="favorite" :class="{ marked: note.favorite }" role="button" :title="note.favorite ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(note)">★</span><time>{{ formatDate(note.updated_at) }}</time></span></div>
           <h3>{{ note.title }}</h3>
           <p>{{ excerpt(note.body) }}</p>
-          <div v-if="note.tagList.length" class="tags"><span v-for="tag in note.tagList" :key="tag">#{{ tag }}</span></div>
+          <div class="card-footer"><span class="folder">{{ note.folderTitle ? '📁 ' + note.folderTitle : '未归档' }}</span><div v-if="note.tagList.length" class="tags"><span v-for="tag in note.tagList" :key="tag">#{{ tag }}</span></div></div>
         </button>
       </div>
       <div v-else class="empty"><strong>这里还没有知识条目</strong><span>在 AI 回答菜单中选择“保存到知识库”，内容会先进入收集箱。</span></div>
@@ -31,12 +34,13 @@
 import { computed, onMounted, ref } from 'vue'
 
 type Filter = 'all' | 'inbox' | 'ai' | 'own' | 'favorite'
-type NoteItem = { id: string; title: string; body: string; parent_id: string | null; tags: string | null; updated_at?: string; isAi: boolean; favorite: boolean; tagList: string[] }
+type NoteItem = { id: string; title: string; body: string; parent_id: string | null; tags: string | null; updated_at?: string; isAi: boolean; favorite: boolean; tagList: string[]; folderTitle: string }
 
 const rawNotes = ref<Array<Record<string, unknown>>>([])
 const aiNoteIds = ref(new Set<string>())
 const activeFilter = ref<Filter>('all')
 const activeTag = ref('')
+const activeFolderId = ref('')
 const query = ref('')
 const filters: Array<{ key: Filter; label: string }> = [
   { key: 'all', label: '全部知识' }, { key: 'inbox', label: '收集箱' }, { key: 'ai', label: 'AI 沉淀' }, { key: 'own', label: '我的笔记' }, { key: 'favorite', label: '收藏' }
@@ -47,10 +51,12 @@ const notes = computed<NoteItem[]>(() => rawNotes.value
   .map((note) => {
     const id = String(note.id)
     const links = aiNoteIds.value.has(id)
-    return { id, title: String(note.title || '未命名笔记'), body: String(note.body || ''), parent_id: note.parent_id ? String(note.parent_id) : null, tags: note.tags ? String(note.tags) : '', updated_at: note.updated_at ? String(note.updated_at) : '', isAi: links, favorite: Number(note.favorite || 0) === 1, tagList: parseTags(String(note.tags || '')) }
+    const folder = rawNotes.value.find((item) => item.id === note.parent_id && item.kind === 'folder')
+    return { id, title: String(note.title || '未命名笔记'), body: String(note.body || ''), parent_id: note.parent_id ? String(note.parent_id) : null, tags: note.tags ? String(note.tags) : '', updated_at: note.updated_at ? String(note.updated_at) : '', isAi: links, favorite: Number(note.favorite || 0) === 1, tagList: parseTags(String(note.tags || '')), folderTitle: folder ? String(folder.title) : '' }
   }))
 
 const inboxId = computed(() => String(rawNotes.value.find((note) => note.kind === 'folder' && note.title === '收集箱' && !note.parent_id)?.id || ''))
+const folders = computed(() => rawNotes.value.filter((note) => note.kind === 'folder').map((note) => ({ id: String(note.id), title: String(note.title) })))
 const tags = computed(() => [...new Set(notes.value.flatMap((note) => note.tagList))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
 const filteredNotes = computed(() => notes.value.filter((note) => {
   if (activeFilter.value === 'inbox' && note.parent_id !== inboxId.value) return false
@@ -58,6 +64,7 @@ const filteredNotes = computed(() => notes.value.filter((note) => {
   if (activeFilter.value === 'own' && note.isAi) return false
   if (activeFilter.value === 'favorite' && !note.favorite) return false
   if (activeTag.value && !note.tagList.includes(activeTag.value)) return false
+  if (activeFolderId.value && note.parent_id !== activeFolderId.value) return false
   const q = query.value.trim().toLowerCase()
   return !q || `${note.title} ${note.body} ${note.tags}`.toLowerCase().includes(q)
 }))
@@ -73,6 +80,7 @@ function countFor(filter: Filter): number {
   if (filter === 'favorite') return notes.value.filter((note) => note.favorite).length
   return notes.value.length
 }
+function countInFolder(folderId: string): number { return notes.value.filter((note) => note.parent_id === folderId).length }
 function openNote(id: string) { window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${id}` } })) }
 async function createNote() {
   const id = await window.lk.notesUpsert({ title: '未命名笔记', body: '', parent_id: null, sort: Date.now(), tags: '', kind: 'note' })
@@ -108,6 +116,6 @@ onMounted(load)
 .note-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .note-card { min-height: 170px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elev); color: var(--text); padding: 16px; text-align: left; cursor: pointer; transition: transform .15s, border-color .15s; &:hover { transform: translateY(-2px); border-color: var(--accent); } h3 { margin: 12px 0 8px; font-size: 15px; } p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; } }
 .card-top, .card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-dim); }.source { padding: 2px 6px; border-radius: 8px; &.ai { color: #8f6ee8; background: rgba(143,110,232,.12); } &.own { color: var(--accent-text); background: var(--accent-dim); } }.favorite { color: var(--text-dim); font-size: 16px; line-height: 1; cursor: pointer; &.marked { color: #e6ad39; } }
-.tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 14px; span { font-size: 11px; color: var(--text-dim); } }
+.card-footer { margin-top: 14px; }.folder { display: block; margin-bottom: 5px; color: var(--text-dim); font-size: 11px; }.tags { display: flex; flex-wrap: wrap; gap: 5px; span { font-size: 11px; color: var(--text-dim); } }
 .empty { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-dim); text-align: center; strong { color: var(--text); } }
 </style>

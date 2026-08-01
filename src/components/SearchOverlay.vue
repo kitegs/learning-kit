@@ -23,6 +23,7 @@
           <Section v-if="r.mindmaps.length" title="思维导图" :items="r.mindmaps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.mindmap" @run="(it) => $emit('jump', { kind: 'mindmap', id: it.id })" />
           <Section v-if="r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
           <Section v-if="r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
+          <Section v-if="r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
         </div>
         <div v-else-if="!query && history.length" class="history-section">
           <div class="hist-header"><span>Recent Searches</span><button @click="clearHistory">Clear</button></div>
@@ -56,7 +57,7 @@ const query = ref('')
 const input = ref<HTMLInputElement | null>(null)
 const history = ref<string[]>([])
 const HISTORY_KEY = 'lk_search_history'
-const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [] })
+const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] })
 const selIdx = ref(0)
 let timer: any = null
 
@@ -71,16 +72,17 @@ const start = computed(() => {
   accum('mindmap', r.value.mindmaps)
   accum('hl', r.value.highlights)
   accum('card', r.value.cards)
+  accum('kp', r.value.kps)
   return map
 })
 
-const total = computed(() => r.value.books.length + r.value.conversations.length + r.value.messages.length + r.value.notes.length + r.value.mindmaps.length + r.value.highlights.length + r.value.cards.length)
+const total = computed(() => r.value.books.length + r.value.conversations.length + r.value.messages.length + r.value.notes.length + r.value.mindmaps.length + r.value.highlights.length + r.value.cards.length + r.value.kps.length)
 const hasAny = computed(() => total.value > 0)
 
 watch(() => props.open, (v) => {
   if (v) {
     query.value = ''
-    r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [] }
+    r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] }
     selIdx.value = 0
     try { history.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { history.value = [] }
     nextTick(() => input.value?.focus())
@@ -89,7 +91,7 @@ watch(() => props.open, (v) => {
 
 watch(query, (v) => {
   if (timer) clearTimeout(timer)
-  if (!v.trim()) { r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [] }; return }
+  if (!v.trim()) { r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] }; return }
   timer = setTimeout(async () => {
     r.value = await window.lk.search(v.trim())
     selIdx.value = 0
@@ -122,6 +124,7 @@ function openSel() {
   wrap('mindmap', r.value.mindmaps, (it) => emit('jump', { kind: 'mindmap', id: it.id }))
   wrap('hl', r.value.highlights, (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page }))
   wrap('card', r.value.cards, (it) => emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id }))
+  wrap('kp', r.value.kps, (it) => emit('jump', { kind: 'kp', id: it.id }))
 }
 </script>
 
