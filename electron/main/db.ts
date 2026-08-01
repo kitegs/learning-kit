@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS messages (
   note            TEXT,
   model           TEXT,
   sort            INTEGER NOT NULL DEFAULT 0,
+  turn_id         TEXT,
+  parent_turn_id  TEXT,
+  collapsed       INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, sort);
@@ -255,6 +258,13 @@ function migrate(d: Database): void {
   const convCols = tableCols('conversations')
   if (!convCols.includes('origin_context')) { try { d.exec('ALTER TABLE conversations ADD COLUMN origin_context TEXT') } catch {} }
   if (!convCols.includes('folder_id')) { try { d.exec('ALTER TABLE conversations ADD COLUMN folder_id TEXT') } catch {} }
+
+  // Messages: conversation-flow turns and persisted fold state
+  const messageCols = tableCols('messages')
+  if (!messageCols.includes('turn_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN turn_id TEXT') } catch {} }
+  if (!messageCols.includes('parent_turn_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN parent_turn_id TEXT') } catch {} }
+  if (!messageCols.includes('collapsed')) { try { d.exec('ALTER TABLE messages ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0') } catch {} }
+  d.exec("UPDATE messages SET turn_id=id WHERE turn_id IS NULL OR turn_id='' ")
 
   // Highlights: add rect columns
   const hCols = tableCols('highlights')

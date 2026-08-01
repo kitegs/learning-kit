@@ -31,6 +31,8 @@ const api = {
   msgSave: (m) => ipcRenderer.invoke('db:msg:save', m).then(u),
   msgPatch: (id, patch) => ipcRenderer.invoke('db:msg:patch', id, patch).then(u),
   msgDelete: (id) => ipcRenderer.invoke('db:msg:delete', id),
+  turnCollapse: (turnId: string, collapsed: boolean) => ipcRenderer.invoke('db:turn:collapse', turnId, collapsed).then(u),
+  turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null }) => ipcRenderer.invoke('db:turn:move', args).then(u),
   uuid: () => ipcRenderer.invoke('db:uuid'),
 
   // ai

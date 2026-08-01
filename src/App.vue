@@ -22,7 +22,7 @@
       </header>
       <TabBar />
       <div class="view-slot">
-        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" />
+        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" />
@@ -298,7 +298,7 @@ async function onStudyPlanCreated(planText: string) {
   if (!chat.currentConvId) { const c = await chat.newConv(null, '学习方案'); await chat.selectConv(c.id) }
   await onSend(planText)
 }
-async function onSend(text: string) {
+async function onSend(text: string, parentTurnId: string | null = null) {
   if (streaming.value) return
   log('send_start', text.slice(0, 60))
   const citation = pendingCitation.value
@@ -315,14 +315,15 @@ async function onSend(text: string) {
         ? `> 📖 **${citation.bookTitle}** · 第 ${citation.page} 页\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
         : `> 📝 **${citation.bookTitle}**\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
       : ''
+    const turnId = await window.lk.uuid()
     const userMsg: any = {
       id: await window.lk.uuid(), conversation_id: convId, role: 'user',
       content: citationText + text,
       note: citation ? JSON.stringify({ _citation: { book: citation.bookTitle, bookId: citation.bookId, page: citation.page, quote: citation.quote } }) : null,
-      sort: Math.floor(Date.now() / 1000)
+      sort: Date.now(), turn_id: turnId, parent_turn_id: parentTurnId
     }
     await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
-    const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Math.floor(Date.now() / 1000) + 1 }
+    const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Date.now() + 1, turn_id: turnId, parent_turn_id: parentTurnId }
     assistantMsg.id = await chat.saveNewMessage(assistantMsg)
     chat.activeMessages.push(assistantMsg)
     // grab the reactive proxy from the array so mutations trigger re-render
@@ -359,6 +360,7 @@ async function onSend(text: string) {
     }
   }
 }
+function onFollowup(payload: { text: string; parentTurnId: string }) { onSend(payload.text, payload.parentTurnId) }
 function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
 
 function onSelectionAi(text: string, action: string) {

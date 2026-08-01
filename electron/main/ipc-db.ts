@@ -74,9 +74,9 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
   registerIpc(ipc, 'db:msg:save', (_e, m: any) => {
     const id = m.id ?? uuid()
     const convId = m.conversation_id || m.conversationId
-    qRun(getDb(), `INSERT INTO messages(id,conversation_id,role,content,note,model,sort) VALUES(?,?,?,?,?,?,?)
+    qRun(getDb(), `INSERT INTO messages(id,conversation_id,role,content,note,model,sort,turn_id,parent_turn_id,collapsed) VALUES(?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET content=excluded.content, note=excluded.note, model=excluded.model`,
-      [id, convId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0])
+      [id, convId, m.role ?? 'user', m.content ?? '', m.note ?? null, m.model ?? null, m.sort ?? 0, m.turn_id ?? id, m.parent_turn_id ?? null, m.collapsed ?? 0])
     schedulePersist()
     return id
   })
@@ -86,6 +86,19 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     if (patch.note !== undefined) qRun(getDb(), 'UPDATE messages SET note=? WHERE id=?', [patch.note ?? null, id])
     schedulePersist()
     return true
+  })
+
+  registerIpc(ipc, 'db:turn:collapse', (_e, turnId: string, collapsed: boolean) => {
+    qRun(getDb(), 'UPDATE messages SET collapsed=? WHERE turn_id=?', [collapsed ? 1 : 0, turnId])
+    schedulePersist(); return true
+  })
+  registerIpc(ipc, 'db:turn:move', (_e, args: { turnId: string; targetConversationId: string; afterTurnId?: string | null }) => {
+    const target = args.afterTurnId ? qAll(getDb(), 'SELECT MAX(sort) AS sort FROM messages WHERE turn_id=?', [args.afterTurnId])[0] as { sort?: number } | undefined : undefined
+    const sort = (target?.sort ?? Date.now()) + 1
+    qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) UPDATE messages SET conversation_id=?, sort=? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, sort])
+    schedulePersist(); return true
   })
 
   ipc.handle('db:msg:delete', (_e, id: string) => {

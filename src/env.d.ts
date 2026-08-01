@@ -23,6 +23,8 @@ interface LkApi {
   msgSave: (m: any) => Promise<string>
   msgPatch: (id: string, patch: { content?: string; note?: string | null }) => Promise<boolean>
   msgDelete: (id: string) => Promise<boolean>
+  turnCollapse: (turnId: string, collapsed: boolean) => Promise<boolean>
+  turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null }) => Promise<boolean>
   uuid: () => Promise<string>
 
   aiModels: (p: string) => Promise<string[]>

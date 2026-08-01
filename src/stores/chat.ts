@@ -27,6 +27,9 @@ export interface Msg {
   note?: string | null
   model?: string | null
   sort?: number
+  turn_id?: string
+  parent_turn_id?: string | null
+  collapsed?: number
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -94,7 +97,10 @@ export const useChatStore = defineStore('chat', () => {
       content: m.content ?? '',
       note: m.note ?? null,
       model: m.model ?? null,
-      sort: m.sort ?? Math.floor(Date.now() / 1000)
+      sort: m.sort ?? Math.floor(Date.now() / 1000),
+      turn_id: m.turn_id,
+      parent_turn_id: m.parent_turn_id ?? null,
+      collapsed: m.collapsed ?? 0
     })
     return id
   }
