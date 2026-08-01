@@ -70,12 +70,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from 'vue'
+import { onMounted, ref, nextTick, watch } from 'vue'
 import ePub, { type Book } from 'epubjs'
 import { ElMessage } from 'element-plus'
 import { useContextMenu } from '../stores/context-menu'
+import { useSettingsStore } from '../stores/chat'
 
-const props = defineProps<{ bookIdProp: string | null }>()
+const props = defineProps<{ bookIdProp: string | null; jumpPage?: number | null }>()
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'ask-ai', p: { quote: string; question?: string; bookId: string; page: number }): void
@@ -95,11 +96,12 @@ const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
 const askDialog = ref({ open: false, question: '' })
 const currentCfi = ref('')
 const menu = useContextMenu()
+const settings = useSettingsStore()
 
 const locText = ref('')
 const epubZoom = ref(100)
 const flowLayout = ref<'paginated' | 'scrolled-doc'>('paginated')
-const readerTheme = ref<'paper' | 'sepia' | 'night'>('paper')
+const readerTheme = ref<'paper' | 'sepia' | 'night'>(settings.readerTheme)
 
 function flattenToc(items: any[], depth = 0): any[] {
   const out: any[] = []
@@ -135,11 +137,18 @@ async function load() {
       flow: 'paginated'
     } as any)
     bindRenditionEvents()
-    const savedSection = book.value?.last_page ? (epubBook!.spine as any).get(book.value.last_page - 1)?.href : undefined
+    const pageTarget = props.jumpPage || book.value?.last_page
+    const savedSection = pageTarget ? (epubBook!.spine as any).get(pageTarget - 1)?.href : undefined
     rendition.display(savedSection)
     applyReaderTheme()
   }
 }
+
+watch(() => props.jumpPage, (target) => {
+  if (!target || !epubBook || !rendition) return
+  const section = (epubBook.spine as any).get(Math.max(0, target - 1))
+  if (section?.href) rendition.display(section.href)
+})
 
 async function goToc(it: any) {
   if (!rendition || !it.href) return
@@ -288,7 +297,7 @@ function bindRenditionEvents() {
   })
 }
 
-function setReaderTheme(theme: 'paper' | 'sepia' | 'night') { readerTheme.value = theme; applyReaderTheme() }
+function setReaderTheme(theme: 'paper' | 'sepia' | 'night') { readerTheme.value = theme; settings.readerTheme = theme; window.lk.setSetting('readerTheme', theme); applyReaderTheme() }
 function applyReaderTheme() {
   if (!rendition) return
   rendition.themes.register('lk-paper', { body: { color: '#29313d', background: '#f8f4e9', 'font-family': 'Georgia, "Noto Serif SC", serif', 'line-height': '1.85' } })

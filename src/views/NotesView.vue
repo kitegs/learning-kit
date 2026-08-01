@@ -25,7 +25,7 @@
           <template #default="{ data }">
             <span :class="{ active: currentId === data.id, 'is-folder': data.kind === 'folder' }">
               <span v-if="data.kind === 'folder'" style="margin-right:4px">📁</span>
-              <span v-else style="margin-right:4px">📄</span>
+              <span v-else style="margin-right:4px">{{ data.kind === 'sticky' ? '📌' : '📄' }}</span>
               {{ data.title }}
             </span>
           </template>
@@ -49,14 +49,23 @@
           <el-button size="small" @click="insertCmd('**','**')">B</el-button>
           <el-button size="small" @click="insertCmd('*','*')">I</el-button>
           <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
+          <el-button size="small" @click="insertCmd('$','$')">行内公式</el-button>
+          <el-button size="small" @click="insertCmd('$$\n','\n$$')">公式块</el-button>
+          <el-button size="small" @click="insertPage">新页</el-button>
           <span class="spacer"></span>
+          <el-button size="small" @click="imagePicker?.click()">图片/截图</el-button>
+          <el-button size="small" @click="sketchOpen=true">手写</el-button>
+          <el-button size="small" @click="citeBook">引用电子书</el-button>
+          <el-button size="small" @click="citeConversation">引用对话</el-button>
+          <el-button size="small" @click="saveSticky">复用便签</el-button>
+          <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '编辑纸页' : '纸质翻页' }}</el-button>
           <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="切换块编辑器">{{ useBlockEditor ? 'Markdown' : '块编辑' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
           <el-button size="small" @click="makeCard">闪卡</el-button>
           <el-button size="small" @click="exportMd">导出</el-button>
           <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
         </div>
-        <div class="split" v-if="!useBlockEditor">
+        <div class="split" v-if="!useBlockEditor && !paperMode">
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
             <div class="gutter" ref="gutterRef">
               <div v-for="(_ln, i) in lineCount" :key="i" class="gutter-line" :class="{active: cursorLine === i+1}" @click="goToLine(i+1)" @contextmenu.prevent="onGutterCtx($event, i+1)">
@@ -72,11 +81,21 @@
               <div v-if="!filteredSlash.length" class="slash-item" style="opacity:.5;cursor:default"><span class="lbl">No match</span></div>
             </div>
           </div>
-          <div class="preview markdown-body" v-html="html"></div>
+          <div class="preview markdown-body" v-html="html" @click="onPreviewClick"></div>
         </div>
-        <BlockEditor v-else v-model="current.body" :show-toolbar="true" />
+        <div v-else-if="!useBlockEditor" class="paper-stage">
+          <div class="paper-page markdown-body" @click="onPreviewClick">
+            <div class="paper-title">{{ current.title || '未命名笔记' }}</div>
+            <div class="paper-index">第 {{ paperIndex + 1 }} / {{ notePages.length }} 页</div>
+            <div v-html="currentPageHtml"></div>
+          </div>
+          <div class="paper-controls"><el-button @click="prevPage" :disabled="paperIndex===0">← 上一页</el-button><el-button @click="nextPage" :disabled="paperIndex >= notePages.length - 1">下一页 →</el-button></div>
+        </div>
+        <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
       </div>
     </main>
+    <input ref="imagePicker" type="file" accept="image/*" hidden @change="onImagePicked" />
+    <NotebookSketchDialog v-model="sketchOpen" @save="insertSketch" />
   </div>
 </template>
 
@@ -85,11 +104,14 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
+import { useSettingsStore } from '../stores/chat'
 import BlockEditor from '../components/BlockEditor.vue'
+import NotebookSketchDialog from '../components/NotebookSketchDialog.vue'
 
 const props = defineProps<{ jumpNoteId?: string | null }>()
 
 const menu = useContextMenu()
+const settings = useSettingsStore()
 const sideW = ref(260)
 const current = ref<any>(null)
 const currentId = ref<string | null>(null)
@@ -109,6 +131,13 @@ const gutterRef = ref<HTMLElement|null>(null)
 const cursorLine = ref(1)
 const lineCount = computed(() => (current.value?.body || '').split('\n').length)
 const useBlockEditor = ref(false)
+const paperMode = ref(false)
+const paperIndex = ref(0)
+const imagePicker = ref<HTMLInputElement | null>(null)
+const sketchOpen = ref(false)
+const PAGE_BREAK = '<!-- lk:page-break -->'
+const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
+const currentPageHtml = computed(() => renderMarkdown(notePages.value[paperIndex.value] || ''))
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
@@ -210,7 +239,7 @@ async function newFolder() {
 function markDirty() {
   dirty.value = true
   if (autosaveTimer) clearTimeout(autosaveTimer)
-  autosaveTimer = setTimeout(() => { if (dirty.value) saveCurrentSilently() }, 900)
+  autosaveTimer = setTimeout(() => { if (dirty.value) saveCurrentSilently() }, settings.noteAutosaveMs)
 }
 function saveCurrent() { return persistCurrent(false) }
 function saveCurrentSilently() { return persistCurrent(true) }
@@ -456,6 +485,75 @@ function askAiAboutNote() {
   if (!text) { ElMessage.warning('先输入或选中需要 AI 处理的内容'); return }
   window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt: '请根据这段笔记整理要点、发现薄弱点，并给出下一步学习建议。' } }))
 }
+function insertPage() {
+  insertCmd(`\n\n${PAGE_BREAK}\n\n`, '')
+  paperIndex.value = notePages.value.length - 1
+}
+function prevPage() { paperIndex.value = Math.max(0, paperIndex.value - 1) }
+function nextPage() { paperIndex.value = Math.min(notePages.value.length - 1, paperIndex.value + 1) }
+function insertPlain(text: string) {
+  if (!current.value) return
+  pushUndo()
+  const t = ta.value
+  const pos = t?.selectionStart ?? current.value.body.length
+  current.value.body = current.value.body.slice(0, pos) + text + current.value.body.slice(pos)
+  markDirty()
+  nextTick(() => { if (t) { t.focus(); t.selectionStart = t.selectionEnd = pos + text.length } })
+}
+async function onImagePicked(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) })
+  insertPlain(`\n\n![${file.name.replace(/[\[\]]/g, '')}](${data})\n\n`)
+  ;(e.target as HTMLInputElement).value = ''
+}
+function insertSketch(data: string) { insertPlain(`\n\n![手写便签](${data})\n\n`) }
+async function citeBook() {
+  if (!current.value) return
+  const books = await window.lk.bookList()
+  if (!books.length) { ElMessage.warning('请先在图书馆导入电子书'); return }
+  const list = books.map((b: any, i: number) => `${i + 1}. ${b.title}`).join('\n')
+  const choice = await ElMessageBox.prompt(`选择电子书：\n${list}`, '引用电子书', { inputPlaceholder: '输入编号', inputValue: '1' })
+  const book = books[Number(choice.value) - 1]
+  if (!book) { ElMessage.warning('请输入有效编号'); return }
+  const highlights = await window.lk.highlightList(book.id)
+  const hint = highlights.slice(0, 12).map((h: any, i: number) => `${i + 1}. 第 ${h.page || 1} 页 · ${h.text.slice(0, 42)}`).join('\n') || '暂无划线；可直接写一段引用文字。'
+  const quoteResult = await ElMessageBox.prompt(`可选划线：\n${hint}\n\n输入编号，或直接输入引用文字：`, '添加电子书引用', { inputValue: highlights.length ? '1' : '' })
+  const selected = highlights[Number(quoteResult.value) - 1]
+  const quote = selected?.text || quoteResult.value || '电子书引用'
+  const page = selected?.page || book.last_page || 1
+  insertPlain(`\n\n> 📖 [${book.title} · 第 ${page} 页](app://book/${book.id}?page=${page})\n>\n> ${quote.replace(/\n/g, '\n> ')}\n\n`)
+  if (selected?.id) await window.lk.linkRelate('note', current.value.id, 'highlight', selected.id, 'references')
+}
+async function citeConversation() {
+  if (!current.value) return
+  const convs = await window.lk.convAll()
+  if (!convs.length) { ElMessage.warning('暂无可引用的对话'); return }
+  const list = convs.slice(0, 20).map((c: any, i: number) => `${i + 1}. ${c.title}`).join('\n')
+  const chosen = await ElMessageBox.prompt(`选择对话：\n${list}`, '引用 AI 对话', { inputValue: '1' })
+  const conv = convs[Number(chosen.value) - 1]
+  if (!conv) { ElMessage.warning('请输入有效编号'); return }
+  const messages = await window.lk.msgList(conv.id)
+  const answer = [...messages].reverse().find((m: any) => m.role === 'assistant') || messages[messages.length - 1]
+  if (!answer) { ElMessage.warning('该对话还没有内容'); return }
+  const text = String(answer.content || '').slice(0, 1200)
+  insertPlain(`\n\n> 💬 [${conv.title}](app://conv/${conv.id})\n>\n> ${text.replace(/\n/g, '\n> ')}\n\n`)
+  await window.lk.linkRelate('note', current.value.id, 'message', answer.id, 'references')
+}
+async function saveSticky() {
+  if (!current.value) return
+  const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim() || current.value.body.slice(0, 800)
+  const result = await ElMessageBox.prompt('便签标题', '保存为可复用便签', { inputValue: current.value.title ? `${current.value.title} · 便签` : '新便签' })
+  const id = await window.lk.notesUpsert({ title: result.value || '新便签', body: selected, kind: 'sticky', sort: Date.now() })
+  await loadTree()
+  insertPlain(`\n\n📌 [${result.value || '新便签'}](app://note/${id})\n\n`)
+  ElMessage.success('便签已保存，可在左侧 📌 中反复打开和跳转')
+}
+function onPreviewClick(e: MouseEvent) {
+  const anchor = (e.target as HTMLElement).closest('a')
+  const href = anchor?.getAttribute('href') || ''
+  if (href.startsWith('app://')) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href } })) }
+}
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
 onMounted(async () => {
   window.addEventListener('beforeunload', saveCurrent)
@@ -476,6 +574,7 @@ onMounted(async () => {
 watch(() => props.jumpNoteId, (id) => {
   if (id && id !== currentId.value) open(id)
 }, { immediate: true })
+watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.value = Math.max(0, pages.length - 1) })
 onBeforeUnmount(async () => {
   if (autosaveTimer) clearTimeout(autosaveTimer)
   window.removeEventListener('beforeunload', saveCurrent)
@@ -531,6 +630,9 @@ function getAllIds(nodes: any[]): string[] {
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
 .split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.paper-stage { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:center; padding:28px; background:linear-gradient(135deg, #d7d0be, #eee8da 48%, #cfc4ae); }
+.paper-page { position:relative; width:min(760px, 100%); min-height:calc(100% - 60px); box-sizing:border-box; padding:58px 70px; color:#3f392e; background:repeating-linear-gradient(to bottom, transparent 0, transparent 31px, rgba(113,143,166,.16) 32px), linear-gradient(90deg, transparent 0, transparent 58px, rgba(202,105,105,.26) 59px, transparent 60px), #fffdf5; border:1px solid #d6c9ad; box-shadow:0 18px 38px rgba(58,48,30,.24), inset 0 0 42px rgba(133,101,56,.07); border-radius:3px; }
+.paper-title { font-family:Georgia, 'Microsoft YaHei', serif; font-size:24px; font-weight:700; margin-bottom:24px; padding-bottom:10px; border-bottom:1px solid rgba(117,93,57,.26); }.paper-index { position:absolute; right:28px; bottom:20px; color:#8a806c; font-size:12px; }.paper-controls { display:flex; gap:10px; padding-top:14px; }
 .ta-wrap { flex: 1; position: relative; min-width: 0; overflow: hidden; display: flex; }
 .gutter { width: 44px; flex-shrink: 0; background: var(--bg-soft); border-right: 1px solid var(--border); overflow: hidden; user-select: none; padding-top: 16px; }
 .gutter-line { height: 22.4px; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; position: relative; cursor: pointer; transition: background .1s; &:hover { background: var(--bg-hover); } &.active { background: var(--bg-selected); } }
@@ -539,6 +641,7 @@ function getAllIds(nodes: any[]): string[] {
 .gutter-line:hover .gutter-handle { opacity: 1; }
 .ta { flex: 1; width: 0; height: 100%; background: var(--bg); border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace; font-size: 14px; line-height: 1.6; resize: none; padding: 16px 20px; border-right: 1px solid var(--border); box-sizing: border-box; }
 .preview { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; background: var(--bg); box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
+.preview :deep(a), .paper-page :deep(a) { color:var(--accent); cursor:pointer; text-decoration:underline; }.paper-page :deep(img) { max-width:100%; border-radius:6px; border:1px solid #d8cbb1; }
 .slash-menu { position: absolute; z-index: 20; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); min-width: 200px; padding: 4px 0; }
 .slash-item { display: flex; justify-content: space-between; padding: 5px 14px; font-size: 13px; cursor: pointer; color: var(--text); }
 .slash-item:hover { background: var(--accent); color: #fff; }

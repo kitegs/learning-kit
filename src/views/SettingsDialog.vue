@@ -63,6 +63,11 @@
         </el-radio-group>
       </el-form-item>
 
+      <el-divider content-position="left">学习体验</el-divider>
+      <el-form-item label="笔记自动保存"><el-slider v-model="s.noteAutosaveMs" :min="300" :max="5000" :step="100" show-input /><span class="muted">毫秒</span></el-form-item>
+      <el-form-item label="电子书主题"><el-radio-group v-model="s.readerTheme"><el-radio-button value="paper">护眼纸张</el-radio-button><el-radio-button value="sepia">暖褐色</el-radio-button><el-radio-button value="night">夜间</el-radio-button></el-radio-group></el-form-item>
+      <el-form-item label="新卡上限"><el-input-number v-model="s.reviewNewLimit" :min="5" :max="200" /><span class="muted">每次复习的新卡数量</span></el-form-item>
+
       <el-divider content-position="left">快捷键</el-divider>
       <div class="shortcuts">
         <div v-for="(_, key) in s.shortcuts" :key="key" class="shortcut-row">

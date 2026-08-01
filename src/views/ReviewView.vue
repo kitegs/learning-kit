@@ -20,6 +20,8 @@
         <button :class="{active: view==='dash'}" @click="view='dash'">学习统计</button>
         <button :class="{active: view==='cards'}" @click="view='cards'">卡片管理</button>
         <span class="spacer"></span>
+        <el-button size="small" @click="importSrs">导入</el-button>
+        <el-button size="small" @click="exportSrs">导出</el-button>
         <el-button size="small" @click="askProgress">AI 学习建议</el-button>
       </div>
 
@@ -290,6 +292,9 @@ async function resetCard(id: string) {
 async function refreshQueue() {
   let all = await window.lk.srsDue()
   if (currentDeckId.value) all = all.filter((c: any) => c.deck_id === currentDeckId.value)
+  const oldCards = all.filter((c: any) => (c.reps || 0) > 0)
+  const newCards = all.filter((c: any) => (c.reps || 0) === 0).slice(0, settings.reviewNewLimit)
+  all = [...oldCards, ...newCards]
   queue.value = all
   revealed.value = false
   // count new vs old
@@ -358,6 +363,24 @@ async function createSampleCard() {
 async function delCard(id: string) {
   await window.lk.cardDelete(id)
   if (currentDeckId.value) cards.value = await window.lk.cardList(currentDeckId.value)
+  await loadDecks(); await refreshQueue()
+}
+async function exportSrs() {
+  const saved = await window.lk.srsExport()
+  if (saved) ElMessage.success('复习数据已导出')
+}
+async function importSrs() {
+  try {
+    const result = await window.lk.srsImport()
+    if (!result.decks && !result.cards) return
+    await loadDecks()
+    if (!currentDeckId.value && decks.value[0]) currentDeckId.value = decks.value[0].id
+    if (currentDeckId.value) cards.value = await window.lk.cardList(currentDeckId.value)
+    await refreshQueue(); await loadStats()
+    ElMessage.success(`已导入 ${result.decks} 个牌组、${result.cards} 张卡片`)
+  } catch (err: unknown) {
+    ElMessage.error(err instanceof Error ? err.message : '导入失败')
+  }
 }
 
 async function loadStats() {

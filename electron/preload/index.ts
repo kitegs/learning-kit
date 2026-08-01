@@ -104,6 +104,8 @@ const api = {
   srsStats: () => ipcRenderer.invoke('srs:stats'),
   srsFromNote: (deckId: string, front: string, back: string, sourceNoteId?: string) =>
     ipcRenderer.invoke('srs:fromNote', deckId, front, back, sourceNoteId),
+  srsExport: () => ipcRenderer.invoke('srs:export'),
+  srsImport: () => ipcRenderer.invoke('srs:import'),
 
   search: (q: string) => ipcRenderer.invoke('search:all', q),
 

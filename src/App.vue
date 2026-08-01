@@ -22,7 +22,7 @@
       </header>
       <TabBar />
       <div class="view-slot">
-        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
+        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-page="jumpToHighlight?.page" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" />
@@ -515,7 +515,11 @@ async function onNav(e: Event) {
   if (!id) return
   log('nav', kind + ' ' + id.slice(0, 8))
   if (kind === 'note') { switchMode('notes', { noteId: id }) }
-  else if (kind === 'book') { switchMode('library', { bookId: id }); window.lk.bookUpdate(id, {}).catch(() => {}) }
+  else if (kind === 'book') {
+    const page = Number(u.searchParams.get('page'))
+    switchMode('library', { bookId: id, highlight: Number.isFinite(page) && page > 0 ? { bookId: id, page } : undefined })
+    window.lk.bookUpdate(id, {}).catch(() => {})
+  }
   else if (kind === 'conv') { switchMode('chat', { convId: id }) }
   else if (kind === 'kp') { switchMode('notes') }
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })

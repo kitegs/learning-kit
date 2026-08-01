@@ -51,6 +51,7 @@ export function renderMarkdown(src: string): string {
   return DOMPurify.sanitize(raw, {
     ADD_ATTR: ['target', 'data-type'],
     ADD_TAGS: ['span', 'annotation'],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|app):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
     ALLOW_DATA_ATTR: true
   })
 }

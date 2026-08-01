@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog } from 'electron'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
 
 const DAY = 24 * 3600 * 1000
@@ -84,6 +84,11 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
   })
 
   ipc.handle('srs:fromNote', async (_e, deckId: string, front: string, back: string, sourceNoteId?: string) => {
+    if (!deckId) {
+      const existing = qOne(getDb(), 'SELECT id FROM decks ORDER BY sort, created_at LIMIT 1') as { id?: string } | undefined
+      deckId = existing?.id || uuid()
+      if (!existing?.id) qRun(getDb(), 'INSERT INTO decks(id,title,parent_id,sort) VALUES(?,?,?,?)', [deckId, '默认牌组', null, Date.now()])
+    }
     const id = uuid()
     qRun(getDb(), 'INSERT INTO cards(id,deck_id,front,back,kind) VALUES(?,?,?,?,?)', [id, deckId, front, back, 'qa'])
     if (sourceNoteId) {
@@ -92,5 +97,55 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     }
     schedulePersist()
     return id
+  })
+
+  ipc.handle('srs:export', async () => {
+    const result = await dialog.showSaveDialog({
+      title: '导出复习数据',
+      defaultPath: 'learning-kit-srs.json',
+      filters: [{ name: 'Learning Kit 复习数据', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return false
+    const fs = await import('fs/promises')
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      decks: qAll(getDb(), 'SELECT * FROM decks ORDER BY sort, created_at'),
+      cards: qAll(getDb(), 'SELECT * FROM cards ORDER BY created_at')
+    }
+    await fs.writeFile(result.filePath, JSON.stringify(payload, null, 2), 'utf8')
+    return true
+  })
+
+  ipc.handle('srs:import', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '导入复习数据', properties: ['openFile'],
+      filters: [{ name: 'Learning Kit 复习数据', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return { decks: 0, cards: 0 }
+    const fs = await import('fs/promises')
+    const raw = await fs.readFile(result.filePaths[0], 'utf8')
+    const parsed = JSON.parse(raw) as { decks?: unknown; cards?: unknown }
+    if (!Array.isArray(parsed.decks) || !Array.isArray(parsed.cards)) throw new Error('这不是有效的 Learning Kit 复习数据文件')
+    let deckCount = 0, cardCount = 0
+    for (const row of parsed.decks) {
+      const d = row as Record<string, unknown>
+      if (typeof d.id !== 'string' || typeof d.title !== 'string') continue
+      qRun(getDb(), `INSERT INTO decks(id,title,parent_id,sort,created_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET title=excluded.title,parent_id=excluded.parent_id,sort=excluded.sort`,
+      [d.id, d.title, d.parent_id ?? null, d.sort ?? 0, d.created_at ?? new Date().toISOString()])
+      deckCount++
+    }
+    for (const row of parsed.cards) {
+      const c = row as Record<string, unknown>
+      if (typeof c.id !== 'string' || typeof c.deck_id !== 'string' || typeof c.front !== 'string') continue
+      qRun(getDb(), `INSERT INTO cards(id,deck_id,front,back,kind,tags,ease,interval,reps,due,lapses,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET deck_id=excluded.deck_id,front=excluded.front,back=excluded.back,kind=excluded.kind,tags=excluded.tags,ease=excluded.ease,interval=excluded.interval,reps=excluded.reps,due=excluded.due,lapses=excluded.lapses,updated_at=excluded.updated_at`,
+      [c.id, c.deck_id, c.front, c.back ?? '', c.kind ?? 'qa', c.tags ?? null, c.ease ?? 2.5, c.interval ?? 0, c.reps ?? 0, c.due ?? new Date().toISOString().slice(0, 19).replace('T', ' '), c.lapses ?? 0, c.created_at ?? new Date().toISOString(), c.updated_at ?? new Date().toISOString()])
+      cardCount++
+    }
+    schedulePersist()
+    return { decks: deckCount, cards: cardCount }
   })
 }

@@ -155,6 +155,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const temperature = ref(0.6)
   const theme = ref<'dark' | 'light'>('dark')
   const connected = ref(false)
+  const noteAutosaveMs = ref(900)
+  const readerTheme = ref<'paper' | 'sepia' | 'night'>('paper')
+  const reviewNewLimit = ref(30)
 
   const defaultShortcuts = {
     search: 'Ctrl+K',
@@ -197,6 +200,10 @@ export const useSettingsStore = defineStore('settings', () => {
     for (const p of ['openai', 'deepseek', 'dashscope', 'custom']) { models[p] = await window.lk.aiModels(p) }
     if (!model.value && models[provider.value]?.length) model.value = models[provider.value][0]
     systemPrompt.value = await window.lk.aiSystemPrompt()
+    noteAutosaveMs.value = Number(await window.lk.getSetting('noteAutosaveMs')) || 900
+    const storedReaderTheme = await window.lk.getSetting('readerTheme')
+    readerTheme.value = storedReaderTheme === 'sepia' || storedReaderTheme === 'night' ? storedReaderTheme : 'paper'
+    reviewNewLimit.value = Number(await window.lk.getSetting('reviewNewLimit')) || 30
   }
 
   async function saveShortcuts() {
@@ -208,6 +215,9 @@ export const useSettingsStore = defineStore('settings', () => {
     await window.lk.setSetting('provider', provider.value); await window.lk.setSetting('model', model.value)
     await window.lk.setSetting('temperature', String(temperature.value)); await window.lk.setSetting('customBaseUrl', customBaseUrl.value)
     await window.lk.setSetting('theme', theme.value)
+    await window.lk.setSetting('noteAutosaveMs', String(noteAutosaveMs.value))
+    await window.lk.setSetting('readerTheme', readerTheme.value)
+    await window.lk.setSetting('reviewNewLimit', String(reviewNewLimit.value))
     await saveShortcuts()
     for (const [k, v] of Object.entries(apiKeys.value)) await window.lk.setSetting('apiKey.' + k, v)
   }
@@ -218,5 +228,5 @@ export const useSettingsStore = defineStore('settings', () => {
   function setConnected(v: boolean) { connected.value = v }
   function getShortcut(key: string): string { return shortcuts.value[key] || (defaultShortcuts as any)[key] || '' }
 
-  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
+  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
 })

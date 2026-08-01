@@ -108,7 +108,7 @@ import EbookRefPanel from '../components/EbookRefPanel.vue'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
-const props = defineProps<{ bookIdProp: string | null }>()
+const props = defineProps<{ bookIdProp: string | null; jumpPage?: number | null }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'ask-ai', p: { quote: string; question?: string; bookId: string; page: number }): void }>()
 const menu = useContextMenu()
 
@@ -182,7 +182,8 @@ async function load() {
   pdfDoc = await pdfjsLib.getDocument({ url: window.lk.bookUrl(bookId.value) } as any).promise
   totalPages.value = pdfDoc.numPages
   if (book.value?.total_pages !== pdfDoc.numPages) await window.lk.bookUpdate(bookId.value, { total_pages: pdfDoc.numPages })
-  if (book.value?.last_page) page.value = Math.min(book.value.last_page, pdfDoc.numPages)
+  if (props.jumpPage) page.value = Math.min(Math.max(1, props.jumpPage), pdfDoc.numPages)
+  else if (book.value?.last_page) page.value = Math.min(book.value.last_page, pdfDoc.numPages)
   outline.value = flattenOutline(await pdfDoc.getOutline())
   loading.value = false
   await renderPage()
