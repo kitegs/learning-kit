@@ -82,8 +82,9 @@
           </div>
           <div class="preview markdown-body" v-html="html" @click="onPreviewClick"></div>
         </div>
-        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" />
+        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" />
         <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
+        <NotebookAiPanel v-model="notebookAi.open" :context="notebookAi.context" :context-label="notebookAi.label" :suggested-prompt="notebookAi.action" @insert="insertAiAnswer" @append="appendAiAnswer" />
       </div>
     </main>
     <input ref="imagePicker" type="file" accept="image/*" hidden @change="onImagePicked" />
@@ -100,6 +101,7 @@ import { useSettingsStore } from '../stores/chat'
 import BlockEditor from '../components/BlockEditor.vue'
 import NotebookSketchDialog from '../components/NotebookSketchDialog.vue'
 import OpenNotebookEditor from '../components/OpenNotebookEditor.vue'
+import NotebookAiPanel from '../components/NotebookAiPanel.vue'
 
 const props = defineProps<{ jumpNoteId?: string | null }>()
 
@@ -129,6 +131,7 @@ const paperIndex = ref(0)
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
 const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; nextSpread: () => void; getText: () => string } | null>(null)
+const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -482,9 +485,13 @@ function askAiAboutNote() {
   if (!current.value) return
   const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim()
   const text = selected || (paperMode.value ? notebookRef.value?.getText() : current.value.body.trim()) || ''
-  if (!text) { ElMessage.warning('先输入或选中需要 AI 处理的内容'); return }
-  window.dispatchEvent(new CustomEvent('lk:ai-action', { detail: { text, prompt: '请根据这段笔记整理要点、发现薄弱点，并给出下一步学习建议。' } }))
+  openNotebookAi({ context: text, label: selected ? '已选文字' : '当前双页', action: '请根据这段笔记整理要点、发现薄弱点，并给出下一步学习建议。' })
 }
+function openNotebookAi(payload: { context: string; label: string; action?: string }) {
+  notebookAi.value = { open: true, context: payload.context, label: payload.label, action: payload.action || '' }
+}
+function insertAiAnswer(text: string) { notebookRef.value?.insertHtml(renderMarkdown(text)) }
+function appendAiAnswer(text: string) { notebookRef.value?.insertHtml(`<hr>${renderMarkdown(text)}`) }
 function insertFormula() { if (paperMode.value) notebookRef.value?.insertFormula(); else insertCmd('$', '$') }
 function nextNotebookSpread() { if (paperMode.value) notebookRef.value?.nextSpread(); else insertPage() }
 function toggleNotebookPen() { if (paperMode.value) notebookRef.value?.togglePen(); else sketchOpen.value = true }
@@ -628,7 +635,7 @@ function getAllIds(nodes: any[]): string[] {
 .resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }
-.editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.editor-wrap { position:relative; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; flex-shrink: 0; }
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
