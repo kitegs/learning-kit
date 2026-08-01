@@ -11,3 +11,4 @@
 | 2026-08-01 | REQ-20260801-04-paper-notebook-review.md | 护眼纸质笔记与复习数据管理 | implemented |
 | 2026-08-01 | REQ-20260801-05-notebook-ai-and-canvas.md | 笔记内 AI、现代画笔与 Draw.io 工作台 | ready |
 | 2026-08-01 | REQ-20260801-06-ai-tool-center-chat-utilities.md | AI 工具管理中心与对话学习工具栏 | implemented |
+| 2026-08-02 | REQ-20260802-01-eye-care-visual-themes.md | 多主题与护眼视觉体验 | implemented |

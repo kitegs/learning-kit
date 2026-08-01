@@ -21,8 +21,8 @@
       </div>
       <div class="dock-spacer"></div>
       <div class="dock-group">
-        <button class="dock-btn" @click="toggleTheme" :title="themeTip">
-          <el-icon><Sunny v-if="theme==='dark'" /><Moon v-else /></el-icon>
+        <button class="dock-btn" :class="{active: leftPanel==='themes'}" @click="toggleLeft('themes')" title="主题与护眼模式">
+          <el-icon><Brush /></el-icon>
         </button>
       </div>
     </nav>
@@ -45,6 +45,12 @@
         <div v-if="leftPanel==='bookmarks'">
           <div v-for="b in bookmarkItems" :key="b.id" class="bm-item" @click="$emit('bookmark-click', b)">{{ b.label || 'Page '+b.page }}</div>
           <div v-if="!bookmarkItems.length" class="panel-empty">No bookmarks</div>
+        </div>
+        <div v-if="leftPanel==='themes'" class="theme-grid">
+          <button v-for="item in themeOptions" :key="item.id" class="theme-card" :class="{active: theme===item.id}" @click="selectTheme(item.id)">
+            <span class="theme-preview" :class="item.id"><i></i><i></i><i></i></span>
+            <span><strong>{{ item.label }}</strong><small>{{ item.desc }}</small></span>
+          </button>
         </div>
       </div>
       <div class="resize-handle-r" @mousedown="startLeftResize"></div>
@@ -102,8 +108,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ChatDotRound, Reading, Edit, Share, DataLine, Collection, Sunny, Moon, List, PriceTag, Star, Link } from '@element-plus/icons-vue'
-import { useSettingsStore } from '../stores/chat'
+import { ChatDotRound, Reading, Edit, Share, DataLine, Collection, Brush, List, PriceTag, Star, Link } from '@element-plus/icons-vue'
+import { useSettingsStore, type ThemeId } from '../stores/chat'
 
 type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge'
 defineProps<{ mode: Mode; outlineItems: {level:number;text:string;line:number}[]; tagItems: string[]; bookmarkItems: any[] }>()
@@ -111,8 +117,14 @@ defineEmits<{ (e:'switch',m:Mode):void; (e:'outline-click',line:number):void; (e
 
 const settings = useSettingsStore()
 const theme = computed(() => settings.theme)
-const themeTip = computed(() => theme.value === 'dark' ? 'Light mode' : 'Dark mode')
-function toggleTheme() { settings.setTheme(theme.value === 'dark' ? 'light' : 'dark') }
+const themeOptions: { id: ThemeId; label: string; desc: string }[] = [
+  { id: 'paper', label: '护眼纸张', desc: '柔和暖白，适合长时笔记' },
+  { id: 'sepia', label: '暖褐阅读', desc: '低对比暖色，适合夜读' },
+  { id: 'forest', label: '森林专注', desc: '低蓝光绿色，适合复习' },
+  { id: 'light', label: '清爽浅色', desc: '高亮清晰的日间界面' },
+  { id: 'dark', label: '深色专注', desc: '暗环境下减少眩光' },
+]
+function selectTheme(id: ThemeId) { settings.setTheme(id) }
 
 const modes = [
   { key: 'chat' as Mode, label: 'Chat', icon: ChatDotRound },
@@ -131,7 +143,7 @@ const rightW = ref(260)
 const bottomH = ref(180)
 const statusText = ref('Ready')
 
-const leftPanelTitle = computed(() => ({ outline: 'Outline', tags: 'Tags', bookmarks: 'Bookmarks' } as Record<string,string>)[leftPanel.value || ''] || '')
+const leftPanelTitle = computed(() => ({ outline: 'Outline', tags: 'Tags', bookmarks: 'Bookmarks', themes: '主题与护眼模式' } as Record<string,string>)[leftPanel.value || ''] || '')
 
 function toggleLeft(p: string) { leftPanel.value = leftPanel.value === p ? null : p }
 function toggleRight(p: string) { rightPanel.value = rightPanel.value === p ? null : p }
@@ -261,4 +273,5 @@ function startBottomResize(e: MouseEvent) {
 .outline-item { padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .1s; &:hover { background: var(--bg-hover); } }
 .tag-chip { display: inline-block; padding: 2px 8px; margin: 2px; background: var(--accent-dim); color: var(--accent-text); border-radius: 10px; font-size: 11px; cursor: default; }
 .bm-item { padding: 4px 6px; cursor: pointer; border-radius: 3px; transition: background .1s; &:hover { background: var(--bg-hover); } }
+.theme-grid { display:grid; gap:8px; padding:5px; }.theme-card { display:flex; gap:9px; width:100%; padding:8px; text-align:left; border:1px solid var(--border); border-radius:9px; color:var(--text); background:var(--bg-elev); cursor:pointer; transition:.15s; }.theme-card:hover,.theme-card.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }.theme-card > span:last-child { display:grid; gap:2px; }.theme-card strong { font-size:12px; }.theme-card small { color:var(--text-dim); font-size:10px; }.theme-preview { width:54px; height:38px; flex:none; display:grid; align-content:center; gap:5px; padding:6px; border-radius:6px; overflow:hidden; }.theme-preview i { display:block; height:2px; border-radius:3px; opacity:.7; }.theme-preview.paper { background:#fffaf0; }.theme-preview.paper i { background:#91b6ca; }.theme-preview.sepia { background:#e8d5b6; }.theme-preview.sepia i { background:#9b724f; }.theme-preview.forest { background:#e4ece2; }.theme-preview.forest i { background:#5d8a6d; }.theme-preview.light { background:#f8fafc; }.theme-preview.light i { background:#4d88df; }.theme-preview.dark { background:#24282d; }.theme-preview.dark i { background:#78b0ee; }
 </style>

@@ -12,3 +12,4 @@
 | 2026-08-01 | DEV-20260801-04-paper-notebook-review.md | 纸质笔记与复习数据方案 | implemented |
 | 2026-08-01 | DEV-20260801-05-notebook-ai-and-canvas.md | 笔记内 AI 与画布工作台方案 | ready |
 | 2026-08-01 | DEV-20260801-06-ai-tool-center-chat-utilities.md | AI 工具中心与对话工具栏方案 | implemented |
+| 2026-08-02 | DEV-20260802-01-eye-care-visual-themes.md | 多主题视觉系统方案 | implemented |

@@ -56,11 +56,15 @@
         <el-slider v-model="s.temperature" :min="0" :max="1.5" :step="0.05" show-input />
       </el-form-item>
 
-      <el-form-item label="主题">
-        <el-radio-group :model-value="s.theme" @change="(v: any) => s.setTheme(v)">
-          <el-radio-button value="dark">暗色</el-radio-button>
-          <el-radio-button value="light">亮色</el-radio-button>
+      <el-form-item label="界面主题">
+        <el-radio-group :model-value="s.theme" @change="onThemeChange">
+          <el-radio-button value="paper">护眼纸张</el-radio-button>
+          <el-radio-button value="sepia">暖褐阅读</el-radio-button>
+          <el-radio-button value="forest">森林专注</el-radio-button>
+          <el-radio-button value="light">清爽浅色</el-radio-button>
+          <el-radio-button value="dark">深色专注</el-radio-button>
         </el-radio-group>
+        <span class="muted">左侧画笔按钮可快速切换</span>
       </el-form-item>
 
       <el-divider content-position="left">学习体验</el-divider>
@@ -99,7 +103,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useSettingsStore } from '../stores/chat'
+import { useSettingsStore, type ThemeId } from '../stores/chat'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -121,6 +125,12 @@ async function save() {
 }
 function resetShortcuts() {
   Object.assign(s.shortcuts, s.defaultShortcuts)
+}
+
+function onThemeChange(value: string | number | boolean | undefined) {
+  if (value === 'dark' || value === 'light' || value === 'paper' || value === 'sepia' || value === 'forest') {
+    s.setTheme(value as ThemeId)
+  }
 }
 
 const testing = ref(false)

@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+export type ThemeId = 'dark' | 'light' | 'paper' | 'sepia' | 'forest'
+
 export interface GroupNode {
   id: string
   parentId: string | null
@@ -153,7 +155,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const customBaseUrl = ref('')
   const systemPrompt = ref('')
   const temperature = ref(0.6)
-  const theme = ref<'dark' | 'light'>('dark')
+  const theme = ref<ThemeId>('dark')
   const connected = ref(false)
   const noteAutosaveMs = ref(900)
   const readerTheme = ref<'paper' | 'sepia' | 'night'>('paper')
@@ -189,8 +191,8 @@ export const useSettingsStore = defineStore('settings', () => {
     model.value = (await window.lk.getSetting('model')) || 'deepseek-v4-flash'
     temperature.value = Number(await window.lk.getSetting('temperature')) || 0.6
     customBaseUrl.value = (await window.lk.getSetting('customBaseUrl')) || ''
-    const t = (await window.lk.getSetting('theme')) as 'dark' | 'light' | null
-    theme.value = t === 'light' ? 'light' : 'dark'
+    const t = await window.lk.getSetting('theme')
+    theme.value = t === 'light' || t === 'paper' || t === 'sepia' || t === 'forest' ? t : 'dark'
     applyTheme()
     // load shortcuts
     const raw = await window.lk.getSetting('shortcuts')
@@ -210,7 +212,7 @@ export const useSettingsStore = defineStore('settings', () => {
     await window.lk.setSetting('shortcuts', JSON.stringify(shortcuts.value))
   }
 
-  async function setTheme(t: 'dark' | 'light') { theme.value = t; applyTheme(); await window.lk.setSetting('theme', t) }
+  async function setTheme(t: ThemeId) { theme.value = t; applyTheme(); await window.lk.setSetting('theme', t) }
   async function saveAll() {
     await window.lk.setSetting('provider', provider.value); await window.lk.setSetting('model', model.value)
     await window.lk.setSetting('temperature', String(temperature.value)); await window.lk.setSetting('customBaseUrl', customBaseUrl.value)
