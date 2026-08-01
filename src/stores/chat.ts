@@ -31,6 +31,9 @@ export interface Msg {
   parent_turn_id?: string | null
   collapsed?: number
   fold_id?: string | null
+  origin_conversation_id?: string | null
+  origin_fold_id?: string | null
+  origin_sort?: number | null
 }
 
 export const useChatStore = defineStore('chat', () => {

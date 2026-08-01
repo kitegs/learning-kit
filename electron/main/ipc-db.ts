@@ -97,17 +97,27 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     const sort = (target?.sort ?? Date.now()) + 1
     qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
       SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) UPDATE messages SET origin_conversation_id=conversation_id, origin_fold_id=fold_id, origin_sort=sort WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId])
+    qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
     ) UPDATE messages SET conversation_id=?, fold_id=?, sort=? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, args.targetFoldId ?? null, sort])
     schedulePersist(); return true
   })
+  registerIpc(ipc, 'db:turn:restore', (_e, turnId: string) => {
+    qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) UPDATE messages SET conversation_id=COALESCE(origin_conversation_id, conversation_id), fold_id=origin_fold_id, sort=COALESCE(origin_sort, sort), origin_conversation_id=NULL, origin_fold_id=NULL, origin_sort=NULL WHERE turn_id IN (SELECT turn_id FROM branch)`, [turnId])
+    schedulePersist(); return true
+  })
   ipc.handle('db:fold:list', (_e, conversationId: string) => qAll(getDb(), 'SELECT * FROM conversation_folds WHERE conversation_id=? ORDER BY sort, created_at', [conversationId]))
-  registerIpc(ipc, 'db:fold:create', (_e, fold: { conversationId: string; title?: string; sort?: number }) => {
+  registerIpc(ipc, 'db:fold:create', (_e, fold: { conversationId: string; title?: string; tags?: string; sort?: number }) => {
     const id = uuid()
-    qRun(getDb(), 'INSERT INTO conversation_folds(id,conversation_id,title,sort) VALUES(?,?,?,?)', [id, fold.conversationId, fold.title ?? '折叠组', fold.sort ?? Date.now()])
+    qRun(getDb(), 'INSERT INTO conversation_folds(id,conversation_id,title,tags,sort) VALUES(?,?,?,?,?)', [id, fold.conversationId, fold.title ?? '折叠组', fold.tags ?? '', fold.sort ?? Date.now()])
     schedulePersist(); return id
   })
-  registerIpc(ipc, 'db:fold:patch', (_e, id: string, patch: { title?: string; collapsed?: boolean }) => {
+  registerIpc(ipc, 'db:fold:patch', (_e, id: string, patch: { title?: string; tags?: string; collapsed?: boolean }) => {
     if (patch.title !== undefined) qRun(getDb(), 'UPDATE conversation_folds SET title=? WHERE id=?', [patch.title, id])
+    if (patch.tags !== undefined) qRun(getDb(), 'UPDATE conversation_folds SET tags=? WHERE id=?', [patch.tags, id])
     if (patch.collapsed !== undefined) qRun(getDb(), 'UPDATE conversation_folds SET collapsed=? WHERE id=?', [patch.collapsed ? 1 : 0, id])
     schedulePersist(); return true
   })

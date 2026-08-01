@@ -18,7 +18,7 @@ import MessageItem from './MessageItem.vue'
 
 export type Turn = { id: string; parentTurnId: string | null; user?: Msg; assistant?: Msg; collapsed: boolean; depth: number; childrenCount: number; foldId: string | null }
 const props = defineProps<{ turn: Turn }>()
-const emit = defineEmits<{ (e: 'followup', value: { text: string; parentTurnId: string }): void; (e: 'toggle-collapse', turn: Turn): void; (e: 'drag-start', turnId: string): void; (e: 'drop', targetTurnId: string): void; (e: 'move-request', turn: Turn): void }>()
+const emit = defineEmits<{ (e: 'followup', value: { text: string; parentTurnId: string }): void; (e: 'toggle-collapse', turn: Turn): void; (e: 'drag-start', turnId: string): void; (e: 'drop', targetTurnId: string): void; (e: 'move-request', turn: Turn): void; (e: 'restore', turn: Turn): void }>()
 const chat = useChatStore()
 const menu = useContextMenu()
 const followup = ref('')
@@ -32,6 +32,7 @@ function openTurnMenu(e: MouseEvent) {
     { label: '追问此轮', icon: 'ChatDotRound' as any, action: () => document.querySelector<HTMLInputElement>(`.turn[data-turn-id="${props.turn.id}"] input`)?.focus() },
     { separator: true },
     { label: '移动到其他对话', icon: 'Rank' as any, action: () => emit('move-request', props.turn) },
+    ...(props.turn.user?.origin_conversation_id || props.turn.assistant?.origin_conversation_id ? [{ label: '恢复原位置', icon: 'RefreshLeft' as any, action: () => emit('restore', props.turn) }] : []),
     { label: '复制本轮摘要', icon: 'CopyDocument' as any, action: async () => navigator.clipboard.writeText([props.turn.user?.content, props.turn.assistant?.content].filter(Boolean).join('\n\n')) },
   ])
 }
