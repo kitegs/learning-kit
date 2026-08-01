@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS notes (
   sort       INTEGER NOT NULL DEFAULT 0,
   tags       TEXT,
   kind       TEXT NOT NULL DEFAULT 'note',
+  favorite   INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -265,6 +266,10 @@ function migrate(d: Database): void {
   const mmCols = tableCols('mindmaps')
   if (!mmCols.includes('drawing')) { try { d.exec('ALTER TABLE mindmaps ADD COLUMN drawing TEXT') } catch {} }
   if (!mmCols.includes('annotations')) { try { d.exec('ALTER TABLE mindmaps ADD COLUMN annotations TEXT') } catch {} }
+
+  // Notes: add favorite state for knowledge management
+  const noteCols = tableCols('notes')
+  if (!noteCols.includes('favorite')) { try { d.exec('ALTER TABLE notes ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0') } catch {} }
 
   // Bookmarks: add href
   const bmCols = tableCols('bookmarks')

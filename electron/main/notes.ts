@@ -7,7 +7,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
   ipc.handle('notes:get', (_e, id: string) => qOne(getDb(), 'SELECT * FROM notes WHERE id=?', [id]))
   registerIpc(ipc, 'notes:upsert', (_e, n: any) => {
     const id = n.id ?? uuid()
-    qRun(getDb(), `INSERT INTO notes(id,title,body,parent_id,sort,tags,kind) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,parent_id=excluded.parent_id,sort=excluded.sort,tags=excluded.tags,kind=excluded.kind,updated_at=datetime('now')`, [id, n.title ?? 'untitled', n.body ?? '', n.parent_id ?? null, n.sort ?? 0, n.tags ?? null, n.kind ?? 'note'])
+    qRun(getDb(), `INSERT INTO notes(id,title,body,parent_id,sort,tags,kind,favorite) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,parent_id=excluded.parent_id,sort=excluded.sort,tags=excluded.tags,kind=excluded.kind,updated_at=datetime('now')`, [id, n.title ?? 'untitled', n.body ?? '', n.parent_id ?? null, n.sort ?? 0, n.tags ?? null, n.kind ?? 'note', n.favorite ?? 0])
     schedulePersist(); return id
   })
 
@@ -16,6 +16,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     if (patch.body !== undefined) qRun(getDb(), 'UPDATE notes SET body=?,updated_at=datetime("now") WHERE id=?', [patch.body, id])
     if (patch.tags !== undefined) qRun(getDb(), 'UPDATE notes SET tags=?,updated_at=datetime("now") WHERE id=?', [patch.tags, id])
     if (patch.parent_id !== undefined) qRun(getDb(), 'UPDATE notes SET parent_id=?,updated_at=datetime("now") WHERE id=?', [patch.parent_id, id])
+    if (patch.favorite !== undefined) qRun(getDb(), 'UPDATE notes SET favorite=?,updated_at=datetime("now") WHERE id=?', [patch.favorite ? 1 : 0, id])
     schedulePersist(); return true
   })
 
