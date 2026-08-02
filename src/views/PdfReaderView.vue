@@ -18,6 +18,7 @@
           <div v-for="h in highlights" :key="h.id" class="hl" @click="goPage(h.page)">
             <span class="hl-dot-sm" :style="{ background: HL_COLORS[h.color] || HL_COLORS.yellow }"></span>
             <div class="hl-text">{{ h.text }}</div>
+            <el-button text size="small" @click.stop="openHighlightBlock(h)">块</el-button>
             <el-button text size="small" @click.stop="askHl(h)">AI</el-button>
             <el-button text size="small" type="danger" @click.stop="delHl(h.id)">x</el-button>
           </div>
@@ -575,6 +576,12 @@ async function makeCardFromSelection(text: string) {
   const front = `请解释《${book.value?.title || '电子书'}》第 ${page.value} 页的这段内容：\n${text.slice(0, 240)}`
   await window.lk.srsFromSource(decks[0].id, front, text.slice(0, 1000), 'book', bookId.value)
   ElMessage.success('已生成闪卡，可从复习卡跳回本书')
+}
+
+async function openHighlightBlock(highlight: any) {
+  const blocks = await window.lk.blockForSource('highlight', highlight.id)
+  if (!blocks.length) { ElMessage.warning('该划线还没有可跳转的内容块'); return }
+  window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://block/${blocks[0].id}` } }))
 }
 
 function showMenuC(e: MouseEvent, stickyEl: HTMLElement) {

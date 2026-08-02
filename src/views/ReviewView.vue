@@ -258,11 +258,12 @@ async function navigateCardSource(cardId: string) {
   navigateSource({ type: source.source_type, id: source.source_id })
 }
 
-function navigateSource(source: { type: string; id: string }) {
+async function navigateSource(source: { type: string; id: string }) {
   const { type, id } = source
   if (type === 'note') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://note/${id}` } }))
   else if (type === 'conversation') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://conv/${id}` } }))
   else if (type === 'book') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://book/${id}` } }))
+  else if (type === 'block') window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://block/${id}` } }))
   else ElMessage.info('该卡片来源暂不支持跳转')
 }
 

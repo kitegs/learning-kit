@@ -22,6 +22,7 @@ export function registerSearchIpcs(ipc: typeof ipcMain): void {
     const mindmaps = qAll(getDb(), `SELECT id, title, body FROM mindmaps WHERE (title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\') AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 20`, [k, k])
     const cards = qAll(getDb(), `SELECT id, deck_id, front, back, tags FROM cards WHERE (${textQuery ? '(front LIKE ? ESCAPE \'\\\' OR back LIKE ? ESCAPE \'\\\' OR tags LIKE ? ESCAPE \'\\\')' : '1=1'}) ${tagSql ? 'AND ' + tagSql : ''} ORDER BY updated_at DESC LIMIT 20`, textQuery ? [k, k, k, ...tagArgs] : tagArgs)
     const books = qAll(getDb(), `SELECT id, title, author FROM books WHERE (title LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\') AND deleted_at IS NULL ORDER BY added_at DESC LIMIT 10`, [k, k])
+    const blocks = textQuery ? qAll(getDb(), `SELECT id,source_type,source_id,text,anchor,metadata FROM content_blocks WHERE text LIKE ? ESCAPE '\\' ORDER BY updated_at DESC LIMIT 30`, [k]) : []
 
     const kps = qAll(getDb(), `SELECT id, title, description FROM knowledge_points WHERE (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 20`, [k, k])
     qAll(getDb(), `SELECT l.* FROM links l JOIN knowledge_points kp ON kp.id = l.target_id WHERE kp.title LIKE ? ESCAPE '\\' AND l.link_type='references' LIMIT 15`, [k])
@@ -41,6 +42,7 @@ export function registerSearchIpcs(ipc: typeof ipcMain): void {
       notes: unique([...ftsNotes, ...notes2].map((n: any) => ({ id: n.id, title: n.title!, snippet: snippet(n.body), tags: n.tags || '', kind: 'note' }))),
       mindmaps: mindmaps.map((m: any) => ({ id: m.id, title: m.title!, snippet: snippet(m.body), kind: 'mindmap' })),
       books: books.map((b: any) => ({ id: b.id, title: b.title!, author: b.author, kind: 'book' })),
+      blocks: blocks.map((b: any) => ({ id: b.id, source_type: b.source_type, source_id: b.source_id, snippet: snippet(b.text), anchor: b.anchor, kind: 'block' })),
       cards: cards.map((c: any) => ({ id: c.id, deck_id: c.deck_id, snippet: snippet(c.front), back: snippet(c.back), tags: c.tags || '', kind: 'card' })),
       highlights: ftsHL.map((h: any) => ({ id: h.id, book_id: h.book_id, page: h.page, snippet: snippet(h.text), kind: 'highlight' })),
       kps: kps.map((k: any) => ({ id: k.id, title: k.title!, snippet: snippet(k.description), kind: 'kp' })),

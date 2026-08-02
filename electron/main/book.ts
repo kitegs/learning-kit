@@ -74,6 +74,8 @@ export function registerBookIpcs(ipc: typeof ipcMain): void {
     qRun(getDb(), `INSERT INTO highlights(id,book_id,page,text,color,note,link_conv_id,link_msg_id,rect_x,rect_y,rect_w,rect_h) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id, h.bookId, h.page, h.text, h.color ?? 'yellow', h.note ?? null, h.linkConvId ?? null, h.linkMsgId ?? null,
        h.rectX ?? null, h.rectY ?? null, h.rectW ?? null, h.rectH ?? null])
+    qRun(getDb(), 'INSERT INTO content_blocks(id,source_type,source_id,block_type,text,anchor,metadata) VALUES(?,?,?,?,?,?,?)',
+      [uuid(), 'highlight', id, 'book_highlight', h.text, `page:${h.page}`, JSON.stringify({ bookId: h.bookId, page: h.page })])
     schedulePersist()
     return id
   })

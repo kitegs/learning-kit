@@ -111,7 +111,7 @@ import { ref, computed } from 'vue'
 import { ChatDotRound, Reading, Edit, Share, DataLine, Collection, Brush, List, PriceTag, Star, Link } from '@element-plus/icons-vue'
 import { useSettingsStore, type ThemeId } from '../stores/chat'
 
-type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge'
+type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge' | 'attributes'
 defineProps<{ mode: Mode; outlineItems: {level:number;text:string;line:number}[]; tagItems: string[]; bookmarkItems: any[] }>()
 defineEmits<{ (e:'switch',m:Mode):void; (e:'outline-click',line:number):void; (e:'bookmark-click',b:any):void }>()
 
@@ -131,6 +131,7 @@ const modes = [
   { key: 'library' as Mode, label: 'Library', icon: Reading },
   { key: 'notes' as Mode, label: 'Notes', icon: Edit },
   { key: 'knowledge' as Mode, label: 'Knowledge', icon: Collection },
+  { key: 'attributes' as Mode, label: '属性视图', icon: List },
   { key: 'mindmap' as Mode, label: 'Mindmap', icon: Share },
   { key: 'review' as Mode, label: 'Review', icon: DataLine },
 ]

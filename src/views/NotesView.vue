@@ -58,8 +58,12 @@
           <el-button size="small" @click="toggleNotebookPen">手写</el-button>
           <el-button size="small" @click="citeBook">引用电子书</el-button>
           <el-button size="small" @click="citeConversation">引用对话</el-button>
+          <el-button size="small" @click="createContentBlock">创建内容块</el-button>
+          <el-button size="small" @click="referenceContentBlock">引用块</el-button>
           <el-button size="small" @click="saveSticky">复用便签</el-button>
           <el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button>
+          <el-button size="small" @click="openVersions">历史</el-button>
+          <el-button size="small" @click="openAttributes">属性</el-button>
           <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸质笔记本' : '打开笔记本' }}</el-button>
           <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="兼容旧笔记">{{ useBlockEditor ? '纯文本' : '富文本' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
@@ -93,6 +97,18 @@
           <div v-for="link in backlinks" :key="link.id" class="backlink-row" @click="jumpRelated(link)">
             <span class="backlink-type">{{ relatedType(link) }}</span><span>{{ relatedHint(link) }}</span><span class="backlink-arrow">↗</span>
           </div>
+        </el-dialog>
+        <el-dialog v-model="versionsOpen" title="笔记历史与回滚" width="760px">
+          <div class="version-layout">
+            <div class="version-list"><button v-for="version in versions" :key="version.id" :class="{active: versionPreview?.id === version.id}" @click="previewVersion(version.id)"><strong>{{ version.reason || '自动快照' }}</strong><small>{{ version.created_at }}</small></button><p v-if="!versions.length">尚无历史版本。保存或自动保存后会出现快照。</p></div>
+            <div class="version-preview"><template v-if="versionPreview"><h4>{{ versionPreview.title }}</h4><pre>{{ diffText }}</pre><el-button type="warning" @click="restoreVersion">回滚到此版本</el-button></template><p v-else>选择左侧快照可预览与当前版本的差异。</p></div>
+          </div>
+        </el-dialog>
+        <el-dialog v-model="attributesOpen" title="笔记属性" width="520px" @closed="attributeRows=[]">
+          <p class="attrs-hint">属性可用于之后的表格、看板和画廊视图。建议使用“状态、优先级、截止日期、主题”。</p>
+          <div v-for="(row, index) in attributeRows" :key="index" class="attr-row"><el-input v-model="row.key" placeholder="属性名" /><el-input v-model="row.value" placeholder="属性值" /><el-button text type="danger" @click="attributeRows.splice(index, 1)">删除</el-button></div>
+          <el-button size="small" @click="attributeRows.push({ key: '', value: '' })">+ 属性</el-button>
+          <template #footer><el-button @click="attributesOpen=false">取消</el-button><el-button type="primary" @click="saveAttributes">保存属性</el-button></template>
         </el-dialog>
       </div>
     </main>
@@ -128,8 +144,9 @@ const defaultExpand = ref<string[]>([])
 const slashVisible = ref(false)
 const slashX = ref(0)
 const slashY = ref(0)
-const undoStack = ref<string[]>([])
-const redoStack = ref<string[]>([])
+type EditorState = { body: string; start: number; end: number }
+const undoStack = ref<EditorState[]>([])
+const redoStack = ref<EditorState[]>([])
 const MAX_UNDO = 80
 const gutterRef = ref<HTMLElement|null>(null)
 const cursorLine = ref(1)
@@ -139,6 +156,11 @@ const paperMode = ref(true)
 const paperIndex = ref(0)
 const backlinks = ref<any[]>([])
 const backlinksOpen = ref(false)
+const versionsOpen = ref(false)
+const versions = ref<any[]>([])
+const versionPreview = ref<any>(null)
+const attributesOpen = ref(false)
+const attributeRows = ref<Array<{ key: string; value: string }>>([])
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
 const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string } | null>(null)
@@ -268,21 +290,24 @@ function startResize(e: MouseEvent) {
 }
 function pushUndo() {
   if (!current.value) return
-  undoStack.value.push(current.value.body)
+  undoStack.value.push({ body: current.value.body, start: ta.value?.selectionStart ?? 0, end: ta.value?.selectionEnd ?? 0 })
   if (undoStack.value.length > MAX_UNDO) undoStack.value.shift()
   redoStack.value = []
 }
+function restoreEditorState(state: EditorState) {
+  if (!current.value) return
+  current.value.body = state.body; dirty.value = true
+  nextTick(() => { if (ta.value) { ta.value.focus(); ta.value.selectionStart = state.start; ta.value.selectionEnd = state.end } })
+}
 function doUndo() {
   if (!undoStack.value.length || !current.value) return
-  redoStack.value.push(current.value.body)
-  current.value.body = undoStack.value.pop()!
-  dirty.value = true
+  redoStack.value.push({ body: current.value.body, start: ta.value?.selectionStart ?? 0, end: ta.value?.selectionEnd ?? 0 })
+  restoreEditorState(undoStack.value.pop()!)
 }
 function doRedo() {
   if (!redoStack.value.length || !current.value) return
-  undoStack.value.push(current.value.body)
-  current.value.body = redoStack.value.pop()!
-  dirty.value = true
+  undoStack.value.push({ body: current.value.body, start: ta.value?.selectionStart ?? 0, end: ta.value?.selectionEnd ?? 0 })
+  restoreEditorState(redoStack.value.pop()!)
 }
 function undoNote() { if (paperMode.value) notebookRef.value?.undo(); else doUndo() }
 function redoNote() { if (paperMode.value) notebookRef.value?.redo(); else doRedo() }
@@ -512,8 +537,10 @@ async function makeCard() {
   if (!current.value) return
   const dks = await window.lk.deckList(); let dId = dks[0]?.id
   if (!dId) { await window.lk.deckUpsert({ id: await window.lk.uuid(), title: 'Default', sort: 0 }); dId = (await window.lk.deckList())[0]?.id }
-  await window.lk.srsFromNote(dId, current.value.title.slice(0, 200), current.value.body.split('\n\n')[0].slice(0, 600), current.value.id)
-  ElMessage.success('card created')
+  const sourceText = selectedBlockText().slice(0, 1800)
+  const blockId = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'flashcard_source', text: sourceText, anchor: paperMode.value ? 'notebook:current-spread' : `selection:${ta.value?.selectionStart ?? 0}` })
+  await window.lk.srsFromSource(dId, current.value.title.slice(0, 200), sourceText.slice(0, 600), 'block', blockId)
+  await loadBacklinks(); ElMessage.success('已创建并绑定来源内容块的闪卡')
 }
 function askAiAboutNote() {
   if (!current.value) return
@@ -543,6 +570,62 @@ function insertPlain(text: string) {
   markDirty()
   nextTick(() => { if (t) { t.focus(); t.selectionStart = t.selectionEnd = pos + text.length } })
 }
+function selectedBlockText() {
+  const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim()
+  return selected || (paperMode.value ? notebookRef.value?.getText() : current.value?.body || '').trim()
+}
+async function createContentBlock() {
+  if (!current.value) return
+  const text = selectedBlockText()
+  if (!text) { ElMessage.warning('请先写入或选中需要引用的内容'); return }
+  const id = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'note_text', text: text.slice(0, 6000), anchor: paperMode.value ? 'notebook:current-spread' : `selection:${ta.value?.selectionStart ?? 0}` })
+  await window.lk.linkRelate('note', current.value.id, 'block', id, 'contains')
+  await loadBacklinks()
+  ElMessage.success('已创建内容块，可被搜索、引用和绑定闪卡')
+}
+async function referenceContentBlock() {
+  if (!current.value) return
+  const blocks = await window.lk.blockList()
+  if (!blocks.length) { ElMessage.warning('还没有内容块；先在任一笔记中创建内容块'); return }
+  const choices = blocks.slice(0, 30).map((block: any, index: number) => `${index + 1}. ${String(block.text).replace(/\s+/g, ' ').slice(0, 70)}`).join('\n')
+  const result = await ElMessageBox.prompt(`选择要引用的内容块：\n${choices}`, '引用内容块', { inputValue: '1' })
+  const block = blocks[Number(result.value) - 1]
+  if (!block) { ElMessage.warning('请输入有效编号'); return }
+  insertPlain(`\n\n> ↗ [内容块：${String(block.text).replace(/\s+/g, ' ').slice(0, 80)}](app://block/${block.id})\n\n`)
+  await window.lk.linkRelate('note', current.value.id, 'block', block.id, 'references')
+  await loadBacklinks()
+}
+async function openVersions() {
+  if (!current.value) return
+  versions.value = await window.lk.noteVersions(current.value.id)
+  versionPreview.value = null; versionsOpen.value = true
+}
+async function previewVersion(id: string) { versionPreview.value = await window.lk.noteVersionGet(id) }
+const diffText = computed(() => {
+  if (!versionPreview.value || !current.value) return ''
+  const oldLines = String(versionPreview.value.body || '').split('\n'); const nowLines = String(current.value.body || '').split('\n')
+  return ['— 保存的版本', ...oldLines.map((line: string) => `- ${line}`), '', '＋ 当前版本', ...nowLines.map((line: string) => `+ ${line}`)].join('\n').slice(0, 14000)
+})
+async function restoreVersion() {
+  if (!versionPreview.value || !current.value) return
+  await ElMessageBox.confirm('当前内容会自动存为一个回滚前快照，确定恢复吗？', '回滚笔记', { type: 'warning' })
+  await window.lk.noteVersionRestore(versionPreview.value.id)
+  await open(current.value.id); versionsOpen.value = false
+  ElMessage.success('已回滚，回滚前内容已保留在历史中')
+}
+async function openAttributes() {
+  if (!current.value) return
+  const attrs = await window.lk.attrsGet('note', current.value.id)
+  attributeRows.value = attrs.map((attr: any) => ({ key: String(attr.attr_key), value: String(attr.attr_value || '') }))
+  if (!attributeRows.value.length) attributeRows.value = [{ key: '状态', value: '进行中' }, { key: '优先级', value: '普通' }]
+  attributesOpen.value = true
+}
+async function saveAttributes() {
+  if (!current.value) return
+  const attrs = Object.fromEntries(attributeRows.value.filter((row) => row.key.trim() && row.value.trim()).map((row) => [row.key, row.value]))
+  await window.lk.attrsSet('note', current.value.id, attrs)
+  attributesOpen.value = false; ElMessage.success('属性已保存')
+}
 async function onImagePicked(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
@@ -566,8 +649,13 @@ async function citeBook() {
   const selected = highlights[Number(quoteResult.value) - 1]
   const quote = selected?.text || quoteResult.value || '电子书引用'
   const page = selected?.page || book.last_page || 1
-  insertPlain(`\n\n> 📖 [${book.title} · 第 ${page} 页](app://book/${book.id}?page=${page})\n>\n> ${quote.replace(/\n/g, '\n> ')}\n\n`)
-  if (selected?.id) await window.lk.linkRelate('note', current.value.id, 'highlight', selected.id, 'references')
+  let href = `app://book/${book.id}?page=${page}`
+  if (selected?.id) {
+    await window.lk.linkRelate('note', current.value.id, 'highlight', selected.id, 'references')
+    const blocks = await window.lk.blockForSource('highlight', selected.id)
+    if (blocks[0]) { href = `app://block/${blocks[0].id}`; await window.lk.linkRelate('note', current.value.id, 'block', blocks[0].id, 'references') }
+  }
+  insertPlain(`\n\n> 📖 [${book.title} · 第 ${page} 页](${href})\n>\n> ${quote.replace(/\n/g, '\n> ')}\n\n`)
 }
 async function citeConversation() {
   if (!current.value) return
@@ -673,6 +761,7 @@ function getAllIds(nodes: any[]): string[] {
 .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; flex-shrink: 0; }
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
 .backlink-empty { color:var(--text-dim); padding:18px 4px; font-size:13px; }.backlink-row { display:flex; align-items:center; gap:9px; padding:10px 4px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }.backlink-row:hover { color:var(--accent-text); background:var(--bg-hover); }.backlink-type { border-radius:10px; padding:2px 7px; background:var(--accent-dim); color:var(--accent-text); font-size:11px; }.backlink-arrow { margin-left:auto; color:var(--text-dim); }
+.version-layout { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:360px; border:1px solid var(--border); }.version-list { overflow:auto; border-right:1px solid var(--border); }.version-list button { display:grid; gap:4px; width:100%; padding:10px; text-align:left; color:var(--text); background:transparent; border:0; border-bottom:1px solid var(--border); cursor:pointer; }.version-list button.active,.version-list button:hover { background:var(--accent-dim); }.version-list small,.attrs-hint { color:var(--text-dim); font-size:11px; }.version-list p,.version-preview>p { padding:14px; color:var(--text-dim); font-size:12px; }.version-preview { min-width:0; padding:14px; overflow:auto; }.version-preview h4 { margin:0 0 10px; }.version-preview pre { min-height:230px; max-height:370px; overflow:auto; white-space:pre-wrap; color:var(--text-secondary); background:var(--bg-soft); padding:10px; border-radius:7px; font-size:12px; }.attr-row { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin:8px 0; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
 .split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 .paper-stage { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:center; padding:28px; background:linear-gradient(135deg, #d7d0be, #eee8da 48%, #cfc4ae); }

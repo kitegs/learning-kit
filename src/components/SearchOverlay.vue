@@ -27,6 +27,7 @@
           <Section v-if="show('notes') && r.mindmaps.length" title="思维导图" :items="r.mindmaps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.mindmap" @run="(it) => $emit('jump', { kind: 'mindmap', id: it.id })" />
           <Section v-if="show('reading') && r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
           <Section v-if="show('review') && r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
+          <Section v-if="show('notes') && r.blocks.length" title="内容块" :items="r.blocks" :label="(it)=>it.snippet" :sel="selIdx" :start="start.block" @run="(it) => $emit('jump', { kind: 'block', id: it.id })" />
           <Section v-if="show('notes') && r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
         </div>
         <div v-else-if="!query && history.length" class="history-section">
@@ -61,7 +62,7 @@ const query = ref('')
 const input = ref<HTMLInputElement | null>(null)
 const history = ref<string[]>([])
 const HISTORY_KEY = 'lk_search_history'
-const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] })
+const r = ref<any>({ conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], blocks: [], kps: [] })
 const selIdx = ref(0)
 const scope = ref<'all' | 'notes' | 'chat' | 'reading' | 'review'>('all')
 const scopes = [
@@ -81,6 +82,7 @@ const start = computed(() => {
   accum('mindmap', visibleItems(r.value.mindmaps, 'notes'))
   accum('hl', visibleItems(r.value.highlights, 'reading'))
   accum('card', visibleItems(r.value.cards, 'review'))
+  accum('block', visibleItems(r.value.blocks, 'notes'))
   accum('kp', visibleItems(r.value.kps, 'notes'))
   return map
 })
@@ -88,14 +90,14 @@ const start = computed(() => {
 const total = computed(() =>
   visibleItems(r.value.books, 'reading').length + visibleItems(r.value.conversations, 'chat').length + visibleItems(r.value.messages, 'chat').length +
   visibleItems(r.value.notes, 'notes').length + visibleItems(r.value.mindmaps, 'notes').length + visibleItems(r.value.highlights, 'reading').length +
-  visibleItems(r.value.cards, 'review').length + visibleItems(r.value.kps, 'notes').length
+  visibleItems(r.value.cards, 'review').length + visibleItems(r.value.blocks, 'notes').length + visibleItems(r.value.kps, 'notes').length
 )
 const hasAny = computed(() => total.value > 0)
 
 watch(() => props.open, (v) => {
   if (v) {
     query.value = ''
-    r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] }
+    r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], blocks: [], kps: [] }
     selIdx.value = 0
     scope.value = 'all'
     try { history.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { history.value = [] }
@@ -105,7 +107,7 @@ watch(() => props.open, (v) => {
 
 watch(query, (v) => {
   if (timer) clearTimeout(timer)
-  if (!v.trim()) { r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], kps: [] }; return }
+  if (!v.trim()) { r.value = { conversations: [], messages: [], notes: [], mindmaps: [], highlights: [], cards: [], books: [], blocks: [], kps: [] }; return }
   timer = setTimeout(async () => {
     r.value = await window.lk.search(v.trim())
     selIdx.value = 0
@@ -141,6 +143,7 @@ function openSel() {
   wrap('mindmap', visibleItems(r.value.mindmaps, 'notes'), (it) => emit('jump', { kind: 'mindmap', id: it.id }))
   wrap('hl', visibleItems(r.value.highlights, 'reading'), (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page }))
   wrap('card', visibleItems(r.value.cards, 'review'), (it) => emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id }))
+  wrap('block', visibleItems(r.value.blocks, 'notes'), (it) => emit('jump', { kind: 'block', id: it.id }))
   wrap('kp', visibleItems(r.value.kps, 'notes'), (it) => emit('jump', { kind: 'kp', id: it.id }))
 }
 </script>

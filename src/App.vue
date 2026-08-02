@@ -53,6 +53,7 @@ import NotesView from './views/NotesView.vue'
 import MindmapView from './views/MindmapView.vue'
 import ReviewView from './views/ReviewView.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
+import AttributeView from './views/AttributeView.vue'
 import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import SelectionToolbar from './components/SelectionToolbar.vue'
@@ -61,7 +62,7 @@ import AiToolCenter, { type AiToolProposal } from './components/AiToolCenter.vue
 import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
 
-export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge'
+export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge' | 'attributes'
 
 // ── user action log (ring buffer in localStorage) ──
 const LOG_KEY = 'lk_action_log'
@@ -162,11 +163,12 @@ const modeIcon = computed(() => {
     case 'mindmap': return Share
     case 'review': return DataLine
     case 'knowledge': return Collection
+    case 'attributes': return Collection
     default: return ChatDotRound
   }
 })
 const modeTitle = computed(() => {
-  const m: Record<string, string> = { library: '图书馆', notes: '笔记', mindmap: '思维导图', review: '复习', knowledge: '知识库' }
+  const m: Record<string, string> = { library: '图书馆', notes: '笔记', mindmap: '思维导图', review: '复习', knowledge: '知识库', attributes: '属性视图' }
   return m[mode.value] || '对话'
 })
 const contentComponent = computed(() => {
@@ -177,6 +179,7 @@ const contentComponent = computed(() => {
   if (mode.value === 'mindmap') return MindmapView
   if (mode.value === 'review') return ReviewView
   if (mode.value === 'knowledge') return KnowledgeView
+  if (mode.value === 'attributes') return AttributeView
   return ChatView
 })
 watch(openBookId, async (id) => {
@@ -226,6 +229,7 @@ function onSearchJump(target: { kind: string; id?: string; conversationId?: stri
   else if (target.kind === 'book' && target.id) switchMode('library', { bookId: target.id })
   else if (target.kind === 'highlight' && target.bookId) switchMode('library', { bookId: target.bookId, highlight: { bookId: target.bookId, page: target.page || 1 } })
   else if (target.kind === 'card') switchMode('review')
+  else if (target.kind === 'block' && target.id) window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://block/${target.id}` } }))
   else if (target.kind === 'kp') switchMode('notes')
 }
 function matchShortcut(e: KeyboardEvent, sc: string): boolean {
@@ -553,6 +557,25 @@ async function onNav(e: Event) {
   }
   else if (kind === 'conv') { switchMode('chat', { convId: id }) }
   else if (kind === 'kp') { switchMode('notes') }
+  else if (kind === 'block') {
+    const block = await window.lk.blockGet(id)
+    if (!block) return
+    if (block.source_type === 'note') {
+      switchMode('notes', { noteId: block.source_id })
+      tabStore.openTab({ type: 'note', title: '内容块', data: { noteId: block.source_id } })
+      return
+    }
+    else if (block.source_type === 'highlight') {
+      try {
+        const meta = JSON.parse(block.metadata || '{}') as { bookId?: string; page?: number }
+        if (meta.bookId) {
+          switchMode('library', { bookId: meta.bookId, highlight: { bookId: meta.bookId, page: meta.page || 1 } })
+          tabStore.openTab({ type: 'ebook', title: '内容块', data: { bookId: meta.bookId } })
+          return
+        }
+      } catch { /* invalid historical metadata falls back to no navigation */ }
+    }
+  }
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 

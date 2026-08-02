@@ -254,6 +254,41 @@ CREATE TABLE IF NOT EXISTS links (
 );
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_type, target_id);
+
+-- Learning Kit block graph, snapshots and attribute-view records.
+CREATE TABLE IF NOT EXISTS content_blocks (
+  id          TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  source_id   TEXT NOT NULL,
+  block_type  TEXT NOT NULL DEFAULT 'text',
+  text        TEXT NOT NULL DEFAULT '',
+  anchor      TEXT,
+  metadata    TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_blocks_source ON content_blocks(source_type, source_id);
+
+CREATE TABLE IF NOT EXISTS note_versions (
+  id          TEXT PRIMARY KEY,
+  note_id     TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  reason      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS entity_attributes (
+  id          TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  attr_key    TEXT NOT NULL,
+  attr_value  TEXT,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(entity_type, entity_id, attr_key)
+);
+CREATE INDEX IF NOT EXISTS idx_attributes_entity ON entity_attributes(entity_type, entity_id);
 `
 
 function migrate(d: Database): void {

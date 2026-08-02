@@ -83,6 +83,19 @@ const api = {
     ipcRenderer.invoke('notes:create-from-message', args).then(u),
   notesDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
   notesExport: (id: string) => ipcRenderer.invoke('notes:export', id),
+  noteVersions: (noteId: string) => ipcRenderer.invoke('notes:versions', noteId),
+  noteVersionGet: (id: string) => ipcRenderer.invoke('notes:version:get', id).then(u),
+  noteVersionRestore: (id: string) => ipcRenderer.invoke('notes:version:restore', id).then(u),
+
+  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; metadata?: string }) => ipcRenderer.invoke('blocks:upsert', block).then(u),
+  blockGet: (id: string) => ipcRenderer.invoke('blocks:get', id).then(u),
+  blockList: () => ipcRenderer.invoke('blocks:list'),
+  blockForSource: (sourceType: string, sourceId: string) => ipcRenderer.invoke('blocks:forSource', sourceType, sourceId),
+  blockDelete: (id: string) => ipcRenderer.invoke('blocks:delete', id).then(u),
+
+  attrsGet: (entityType: string, entityId: string) => ipcRenderer.invoke('attrs:get', entityType, entityId),
+  attrsSet: (entityType: string, entityId: string, attrs: Record<string, string>) => ipcRenderer.invoke('attrs:set', entityType, entityId, attrs).then(u),
+  attrsList: (entityType: string) => ipcRenderer.invoke('attrs:list', entityType),
 
   mindmapList: () => ipcRenderer.invoke('mindmap:list'),
   mindmapGet: (id: string) => ipcRenderer.invoke('mindmap:get', id),

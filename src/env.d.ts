@@ -66,6 +66,19 @@ interface LkApi {
   notesCreateFromMessage: (args: { messageId: string; title?: string; tags?: string; parentId?: string | null }) => Promise<string>
   notesDelete: (id: string) => Promise<boolean>
   notesExport: (id: string) => Promise<boolean>
+  noteVersions: (noteId: string) => Promise<any[]>
+  noteVersionGet: (id: string) => Promise<any>
+  noteVersionRestore: (id: string) => Promise<boolean>
+
+  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; metadata?: string }) => Promise<string>
+  blockGet: (id: string) => Promise<any>
+  blockList: () => Promise<any[]>
+  blockForSource: (sourceType: string, sourceId: string) => Promise<any[]>
+  blockDelete: (id: string) => Promise<boolean>
+
+  attrsGet: (entityType: string, entityId: string) => Promise<any[]>
+  attrsSet: (entityType: string, entityId: string, attrs: Record<string, string>) => Promise<boolean>
+  attrsList: (entityType: string) => Promise<any[]>
 
   mindmapList: () => Promise<any[]>
   mindmapGet: (id: string) => Promise<any>
