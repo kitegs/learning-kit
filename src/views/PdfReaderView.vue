@@ -772,6 +772,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('keyup', onKeyUp)
+  pdfDoc?.destroy()
+  pdfDoc = null
 })
 </script>
 

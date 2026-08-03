@@ -87,6 +87,21 @@ html {
   /* graph/node colors */
   --graph-heading: #b388ff; --graph-code: #66d9e8; --graph-math: #51cf66;
   --graph-list: #f783ac; --graph-table: #4ea1ff; --graph-todo: #ffd43b;
+
+  /* Element Plus otherwise keeps its own grey text palette.  Map it to our
+     tokens so themed trees, forms, menus and empty states remain legible. */
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-dim);
+  --el-text-color-placeholder: var(--text-dim);
+  --el-text-color-disabled: var(--text-disabled);
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-9: var(--accent-dim);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border-light);
+  --el-bg-color: var(--bg-elev);
+  --el-bg-color-page: var(--bg);
+  --el-fill-color-blank: var(--bg-elev);
 }
 
 html[data-theme="light"] {
@@ -105,8 +120,8 @@ html[data-theme="light"] {
   --border-focus: #2563eb;
 
   --text: #1a1a1a;
-  --text-secondary: #555;
-  --text-dim: #888;
+  --text-secondary: #454545;
+  --text-dim: #666;
   --text-disabled: #bbb;
   --text-on-accent: #fff;
 
@@ -145,7 +160,7 @@ html[data-theme="paper"] {
   --bg: #f5f0e4; --bg-soft: #ece4d3; --bg-elev: #fffdf6; --bg-elev-2: #f7efdf; --bg-elev-3: #e9ddc6;
   --bg-hover: rgba(92,120,107,.08); --bg-active: rgba(92,120,107,.13); --bg-selected: rgba(92,120,107,.13); --bg-overlay: rgba(63,53,37,.28);
   --border: #d6c7ad; --border-light: #c9b997; --border-focus: #5e8875;
-  --text: #3e392f; --text-secondary: #625a4c; --text-dim: #8a806e; --text-disabled: #b7ad9b; --text-on-accent: #fffdf7;
+  --text: #312c24; --text-secondary: #50483b; --text-dim: #716653; --text-disabled: #958a76; --text-on-accent: #fffdf7;
   --accent: #527d6a; --accent-hover: #416b59; --accent-dim: rgba(82,125,106,.13); --accent-text: #416b59;
   --success: #4f8a61; --warning: #ae7831; --danger: #ad5550; --info: #527d8b;
   --shadow-sm: 0 1px 3px rgba(78,62,35,.12); --shadow: 0 4px 12px rgba(78,62,35,.16); --shadow-lg: 0 10px 24px rgba(78,62,35,.2); --scrollbar-thumb:#b7aa91;
@@ -154,7 +169,7 @@ html[data-theme="sepia"] {
   --bg: #e8dcc5; --bg-soft: #ddcdb1; --bg-elev: #f4ead7; --bg-elev-2: #ead8bc; --bg-elev-3: #d8c29f;
   --bg-hover: rgba(104,74,43,.09); --bg-active: rgba(104,74,43,.14); --bg-selected: rgba(143,97,49,.14); --bg-overlay: rgba(58,39,21,.32);
   --border: #c7ae88; --border-light: #bda17b; --border-focus: #9c6834;
-  --text: #493727; --text-secondary: #684d34; --text-dim: #92775a; --text-disabled: #bca98f; --text-on-accent: #fff8ec;
+  --text: #392817; --text-secondary: #573b23; --text-dim: #765535; --text-disabled: #997b5e; --text-on-accent: #fff8ec;
   --accent: #926235; --accent-hover: #7b512b; --accent-dim: rgba(146,98,53,.14); --accent-text: #754a25;
   --success: #5c8258; --warning: #a46520; --danger: #a44e40; --info: #6d7f8b;
   --shadow-sm: 0 1px 3px rgba(69,44,20,.14); --shadow: 0 4px 12px rgba(69,44,20,.18); --shadow-lg: 0 10px 24px rgba(69,44,20,.23); --scrollbar-thumb:#ad906c;
@@ -163,7 +178,7 @@ html[data-theme="forest"] {
   --bg: #e5ece2; --bg-soft: #d9e4d5; --bg-elev: #f7faf4; --bg-elev-2: #e9f0e5; --bg-elev-3: #d2dfcd;
   --bg-hover: rgba(62,111,78,.08); --bg-active: rgba(62,111,78,.14); --bg-selected: rgba(62,111,78,.13); --bg-overlay: rgba(27,53,34,.28);
   --border: #b8cbb6; --border-light: #a9c0a7; --border-focus: #487b59;
-  --text: #294032; --text-secondary: #46604b; --text-dim: #718873; --text-disabled: #a6b6a4; --text-on-accent: #f8fff5;
+  --text: #1f3528; --text-secondary: #355340; --text-dim: #536b58; --text-disabled: #819782; --text-on-accent: #f8fff5;
   --accent: #477c5a; --accent-hover: #386849; --accent-dim: rgba(71,124,90,.14); --accent-text: #386849;
   --success: #3f8058; --warning: #997332; --danger: #a6534e; --info: #47788a;
   --shadow-sm: 0 1px 3px rgba(39,70,44,.12); --shadow: 0 4px 12px rgba(39,70,44,.15); --shadow-lg: 0 10px 24px rgba(39,70,44,.2); --scrollbar-thumb:#9fb79d;

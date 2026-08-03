@@ -22,7 +22,7 @@
       </header>
       <TabBar />
       <div class="view-slot">
-        <component :is="contentComponent" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-page="jumpToHighlight?.page" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
+        <component :is="contentComponent" :key="mode === 'library' && openBookId ? `reader:${openBookId}` : mode" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-page="jumpToHighlight?.page" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" @open-tools="toolCenterOpen = true" @quick="onChatQuickAction" />
@@ -107,7 +107,10 @@ let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
   const seq = ++switchSeq
   if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null; pendingCitation.value = null }
-  if (target !== 'library') openBookId.value = null
+  // Keep the active reader route while the user works elsewhere.  The reader is
+  // deliberately unmounted outside the library to release PDF/EPUB resources,
+  // but its book id stays available so returning to "图书馆" restores the book.
+  // Only the reader's explicit "返回" action clears this state.
   jumpToNoteId.value = null
   jumpToHighlight.value = null
   mode.value = target
@@ -265,10 +268,15 @@ function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 't') { e.preventDefault(); tabStore.openTab({ type: 'chat', title: 'Chat', data: {} }); return }
   if ((e.ctrlKey || e.metaKey) && e.key === 'w') { e.preventDefault(); tabStore.closeTab(tabStore.activeId); return }
 }
-function openBook(id: string) {
+async function openBook(id: string) {
   log('open_book', id.slice(0, 8))
+  const books = await window.lk.bookList()
+  const selected = books.find((x: any) => x.id === id)
+  // Resolve the reader kind before the component mounts, preventing an EPUB
+  // from briefly being created as a PDF reader on a cold reopen.
+  bookKind.value = selected?.kind === 'epub' ? 'epub' : 'pdf'
   switchMode('library', { bookId: id })
-  window.lk.bookList().then(books => { const b = books.find((x: any) => x.id === id); tabStore.openTab({ type: 'ebook', title: b?.title || 'Book', data: { bookId: id } }) })
+  tabStore.openTab({ type: 'ebook', title: selected?.title || 'Book', data: { bookId: id } })
   window.lk.bookUpdate(id, {}).catch(() => {})
 }
 async function onAskFromReader(payload: { quote: string; question?: string; bookId: string; page: number }) {

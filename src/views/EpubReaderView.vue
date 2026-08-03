@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick, watch } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import ePub, { type Book } from 'epubjs'
 import { ElMessage } from 'element-plus'
 import { useContextMenu } from '../stores/context-menu'
@@ -312,6 +312,16 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   if (viewer.value) viewer.value.addEventListener('wheel', onEpubWheel, { passive: false })
   window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', handleResize)
+  if (viewer.value) viewer.value.removeEventListener('wheel', onEpubWheel)
+  rendition?.destroy()
+  rendition = null
+  epubBook?.destroy()
+  epubBook = null
 })
 
 function onKey(e: KeyboardEvent) {
