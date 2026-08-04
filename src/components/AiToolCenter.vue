@@ -8,6 +8,14 @@
         <div><strong>{{ toolLabel(proposal.type) }}</strong><p>{{ summary(proposal) }}</p><small>将写入本地学习数据</small></div>
       </label>
     </div>
+    <el-divider content-position="left">最近执行</el-divider>
+    <div v-if="history.length" class="history-list">
+      <div v-for="run in history.slice(0, 8)" :key="run.id" class="history-row">
+        <div><strong>{{ toolLabel(run.action_type) }}</strong><p>{{ run.preview || '无预览摘要' }}</p></div>
+        <span :class="`status ${run.status}`">{{ statusLabel(run.status) }}</span>
+      </div>
+    </div>
+    <p v-else class="history-empty">确认后的 AI 写入会保留在这里，便于检查。</p>
     <template #footer><el-button @click="rejectAll">全部忽略</el-button><el-button type="primary" :disabled="!selected.length" @click="apply">确认执行 {{ selected.length }} 项</el-button></template>
   </el-drawer>
 </template>
@@ -15,7 +23,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 export type AiToolProposal = { id: string; type: string; params: string[]; rawBlock: string }
-const props = defineProps<{ modelValue: boolean; proposals: AiToolProposal[] }>()
+const props = defineProps<{ modelValue: boolean; proposals: AiToolProposal[]; history: any[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void; (e: 'apply', proposals: AiToolProposal[]): void; (e: 'reject'): void }>()
 const selected = ref<string[]>([])
 watch(() => props.proposals, (items) => { selected.value = items.map((item) => item.id) }, { immediate: true })
@@ -23,9 +31,10 @@ function toggle(id: string) { selected.value = selected.value.includes(id) ? sel
 function apply() { emit('apply', props.proposals.filter((item) => selected.value.includes(item.id))) }
 function rejectAll() { emit('reject') }
 function toolLabel(type: string) { return ({ note: '创建笔记', card: '创建闪卡', mindmap: '创建思维导图', drawio: '创建 Draw.io 图表', plan: '保存学习计划', summary: '保存摘要笔记', kp: '保存知识点', conversation: '新建对话', bookmark: '添加电子书书签' } as Record<string, string>)[type] || `AI 操作：${type}` }
+function statusLabel(status: string) { return ({ pending: '待执行', applied: '已完成', failed: '失败', ignored: '已忽略' } as Record<string, string>)[status] || status }
 function summary(proposal: AiToolProposal) { const p = proposal.params; if (proposal.type === 'conversation') return p[1] || '新建一个对话'; if (proposal.type === 'bookmark') return `第 ${p[1] || '?'} 页 · ${p[2] || '未命名书签'}`; return (p[0] || p.join(' · ') || 'AI 提出的操作').replace(/\s+/g, ' ').slice(0, 110) }
 </script>
 
 <style scoped lang="scss">
-.intro { margin:0 0 16px; padding:10px 12px; border-radius:9px; color:var(--text-dim); background:var(--bg-soft); font-size:12px; line-height:1.6; }.proposal-list { display:grid; gap:9px; }.proposal { display:flex; gap:10px; padding:12px; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:var(--bg-elev); transition:.15s; }.proposal:hover { border-color:var(--accent); }.proposal.disabled { opacity:.48; }.proposal div { min-width:0; }.proposal strong { font-size:13px; }.proposal p { margin:5px 0; color:var(--text); font-size:12px; word-break:break-word; }.proposal small { color:var(--text-dim); font-size:11px; }.empty { display:grid; gap:8px; padding:26px 14px; color:var(--text-dim); text-align:center; }.empty span { font-size:12px; line-height:1.7; }
+.intro { margin:0 0 16px; padding:10px 12px; border-radius:9px; color:var(--text-dim); background:var(--bg-soft); font-size:12px; line-height:1.6; }.proposal-list { display:grid; gap:9px; }.proposal { display:flex; gap:10px; padding:12px; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:var(--bg-elev); transition:.15s; }.proposal:hover { border-color:var(--accent); }.proposal.disabled { opacity:.48; }.proposal div { min-width:0; }.proposal strong { font-size:13px; }.proposal p { margin:5px 0; color:var(--text); font-size:12px; word-break:break-word; }.proposal small { color:var(--text-dim); font-size:11px; }.empty { display:grid; gap:8px; padding:26px 14px; color:var(--text-dim); text-align:center; }.empty span { font-size:12px; line-height:1.7; }.history-list { display:grid; gap:7px; }.history-row { display:flex; gap:9px; justify-content:space-between; padding:9px; border:1px solid var(--border); border-radius:8px; }.history-row div { min-width:0; }.history-row strong { font-size:12px; }.history-row p { margin:3px 0 0; color:var(--text-dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:265px; }.status { flex:none; height:max-content; padding:2px 6px; border-radius:9px; background:var(--bg-soft); color:var(--text-dim); font-size:10px; }.status.applied { color:var(--success); background:color-mix(in srgb,var(--success) 12%,transparent); }.status.failed { color:var(--danger); background:color-mix(in srgb,var(--danger) 12%,transparent); }.history-empty { color:var(--text-dim); font-size:12px; }
 </style>

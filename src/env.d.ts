@@ -70,7 +70,7 @@ interface LkApi {
   noteVersionGet: (id: string) => Promise<any>
   noteVersionRestore: (id: string) => Promise<boolean>
 
-  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; metadata?: string }) => Promise<string>
+  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; anchorKey?: string; metadata?: string; sourceHash?: string }) => Promise<string>
   blockGet: (id: string) => Promise<any>
   blockList: () => Promise<any[]>
   blockForSource: (sourceType: string, sourceId: string) => Promise<any[]>
@@ -79,6 +79,13 @@ interface LkApi {
   attrsGet: (entityType: string, entityId: string) => Promise<any[]>
   attrsSet: (entityType: string, entityId: string, attrs: Record<string, string>) => Promise<boolean>
   attrsList: (entityType: string) => Promise<any[]>
+
+  toolRunCreate: (run: { conversationId?: string | null; actionType: string; params?: string; preview?: string; rollback?: string }) => Promise<string>
+  toolRunComplete: (id: string, status: 'applied' | 'failed' | 'ignored', result?: string) => Promise<boolean>
+  toolRunList: (conversationId?: string | null) => Promise<any[]>
+
+  backupCreate: () => Promise<{ path: string; bytes: number } | null>
+  backupRestore: () => Promise<boolean>
 
   mindmapList: () => Promise<any[]>
   mindmapGet: (id: string) => Promise<any>

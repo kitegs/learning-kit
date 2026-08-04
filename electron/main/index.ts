@@ -9,6 +9,7 @@ import { registerNoteIpcs } from './notes'
 import { registerSearchIpcs } from './search'
 import { registerPrdV3Ipcs } from './prd-v3'
 import { startDrawioServer, stopDrawioServer } from './drawio-server'
+import { registerSafetyIpcs } from './safety'
 
 // register privileged scheme before any app ready (CSP + fetch support)
 protocol.registerSchemesAsPrivileged([
@@ -71,6 +72,7 @@ app.whenReady().then(async () => {
   registerNoteIpcs(ipcMain)
   registerSearchIpcs(ipcMain)
   registerPrdV3Ipcs(ipcMain)
+  registerSafetyIpcs(ipcMain)
 
   // Start draw.io static file server
   const drawioPort = await startDrawioServer()

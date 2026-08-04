@@ -17,7 +17,7 @@
         </div>
         <div class="scope-bar" v-if="query">
           <button v-for="item in scopes" :key="item.id" :class="{ active: scope === item.id }" @click="scope = item.id">{{ item.label }}</button>
-          <span class="tag-tip">输入 #标签 可筛选标签</span>
+          <span class="tag-tip">支持 #标签、type:note / book / block</span>
         </div>
         <div class="results" v-if="hasAny">
           <Section v-if="show('reading') && r.books.length" title="图书馆" :items="r.books" :label="(it)=>it.title + (it.author ? ' · '+it.author : '')" :sel="selIdx" :start="start.book" @run="(it) => $emit('jump', { kind: 'book', id: it.id })" />
@@ -25,7 +25,7 @@
           <Section v-if="show('chat') && r.messages.length" title="消息" :items="r.messages" :label="(it)=>(it.role === 'user' ? '我：' : 'AI：') + it.snippet" :sel="selIdx" :start="start.msg" @run="(it) => $emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id })" />
           <Section v-if="show('notes') && r.notes.length" title="笔记" :items="r.notes" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.note" @run="(it) => $emit('jump', { kind: 'note', id: it.id })" />
           <Section v-if="show('notes') && r.mindmaps.length" title="思维导图" :items="r.mindmaps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.mindmap" @run="(it) => $emit('jump', { kind: 'mindmap', id: it.id })" />
-          <Section v-if="show('reading') && r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page })" />
+          <Section v-if="show('reading') && r.highlights.length" title="电子书划线" :items="r.highlights" :label="(it)=>`第${it.page}页：` + it.snippet" :sel="selIdx" :start="start.hl" @run="(it) => $emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page, href: it.href })" />
           <Section v-if="show('review') && r.cards.length" title="复习卡片" :items="r.cards" :label="(it)=>it.snippet + (it.back ? ' / ' + it.back : '')" :sel="selIdx" :start="start.card" @run="(it) => $emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id })" />
           <Section v-if="show('notes') && r.blocks.length" title="内容块" :items="r.blocks" :label="(it)=>it.snippet" :sel="selIdx" :start="start.block" @run="(it) => $emit('jump', { kind: 'block', id: it.id })" />
           <Section v-if="show('notes') && r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
@@ -55,7 +55,7 @@ import Section from './SearchSection.vue'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'jump', target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number }): void
+  (e: 'jump', target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number; href?: string }): void
 }>()
 
 const query = ref('')
@@ -141,7 +141,7 @@ function openSel() {
   wrap('msg', visibleItems(r.value.messages, 'chat'), (it) => emit('jump', { kind: 'msg', conversationId: it.conversation_id, id: it.id }))
   wrap('note', visibleItems(r.value.notes, 'notes'), (it) => emit('jump', { kind: 'note', id: it.id }))
   wrap('mindmap', visibleItems(r.value.mindmaps, 'notes'), (it) => emit('jump', { kind: 'mindmap', id: it.id }))
-  wrap('hl', visibleItems(r.value.highlights, 'reading'), (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page }))
+  wrap('hl', visibleItems(r.value.highlights, 'reading'), (it) => emit('jump', { kind: 'highlight', bookId: it.book_id, page: it.page, href: it.href }))
   wrap('card', visibleItems(r.value.cards, 'review'), (it) => emit('jump', { kind: 'card', deckId: it.deck_id, id: it.id }))
   wrap('block', visibleItems(r.value.blocks, 'notes'), (it) => emit('jump', { kind: 'block', id: it.id }))
   wrap('kp', visibleItems(r.value.kps, 'notes'), (it) => emit('jump', { kind: 'kp', id: it.id }))

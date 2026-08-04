@@ -1,10 +1,11 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import initSqlJs, { type Database } from 'sql.js'
 
 let db: Database | null = null
 let dbPath = ''
+let sql: Awaited<ReturnType<typeof initSqlJs>> | null = null
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS highlights (
   link_conv_id TEXT,
   link_msg_id TEXT,
   rect_x REAL, rect_y REAL, rect_w REAL, rect_h REAL,
+  href      TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_high_book ON highlights(book_id, page);
@@ -264,10 +266,27 @@ CREATE TABLE IF NOT EXISTS content_blocks (
   text        TEXT NOT NULL DEFAULT '',
   anchor      TEXT,
   metadata    TEXT,
+  anchor_key  TEXT,
+  source_hash TEXT,
+  stale       INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_source ON content_blocks(source_type, source_id);
+
+CREATE TABLE IF NOT EXISTS ai_tool_runs (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  action_type     TEXT NOT NULL,
+  params_json     TEXT NOT NULL DEFAULT '[]',
+  preview         TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  result_json     TEXT,
+  rollback_json   TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tool_runs_conversation ON ai_tool_runs(conversation_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS note_versions (
   id          TEXT PRIMARY KEY,
@@ -327,6 +346,7 @@ function migrate(d: Database): void {
   for (const [col, type] of [['rect_x', 'REAL'], ['rect_y', 'REAL'], ['rect_w', 'REAL'], ['rect_h', 'REAL']] as const) {
     if (!hCols.includes(col)) { try { d.exec(`ALTER TABLE highlights ADD COLUMN ${col} ${type}`) } catch {} }
   }
+  if (!hCols.includes('href')) { try { d.exec('ALTER TABLE highlights ADD COLUMN href TEXT') } catch {} }
 
   // Mindmaps: add drawing and annotations
   const mmCols = tableCols('mindmaps')
@@ -340,6 +360,13 @@ function migrate(d: Database): void {
   // Bookmarks: add href
   const bmCols = tableCols('bookmarks')
   if (!bmCols.includes('href')) { try { d.exec('ALTER TABLE bookmarks ADD COLUMN href TEXT') } catch {} }
+
+  // Content blocks: new fields are optional for old manual blocks.
+  const blockCols = tableCols('content_blocks')
+  for (const [col, type] of [['anchor_key', 'TEXT'], ['source_hash', 'TEXT'], ['stale', 'INTEGER NOT NULL DEFAULT 0']] as const) {
+    if (!blockCols.includes(col)) { try { d.exec(`ALTER TABLE content_blocks ADD COLUMN ${col} ${type}`) } catch {} }
+  }
+  d.exec('CREATE INDEX IF NOT EXISTS idx_blocks_anchor ON content_blocks(source_type, source_id, anchor_key)')
 }
 
 export async function initDb(): Promise<Database> {
@@ -348,16 +375,16 @@ export async function initDb(): Promise<Database> {
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
   dbPath = join(dataDir, 'learning-kit-v3.db')
 
-  const SQL = await initSqlJs()
+  sql = await initSqlJs()
   if (existsSync(dbPath)) {
     const buf = readFileSync(dbPath)
     try {
-      db = new SQL.Database(buf)
+      db = new sql.Database(buf)
     } catch {
-      db = new SQL.Database()
+      db = new sql.Database()
     }
   } else {
-    db = new SQL.Database()
+    db = new sql.Database()
   }
   db.exec(SCHEMA)
   migrate(db)
@@ -386,6 +413,35 @@ export function schedulePersist(): void {
     try { persist() } catch (e: any) { console.error('[db] schedulePersist error:', e?.message || e) }
     persistTimer = null
   }, 250)
+}
+
+export function backupDatabase(targetPath: string): { path: string; bytes: number } {
+  persist()
+  copyFileSync(dbPath, targetPath)
+  return { path: targetPath, bytes: readFileSync(targetPath).byteLength }
+}
+
+export function restoreDatabase(sourcePath: string): void {
+  if (!sql) throw new Error('数据库引擎尚未初始化')
+  const data = readFileSync(sourcePath)
+  const candidate = new sql.Database(data)
+  try {
+    candidate.exec(SCHEMA)
+    migrate(candidate)
+    const check = candidate.exec('PRAGMA integrity_check')
+    const result = check[0]?.values?.[0]?.[0]
+    if (result !== 'ok') throw new Error('备份文件完整性校验失败')
+    const beforeRestore = `${dbPath}.pre-restore.bak`
+    if (existsSync(dbPath)) copyFileSync(dbPath, beforeRestore)
+    const restored = candidate.export()
+    writeFileSync(dbPath, Buffer.from(restored))
+    const previous = db
+    db = candidate
+    previous?.close()
+  } catch (error) {
+    if (db !== candidate) candidate.close()
+    throw error
+  }
 }
 
 export const uuid = (): string =>

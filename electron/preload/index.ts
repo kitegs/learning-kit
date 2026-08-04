@@ -87,7 +87,7 @@ const api = {
   noteVersionGet: (id: string) => ipcRenderer.invoke('notes:version:get', id).then(u),
   noteVersionRestore: (id: string) => ipcRenderer.invoke('notes:version:restore', id).then(u),
 
-  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; metadata?: string }) => ipcRenderer.invoke('blocks:upsert', block).then(u),
+  blockUpsert: (block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; anchorKey?: string; metadata?: string; sourceHash?: string }) => ipcRenderer.invoke('blocks:upsert', block).then(u),
   blockGet: (id: string) => ipcRenderer.invoke('blocks:get', id).then(u),
   blockList: () => ipcRenderer.invoke('blocks:list'),
   blockForSource: (sourceType: string, sourceId: string) => ipcRenderer.invoke('blocks:forSource', sourceType, sourceId),
@@ -96,6 +96,13 @@ const api = {
   attrsGet: (entityType: string, entityId: string) => ipcRenderer.invoke('attrs:get', entityType, entityId),
   attrsSet: (entityType: string, entityId: string, attrs: Record<string, string>) => ipcRenderer.invoke('attrs:set', entityType, entityId, attrs).then(u),
   attrsList: (entityType: string) => ipcRenderer.invoke('attrs:list', entityType),
+
+  toolRunCreate: (run: { conversationId?: string | null; actionType: string; params?: string; preview?: string; rollback?: string }) => ipcRenderer.invoke('ai:tool-run:create', run).then(u),
+  toolRunComplete: (id: string, status: 'applied' | 'failed' | 'ignored', result?: string) => ipcRenderer.invoke('ai:tool-run:complete', id, status, result).then(u),
+  toolRunList: (conversationId?: string | null) => ipcRenderer.invoke('ai:tool-run:list', conversationId),
+
+  backupCreate: () => ipcRenderer.invoke('safety:backup:create'),
+  backupRestore: () => ipcRenderer.invoke('safety:backup:restore'),
 
   mindmapList: () => ipcRenderer.invoke('mindmap:list'),
   mindmapGet: (id: string) => ipcRenderer.invoke('mindmap:get', id),

@@ -1,4 +1,5 @@
 import { ipcMain, dialog } from 'electron'
+import { createHash } from 'crypto'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
 import { registerIpc } from './ipc-helpers'
 
@@ -9,6 +10,10 @@ function saveVersion(note: { id: string; title: string; body: string }, reason: 
   if (reason === '编辑前自动快照' && recent) return
   qRun(getDb(), 'INSERT INTO note_versions(id,note_id,title,body,reason) VALUES(?,?,?,?,?)', [uuid(), note.id, note.title, note.body, reason])
 }
+const sourceHash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 24)
+function markNoteBlocksStale(noteId: string): void {
+  qRun(getDb(), "UPDATE content_blocks SET stale=1,updated_at=datetime('now') WHERE source_type='note' AND source_id=?", [noteId])
+}
 
 export function registerNoteIpcs(ipc: typeof ipcMain): void {
   ipc.handle('notes:list', () => qAll(getDb(), 'SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY sort, created_at'))
@@ -17,6 +22,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     const id = n.id ?? uuid()
     const before = qOne(getDb(), 'SELECT id,title,body FROM notes WHERE id=?', [id]) as { id: string; title: string; body: string } | undefined
     if (before) saveVersion(before, '编辑前自动快照')
+    if (before && before.body !== (n.body ?? '')) markNoteBlocksStale(id)
     qRun(getDb(), `INSERT INTO notes(id,title,body,parent_id,sort,tags,kind,favorite) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,parent_id=excluded.parent_id,sort=excluded.sort,tags=excluded.tags,kind=excluded.kind,updated_at=datetime('now')`, [id, n.title ?? 'untitled', n.body ?? '', n.parent_id ?? null, n.sort ?? 0, n.tags ?? null, n.kind ?? 'note', n.favorite ?? 0])
     schedulePersist(); return id
   })
@@ -25,6 +31,7 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     if (patch.title !== undefined || patch.body !== undefined) {
       const before = qOne(getDb(), 'SELECT id,title,body FROM notes WHERE id=?', [id]) as { id: string; title: string; body: string } | undefined
       if (before && (patch.title !== undefined && patch.title !== before.title || patch.body !== undefined && patch.body !== before.body)) saveVersion(before, '编辑前自动快照')
+      if (before && patch.body !== undefined && patch.body !== before.body) markNoteBlocksStale(id)
     }
     if (patch.title !== undefined) qRun(getDb(), 'UPDATE notes SET title=?,updated_at=datetime("now") WHERE id=?', [patch.title, id])
     if (patch.body !== undefined) qRun(getDb(), 'UPDATE notes SET body=?,updated_at=datetime("now") WHERE id=?', [patch.body, id])
@@ -78,13 +85,16 @@ export function registerNoteIpcs(ipc: typeof ipcMain): void {
     if (!version) return false
     const current = qOne(getDb(), 'SELECT id,title,body FROM notes WHERE id=?', [version.note_id]) as { id: string; title: string; body: string } | undefined
     if (current) saveVersion(current, '回滚前快照')
+    if (current && current.body !== version.body) markNoteBlocksStale(version.note_id)
     qRun(getDb(), 'UPDATE notes SET title=?,body=?,updated_at=datetime("now") WHERE id=?', [version.title, version.body, version.note_id])
     schedulePersist(); return true
   })
 
-  registerIpc(ipc, 'blocks:upsert', (_e, block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; metadata?: string }) => {
+  registerIpc(ipc, 'blocks:upsert', (_e, block: { id?: string; sourceType: string; sourceId: string; blockType?: string; text?: string; anchor?: string; anchorKey?: string; metadata?: string; sourceHash?: string }) => {
     const id = block.id ?? uuid()
-    qRun(getDb(), `INSERT INTO content_blocks(id,source_type,source_id,block_type,text,anchor,metadata) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET text=excluded.text,anchor=excluded.anchor,metadata=excluded.metadata,updated_at=datetime('now')`, [id, block.sourceType, block.sourceId, block.blockType ?? 'text', block.text ?? '', block.anchor ?? null, block.metadata ?? null])
+    const text = block.text ?? ''
+    const anchorKey = block.anchorKey ?? `${block.sourceType}:${block.sourceId}:${sourceHash(text)}`
+    qRun(getDb(), `INSERT INTO content_blocks(id,source_type,source_id,block_type,text,anchor,metadata,anchor_key,source_hash,stale) VALUES(?,?,?,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET text=excluded.text,anchor=excluded.anchor,metadata=excluded.metadata,anchor_key=excluded.anchor_key,source_hash=excluded.source_hash,stale=0,updated_at=datetime('now')`, [id, block.sourceType, block.sourceId, block.blockType ?? 'text', text, block.anchor ?? null, block.metadata ?? null, anchorKey, block.sourceHash ?? sourceHash(text)])
     schedulePersist(); return id
   })
   ipc.handle('blocks:get', (_e, id: string) => qOne(getDb(), 'SELECT * FROM content_blocks WHERE id=?', [id]))

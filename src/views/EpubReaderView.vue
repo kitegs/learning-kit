@@ -76,7 +76,7 @@ import { ElMessage } from 'element-plus'
 import { useContextMenu } from '../stores/context-menu'
 import { useSettingsStore } from '../stores/chat'
 
-const props = defineProps<{ bookIdProp: string | null; jumpPage?: number | null }>()
+const props = defineProps<{ bookIdProp: string | null; jumpPage?: number | null; jumpHref?: string | null }>()
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'ask-ai', p: { quote: string; question?: string; bookId: string; page: number }): void
@@ -92,7 +92,7 @@ const highlights = ref<any[]>([])
 const viewer = ref<HTMLElement | null>(null)
 let epubBook: Book | null = null
 let rendition: any = null
-const selPopup = ref({ show: false, x: 0, y: 0, text: '' })
+const selPopup = ref({ show: false, x: 0, y: 0, text: '', href: '' })
 const askDialog = ref({ open: false, question: '' })
 const currentCfi = ref('')
 const menu = useContextMenu()
@@ -149,6 +149,7 @@ watch(() => props.jumpPage, (target) => {
   const section = (epubBook.spine as any).get(Math.max(0, target - 1))
   if (section?.href) rendition.display(section.href)
 })
+watch(() => props.jumpHref, (href) => { if (href && rendition) rendition.display(href) })
 
 async function goToc(it: any) {
   if (!rendition || !it.href) return
@@ -173,7 +174,7 @@ function onSelectionEnd(e: MouseEvent) {
     show: true,
     x: Math.min(e.clientX - rect.left, rect.width - 200),
     y: Math.max(40, e.clientY - rect.top - 50),
-    text
+    text, href: currentCfi.value
   }
 }
 
@@ -192,7 +193,8 @@ async function saveSel() {
     color: 'yellow',
     note: null,
     linkConvId: null,
-    linkMsgId: null
+    linkMsgId: null,
+    href: selPopup.value.href || currentCfi.value || null
   })
   highlights.value = await window.lk.highlightList(bookId.value!)
   selPopup.value.show = false
@@ -278,13 +280,13 @@ function bindRenditionEvents() {
       : `章节 ${chapter}`
     if (bookId.value) window.lk.bookUpdate(bookId.value, { last_page: chapter })
   })
-  rendition.on('selected', (_cfiRange: string, contents: any) => {
+  rendition.on('selected', (cfiRange: string, contents: any) => {
     const text = contents.window?.getSelection?.().toString().trim() || ''
     if (!text || !viewer.value) return
     const frame = contents.document?.defaultView?.frameElement as HTMLElement | null
     const frameRect = frame?.getBoundingClientRect() || viewer.value.getBoundingClientRect()
     const rect = viewer.value.getBoundingClientRect()
-    selPopup.value = { show: true, x: Math.min(frameRect.left - rect.left + 24, rect.width - 230), y: Math.max(36, frameRect.top - rect.top + 18), text }
+    selPopup.value = { show: true, x: Math.min(frameRect.left - rect.left + 24, rect.width - 230), y: Math.max(36, frameRect.top - rect.top + 18), text, href: cfiRange }
   })
   rendition.on('rendered', (_section: any, contents: any) => {
     contents.document?.addEventListener('contextmenu', (event: MouseEvent) => {

@@ -16,3 +16,4 @@
 | 2026-08-02 | DEV-20260802-02-learning-loop-p0.md | 学习闭环 P0 技术方案 | implemented |
 | 2026-08-02 | DEV-20260802-03-block-history-attribute-view.md | 内容块图谱、历史和属性视图方案 | implemented |
 | 2026-08-04 | DEV-20260804-01-notebook-pagination-layout.md | 纸质笔记分页与版式持久化方案 | implemented |
+| 2026-08-04 | DEV-20260804-02-phase-one-reliability.md | 第一阶段可靠性技术方案 | implemented |

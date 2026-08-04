@@ -312,7 +312,13 @@ function insertHtml(html: string) {
 function insertImage(dataUrl: string, alt = '图片') { insertHtml(`<p><img src="${dataUrl}" alt="${alt}" /></p>`) }
 function insertFormula() { insertHtml('<span class="lk-formula">公式： </span>') }
 function getText() { const page = pages.value[spread.value]; return `${page?.left || ''}\n${page?.right || ''}`.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }
-defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText })
+function goToSpread(target: number) {
+  if (!Number.isFinite(target) || target < 0) return
+  while (pages.value.length <= target) pages.value.push(blank())
+  spread.value = target
+  nextTick(syncPage)
+}
+defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return

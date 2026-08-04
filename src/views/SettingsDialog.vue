@@ -72,6 +72,14 @@
       <el-form-item label="电子书主题"><el-radio-group v-model="s.readerTheme"><el-radio-button value="paper">护眼纸张</el-radio-button><el-radio-button value="sepia">暖褐色</el-radio-button><el-radio-button value="night">夜间</el-radio-button></el-radio-group></el-form-item>
       <el-form-item label="新卡上限"><el-input-number v-model="s.reviewNewLimit" :min="5" :max="200" /><span class="muted">每次复习的新卡数量</span></el-form-item>
 
+      <el-divider content-position="left">数据保护</el-divider>
+      <el-form-item label="本地备份">
+        <el-button size="small" @click="createBackup">创建备份</el-button>
+        <el-button size="small" type="warning" plain @click="restoreBackup">恢复备份</el-button>
+        <span class="muted">恢复后会立即重载本地资料，恢复前自动保留一份安全副本</span>
+      </el-form-item>
+      <el-form-item label="密钥保护"><span class="muted key-protection">API Key 使用系统安全存储加密，不以明文写入学习数据库。</span></el-form-item>
+
       <el-divider content-position="left">快捷键</el-divider>
       <div class="shortcuts">
         <div v-for="(_, key) in s.shortcuts" :key="key" class="shortcut-row">
@@ -102,7 +110,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingsStore, type ThemeId } from '../stores/chat'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -158,6 +166,19 @@ async function onKeyBlur() {
   s.setConnected(false)
 }
 
+async function createBackup() {
+  const result = await window.lk.backupCreate()
+  if (result) ElMessage.success(`备份已创建：${result.path}`)
+}
+async function restoreBackup() {
+  await ElMessageBox.confirm('恢复会替换当前本地数据库，建议先创建备份。恢复前会在数据目录保留自动安全副本。确定继续吗？', '恢复本地备份', { type: 'warning', confirmButtonText: '选择并恢复' })
+  const restored = await window.lk.backupRestore()
+  if (restored) {
+    ElMessage.success('备份已恢复，正在重新加载…')
+    window.location.reload()
+  }
+}
+
 function onClose() {
   emit('update:modelValue', false)
 }
@@ -172,4 +193,5 @@ function onClose() {
 .shortcuts { display:flex; flex-direction:column; gap:6px; }
 .shortcut-row { display:flex; align-items:center; gap:12px; }
 .sc-label { width:120px; font-size:13px; color:var(--text-dim); text-transform:capitalize; }
+.key-protection { margin-left:0; }
 </style>

@@ -1,19 +1,30 @@
-import { ipcMain } from 'electron'
+import { ipcMain, safeStorage } from 'electron'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
 import { registerIpc } from './ipc-helpers'
 
 export function registerDbIpcs(ipc: typeof ipcMain): void {
+  const isSecureKey = (key: string) => key.startsWith('apiKey.')
+  const securePrefix = 'lk-secure:v1:'
+  const encodeSetting = (key: string, value: string) => {
+    if (!isSecureKey(key) || !value || !safeStorage.isEncryptionAvailable()) return value
+    return securePrefix + safeStorage.encryptString(value).toString('base64')
+  }
+  const decodeSetting = (key: string, value: string) => {
+    if (!isSecureKey(key) || !value.startsWith(securePrefix)) return value
+    try { return safeStorage.decryptString(Buffer.from(value.slice(securePrefix.length), 'base64')) } catch { return '' }
+  }
   ipc.handle('db:settings:get', (_e, key: string) => {
     const row = qOne(getDb(), 'SELECT value FROM settings WHERE key=?', [key])
-    return row?.value ?? null
+    return row?.value !== undefined ? decodeSetting(key, String(row.value)) : null
   })
 
   ipc.handle('db:settings:set', (_e, key: string, value: string) => {
-    qRun(getDb(), 'INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [key, value])
+    qRun(getDb(), 'INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [key, encodeSetting(key, value)])
+    schedulePersist()
     return true
   })
 
-  ipc.handle('db:settings:all', () => qAll(getDb(), 'SELECT key,value FROM settings'))
+  ipc.handle('db:settings:all', () => qAll(getDb(), 'SELECT key,value FROM settings').map((row: { key: string; value: string }) => ({ ...row, value: decodeSetting(row.key, row.value) })))
 
   // Groups
   ipc.handle('db:groups:tree', () => qAll(getDb(), 'SELECT * FROM groups WHERE deleted_at IS NULL ORDER BY sort, created_at'))
@@ -127,6 +138,22 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     qRun(getDb(), 'UPDATE messages SET deleted_at=unixepoch() WHERE id=?', [id])
     schedulePersist()
     return true
+  })
+
+  // Auditable AI write proposals. These rows are local-only and never grant automatic execution.
+  registerIpc(ipc, 'ai:tool-run:create', (_e, run: { conversationId?: string | null; actionType: string; params?: string; preview?: string; rollback?: string }) => {
+    const id = uuid()
+    qRun(getDb(), 'INSERT INTO ai_tool_runs(id,conversation_id,action_type,params_json,preview,status,rollback_json) VALUES(?,?,?,?,?,?,?)',
+      [id, run.conversationId ?? null, run.actionType, run.params ?? '[]', run.preview ?? null, 'pending', run.rollback ?? null])
+    schedulePersist(); return id
+  })
+  registerIpc(ipc, 'ai:tool-run:complete', (_e, id: string, status: 'applied' | 'failed' | 'ignored', result?: string) => {
+    qRun(getDb(), 'UPDATE ai_tool_runs SET status=?,result_json=?,completed_at=datetime("now") WHERE id=?', [status, result ?? null, id])
+    schedulePersist(); return true
+  })
+  ipc.handle('ai:tool-run:list', (_e, conversationId?: string | null) => {
+    if (conversationId) return qAll(getDb(), 'SELECT * FROM ai_tool_runs WHERE conversation_id=? ORDER BY created_at DESC LIMIT 80', [conversationId])
+    return qAll(getDb(), 'SELECT * FROM ai_tool_runs ORDER BY created_at DESC LIMIT 120')
   })
 
   ipc.handle('db:uuid', () => uuid())

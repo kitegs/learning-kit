@@ -22,7 +22,7 @@
       </header>
       <TabBar />
       <div class="view-slot">
-        <component :is="contentComponent" :key="mode === 'library' && openBookId ? `reader:${openBookId}` : mode" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-page="jumpToHighlight?.page" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
+        <component :is="contentComponent" :key="mode === 'library' && openBookId ? `reader:${openBookId}` : mode" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-block-id="jumpToBlockId" :jump-page="jumpToHighlight?.page" :jump-href="jumpToBookHref" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" @open-tools="toolCenterOpen = true" @quick="onChatQuickAction" />
@@ -34,7 +34,7 @@
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
   <SelectionToolbar @ai="onSelectionAi" />
-  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" @apply="applyToolProposals" @reject="toolProposals = []; toolCenterOpen = false" />
+  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" :history="toolHistory" @apply="applyToolProposals" @reject="ignoreToolProposals" />
 </template>
 
 <script setup lang="ts">
@@ -102,9 +102,10 @@ const searchOpen = ref(false)
 const pendingCitation = ref<{ bookTitle: string; bookId: string; page: number; quote: string } | null>(null)
 const toolCenterOpen = ref(false)
 const toolProposals = ref<AiToolProposal[]>([])
+const toolHistory = ref<any[]>([])
 
 let switchSeq = 0
-function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
+function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; noteId?: string; blockId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
   const seq = ++switchSeq
   if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null; pendingCitation.value = null }
   // Keep the active reader route while the user works elsewhere.  The reader is
@@ -112,13 +113,17 @@ function switchMode(target: Mode, ctx?: { bookId?: string; noteId?: string; conv
   // but its book id stays available so returning to "图书馆" restores the book.
   // Only the reader's explicit "返回" action clears this state.
   jumpToNoteId.value = null
+  jumpToBlockId.value = null
   jumpToHighlight.value = null
+  jumpToBookHref.value = null
   mode.value = target
   if (seq !== switchSeq) return
   if (ctx?.bookId) openBookId.value = ctx.bookId
   if (ctx?.noteId) jumpToNoteId.value = ctx.noteId
+  if (ctx?.blockId) jumpToBlockId.value = ctx.blockId
   if (ctx?.convId) chat.selectConv(ctx.convId)
   if (ctx?.highlight) jumpToHighlight.value = ctx.highlight
+  if (ctx?.bookHref) jumpToBookHref.value = ctx.bookHref
 }
 
 // watch tab activation -> switch mode + data
@@ -129,7 +134,9 @@ watch(() => tabStore.activeTab, (tab) => {
 })
 
 const jumpToNoteId = ref<string | null>(null)
+const jumpToBlockId = ref<string | null>(null)
 const jumpToHighlight = ref<{ bookId: string; page: number } | null>(null)
+const jumpToBookHref = ref<string | null>(null)
 const bookKind = ref<'pdf' | 'epub'>('pdf')
 
 // dock panel data
@@ -222,7 +229,7 @@ function applyTitle() {
 function onSettingsSaved() {}
 function onReaderBack() { openBookId.value = null }
 function goBackToBook() { log('go_back_book'); switchMode('library') }
-function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number }) {
+function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number; href?: string }) {
   log('search_jump', target.kind + (target.id ? ' ' + target.id.slice(0,8) : ''))
   searchOpen.value = false
   if (target.kind === 'conv' && target.id) switchMode('chat', { convId: target.id })
@@ -230,7 +237,7 @@ function onSearchJump(target: { kind: string; id?: string; conversationId?: stri
   else if (target.kind === 'note' && target.id) switchMode('notes', { noteId: target.id })
   else if (target.kind === 'mindmap') switchMode('mindmap')
   else if (target.kind === 'book' && target.id) switchMode('library', { bookId: target.id })
-  else if (target.kind === 'highlight' && target.bookId) switchMode('library', { bookId: target.bookId, highlight: { bookId: target.bookId, page: target.page || 1 } })
+  else if (target.kind === 'highlight' && target.bookId) switchMode('library', { bookId: target.bookId, bookHref: target.href, highlight: { bookId: target.bookId, page: target.page || 1 } })
   else if (target.kind === 'card') switchMode('review')
   else if (target.kind === 'block' && target.id) window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://block/${target.id}` } }))
   else if (target.kind === 'kp') switchMode('notes')
@@ -502,11 +509,28 @@ async function executeActions(actions: ParsedAction[]): Promise<string> {
   }
   return results.join('\n')
 }
+async function refreshToolHistory() { toolHistory.value = await window.lk.toolRunList(chat.currentConvId || null) }
+watch(toolCenterOpen, (open) => { if (open) refreshToolHistory().catch(() => {}) })
+async function ignoreToolProposals() {
+  for (const proposal of toolProposals.value) {
+    const id = await window.lk.toolRunCreate({ conversationId: chat.currentConvId, actionType: proposal.type, params: JSON.stringify(proposal.params), preview: `已忽略：${proposal.params.join(' · ').slice(0, 120)}` })
+    await window.lk.toolRunComplete(id, 'ignored')
+  }
+  toolProposals.value = []; toolCenterOpen.value = false
+}
 async function applyToolProposals(proposals: AiToolProposal[]) {
-  const actions: ParsedAction[] = proposals.map(({ type, params, rawBlock }) => ({ type, params, rawBlock }))
-  const summary = await executeActions(actions)
+  const summaries: string[] = []
+  for (const proposal of proposals) {
+    const runId = await window.lk.toolRunCreate({ conversationId: chat.currentConvId, actionType: proposal.type, params: JSON.stringify(proposal.params), preview: proposal.params.join(' · ').replace(/\s+/g, ' ').slice(0, 160) })
+    const itemSummary = await executeActions([{ type: proposal.type, params: proposal.params, rawBlock: proposal.rawBlock }])
+    const status = itemSummary.includes('Failed') ? 'failed' : 'applied'
+    await window.lk.toolRunComplete(runId, status, JSON.stringify({ summary: itemSummary }))
+    summaries.push(itemSummary)
+  }
+  const summary = summaries.join('\n')
   toolProposals.value = []
   toolCenterOpen.value = false
+  await refreshToolHistory()
   if (summary) {
     const convId = chat.currentConvId
     if (convId) {
@@ -560,7 +584,8 @@ async function onNav(e: Event) {
   if (kind === 'note') { switchMode('notes', { noteId: id }) }
   else if (kind === 'book') {
     const page = Number(u.searchParams.get('page'))
-    switchMode('library', { bookId: id, highlight: Number.isFinite(page) && page > 0 ? { bookId: id, page } : undefined })
+    const cfi = u.searchParams.get('cfi')
+    switchMode('library', { bookId: id, bookHref: cfi || undefined, highlight: Number.isFinite(page) && page > 0 ? { bookId: id, page } : undefined })
     window.lk.bookUpdate(id, {}).catch(() => {})
   }
   else if (kind === 'conv') { switchMode('chat', { convId: id }) }
@@ -569,15 +594,15 @@ async function onNav(e: Event) {
     const block = await window.lk.blockGet(id)
     if (!block) return
     if (block.source_type === 'note') {
-      switchMode('notes', { noteId: block.source_id })
+      switchMode('notes', { noteId: block.source_id, blockId: id })
       tabStore.openTab({ type: 'note', title: '内容块', data: { noteId: block.source_id } })
       return
     }
     else if (block.source_type === 'highlight') {
       try {
-        const meta = JSON.parse(block.metadata || '{}') as { bookId?: string; page?: number }
+        const meta = JSON.parse(block.metadata || '{}') as { bookId?: string; page?: number; href?: string | null }
         if (meta.bookId) {
-          switchMode('library', { bookId: meta.bookId, highlight: { bookId: meta.bookId, page: meta.page || 1 } })
+          switchMode('library', { bookId: meta.bookId, bookHref: meta.href || undefined, highlight: { bookId: meta.bookId, page: meta.page || 1 } })
           tabStore.openTab({ type: 'ebook', title: '内容块', data: { bookId: meta.bookId } })
           return
         }

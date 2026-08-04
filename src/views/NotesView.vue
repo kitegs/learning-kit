@@ -128,7 +128,7 @@ import NotebookSketchDialog from '../components/NotebookSketchDialog.vue'
 import OpenNotebookEditor from '../components/OpenNotebookEditor.vue'
 import NotebookAiPanel from '../components/NotebookAiPanel.vue'
 
-const props = defineProps<{ jumpNoteId?: string | null }>()
+const props = defineProps<{ jumpNoteId?: string | null; jumpBlockId?: string | null }>()
 
 const menu = useContextMenu()
 const settings = useSettingsStore()
@@ -163,7 +163,7 @@ const attributesOpen = ref(false)
 const attributeRows = ref<Array<{ key: string; value: string }>>([])
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
-const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string } | null>(null)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void } | null>(null)
 const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
@@ -241,6 +241,7 @@ async function open(id: string) {
     if (n) {
       current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); await loadBacklinks()
       undoStack.value = []; redoStack.value = []
+      if (props.jumpBlockId) nextTick(() => revealBlock(props.jumpBlockId!))
     } else {
       ElMessage.warning('Note not found')
     }
@@ -538,7 +539,7 @@ async function makeCard() {
   const dks = await window.lk.deckList(); let dId = dks[0]?.id
   if (!dId) { await window.lk.deckUpsert({ id: await window.lk.uuid(), title: 'Default', sort: 0 }); dId = (await window.lk.deckList())[0]?.id }
   const sourceText = selectedBlockText().slice(0, 1800)
-  const blockId = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'flashcard_source', text: sourceText, anchor: paperMode.value ? 'notebook:current-spread' : `selection:${ta.value?.selectionStart ?? 0}` })
+  const blockId = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'flashcard_source', text: sourceText, ...blockAnchor(sourceText) })
   await window.lk.srsFromSource(dId, current.value.title.slice(0, 200), sourceText.slice(0, 600), 'block', blockId)
   await loadBacklinks(); ElMessage.success('已创建并绑定来源内容块的闪卡')
 }
@@ -574,11 +575,20 @@ function selectedBlockText() {
   const selected = ta.value?.value.slice(ta.value.selectionStart, ta.value.selectionEnd).trim()
   return selected || (paperMode.value ? notebookRef.value?.getText() : current.value?.body || '').trim()
 }
+function blockAnchor(text: string) {
+  if (paperMode.value) {
+    const spread = notebookRef.value?.getSpread() || 0
+    return { anchor: JSON.stringify({ kind: 'notebook-spread', spread, quote: text.slice(0, 240) }), anchorKey: `notebook:${current.value?.id || ''}:${spread}:${text.slice(0, 80)}` }
+  }
+  const start = ta.value?.selectionStart ?? 0
+  const end = ta.value?.selectionEnd ?? start + text.length
+  return { anchor: JSON.stringify({ kind: 'text-selection', start, end, quote: text.slice(0, 240) }), anchorKey: `text:${current.value?.id || ''}:${start}:${end}:${text.slice(0, 80)}` }
+}
 async function createContentBlock() {
   if (!current.value) return
   const text = selectedBlockText()
   if (!text) { ElMessage.warning('请先写入或选中需要引用的内容'); return }
-  const id = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'note_text', text: text.slice(0, 6000), anchor: paperMode.value ? 'notebook:current-spread' : `selection:${ta.value?.selectionStart ?? 0}` })
+  const id = await window.lk.blockUpsert({ sourceType: 'note', sourceId: current.value.id, blockType: 'note_text', text: text.slice(0, 6000), ...blockAnchor(text) })
   await window.lk.linkRelate('note', current.value.id, 'block', id, 'contains')
   await loadBacklinks()
   ElMessage.success('已创建内容块，可被搜索、引用和绑定闪卡')
@@ -706,6 +716,30 @@ onMounted(async () => {
 watch(() => props.jumpNoteId, (id) => {
   if (id && id !== currentId.value) open(id)
 }, { immediate: true })
+async function revealBlock(id: string) {
+  const block = await window.lk.blockGet(id)
+  if (!block || block.source_type !== 'note' || block.source_id !== currentId.value) return
+  let anchor: { kind?: string; start?: number; end?: number; spread?: number } = {}
+  try { anchor = JSON.parse(block.anchor || '{}') } catch { /* legacy content blocks have no structured anchor */ }
+  if (anchor.kind === 'notebook-spread') {
+    paperMode.value = true
+    nextTick(() => notebookRef.value?.goToSpread(anchor.spread || 0))
+    ElMessage.info(block.stale ? '已打开引用所在纸页；原笔记改动后，请核对内容。' : '已打开引用所在纸页')
+    return
+  }
+  if (anchor.kind === 'text-selection') {
+    paperMode.value = false
+    nextTick(() => {
+      const start = Math.max(0, anchor.start || 0); const end = Math.max(start, anchor.end || start)
+      if (ta.value) {
+        ta.value.focus(); ta.value.selectionStart = start; ta.value.selectionEnd = end
+        ta.value.scrollTop = Math.max(0, (current.value?.body.slice(0, start).split('\n').length - 3) * 22)
+      }
+    })
+    ElMessage.info(block.stale ? '已定位原选区；内容可能已变更，请核对。' : '已定位到引用选区')
+  }
+}
+watch(() => props.jumpBlockId, (id) => { if (id) nextTick(() => revealBlock(id)) }, { immediate: true })
 watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.value = Math.max(0, pages.length - 1) })
 onBeforeUnmount(async () => {
   if (autosaveTimer) clearTimeout(autosaveTimer)

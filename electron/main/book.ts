@@ -71,11 +71,11 @@ export function registerBookIpcs(ipc: typeof ipcMain): void {
   // highlights
   ipc.handle('book:highlight:add', (_e, h: any) => {
     const id = h.id ?? uuid()
-    qRun(getDb(), `INSERT INTO highlights(id,book_id,page,text,color,note,link_conv_id,link_msg_id,rect_x,rect_y,rect_w,rect_h) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+    qRun(getDb(), `INSERT INTO highlights(id,book_id,page,text,color,note,link_conv_id,link_msg_id,rect_x,rect_y,rect_w,rect_h,href) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id, h.bookId, h.page, h.text, h.color ?? 'yellow', h.note ?? null, h.linkConvId ?? null, h.linkMsgId ?? null,
-       h.rectX ?? null, h.rectY ?? null, h.rectW ?? null, h.rectH ?? null])
+       h.rectX ?? null, h.rectY ?? null, h.rectW ?? null, h.rectH ?? null, h.href ?? null])
     qRun(getDb(), 'INSERT INTO content_blocks(id,source_type,source_id,block_type,text,anchor,metadata) VALUES(?,?,?,?,?,?,?)',
-      [uuid(), 'highlight', id, 'book_highlight', h.text, `page:${h.page}`, JSON.stringify({ bookId: h.bookId, page: h.page })])
+      [uuid(), 'highlight', id, 'book_highlight', h.text, h.href || `page:${h.page}`, JSON.stringify({ bookId: h.bookId, page: h.page, href: h.href ?? null })])
     schedulePersist()
     return id
   })
@@ -89,6 +89,7 @@ export function registerBookIpcs(ipc: typeof ipcMain): void {
     if (patch.color !== undefined) qRun(getDb(), 'UPDATE highlights SET color=? WHERE id=?', [patch.color, id])
     if (patch.linkConvId !== undefined) qRun(getDb(), 'UPDATE highlights SET link_conv_id=? WHERE id=?', [patch.linkConvId, id])
     if (patch.linkMsgId !== undefined) qRun(getDb(), 'UPDATE highlights SET link_msg_id=? WHERE id=?', [patch.linkMsgId, id])
+    if (patch.href !== undefined) qRun(getDb(), 'UPDATE highlights SET href=? WHERE id=?', [patch.href, id])
     schedulePersist()
     return true
   })
