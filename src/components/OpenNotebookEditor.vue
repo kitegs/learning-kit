@@ -5,6 +5,15 @@
       <span>第 {{ spread * 2 + 1 }}–{{ spread * 2 + 2 }} 页</span>
       <el-button size="small" @click="turn(1)">下一页 →</el-button>
       <span class="tool-sep"></span>
+      <span class="layout-label">字号</span>
+      <el-select v-model="layout.fontSize" size="small" style="width:76px" @change="onLayoutChange">
+        <el-option v-for="size in [14, 16, 18, 20, 22]" :key="size" :label="`${size}px`" :value="size" />
+      </el-select>
+      <span class="layout-label">每页行</span>
+      <el-input-number v-model="layout.linesPerPage" :min="12" :max="32" :step="1" controls-position="right" size="small" style="width:94px" @change="onLayoutChange" />
+      <span class="layout-label">每行字</span>
+      <el-input-number v-model="layout.charsPerLine" :min="12" :max="56" :step="1" controls-position="right" size="small" style="width:94px" @change="onLayoutChange" />
+      <span class="tool-sep"></span>
       <el-button size="small" :type="tool === 'hand' ? 'primary' : 'default'" @click="setTool('hand')">移动纸张</el-button>
       <el-button size="small" :type="tool === 'pen' ? 'primary' : 'default'" @click="setTool('pen')">画笔</el-button>
       <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
@@ -25,15 +34,15 @@
     <div class="book-table" :class="{ grabbing: panning }" tabindex="0" @wheel.prevent="onWheel" @keydown="onKeydown" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
-      <article class="paper left-paper">
+      <article class="paper left-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 1 }}</div>
-        <div ref="leftText" class="paper-text" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="leftText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="leftCanvas" class="ink" :class="{ active: drawingEnabled }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       <div class="spine"></div>
-      <article class="paper right-paper">
+      <article class="paper right-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 2 }}</div>
-        <div ref="rightText" class="paper-text" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="rightText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="rightCanvas" class="ink" :class="{ active: drawingEnabled }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       </div>
@@ -47,7 +56,10 @@ import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
 
 type Sheet = { left: string; right: string; leftInk: string; rightInk: string }
+type NotebookLayout = { fontSize: number; linesPerPage: number; charsPerLine: number }
+type NotebookData = { pages: Sheet[]; layout: NotebookLayout }
 const MARKER = '<!-- lk:notebook:v1 -->\n'
+const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, linesPerPage: 18, charsPerLine: 28 }
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: string): void; (e: 'dirty'): void; (e: 'open-ai', value: { context: string; label: string; action?: string }): void }>()
 const menu = useContextMenu()
@@ -56,6 +68,7 @@ const rightText = ref<HTMLElement | null>(null)
 const leftCanvas = ref<HTMLCanvasElement | null>(null)
 const rightCanvas = ref<HTMLCanvasElement | null>(null)
 const pages = ref<Sheet[]>([])
+const layout = ref<NotebookLayout>({ ...DEFAULT_LAYOUT })
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
 type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
@@ -77,13 +90,24 @@ const redoHistory = ref<string[]>([])
 const MAX_HISTORY = 80
 
 function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '' } }
-function parse(value: string): Sheet[] {
+function parse(value: string): NotebookData {
   if (value.startsWith(MARKER)) {
-    try { const data = JSON.parse(value.slice(MARKER.length)); if (Array.isArray(data.pages) && data.pages.length) return data.pages } catch { /* use fallback */ }
+    try {
+      const data = JSON.parse(value.slice(MARKER.length))
+      if (Array.isArray(data.pages) && data.pages.length) {
+        return {
+          pages: data.pages,
+          layout: { ...DEFAULT_LAYOUT, ...(data.layout || {}) }
+        }
+      }
+    } catch { /* use fallback */ }
   }
-  return [{ ...blank(), left: value ? renderMarkdown(value) : '' }]
+  return { pages: [{ ...blank(), left: value ? renderMarkdown(value) : '' }], layout: { ...DEFAULT_LAYOUT } }
 }
-function serialize() { return MARKER + JSON.stringify({ pages: pages.value }) }
+function serialize() { return MARKER + JSON.stringify({ pages: pages.value, layout: layout.value }) }
+const pageCapacity = computed(() => Math.max(120, layout.value.linesPerPage * layout.value.charsPerLine))
+const paperStyle = computed(() => ({ '--notebook-line-height': `${Math.max(25, Math.floor(680 / layout.value.linesPerPage))}px` }))
+const paperTextStyle = computed(() => ({ fontSize: `${layout.value.fontSize}px`, lineHeight: 'var(--notebook-line-height)' }))
 function syncPage() {
   const page = pages.value[spread.value] || blank()
   if (leftText.value) leftText.value.innerHTML = page.left
@@ -114,6 +138,83 @@ function onText(side: 'left' | 'right', event: Event) {
   const page = pages.value[spread.value]
   page[side] = (event.currentTarget as HTMLElement).innerHTML
   syncOut()
+  nextTick(() => paginateOverflow(spread.value, side))
+}
+function plainText(html: string) {
+  const holder = document.createElement('div')
+  holder.innerHTML = html
+  return (holder.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+function splitHtmlAt(html: string, offset: number): [string, string] {
+  const holder = document.createElement('div')
+  holder.innerHTML = html
+  const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT)
+  let node: Text | null = walker.nextNode() as Text | null
+  let used = 0
+  while (node) {
+    const length = node.data.length
+    if (used + length >= offset) {
+      let local = Math.max(1, offset - used)
+      const before = node.data.slice(0, local)
+      const breakAt = Math.max(before.lastIndexOf(' '), before.lastIndexOf('\n'))
+      if (breakAt > Math.max(3, local - 36)) local = breakAt + 1
+      const range = document.createRange()
+      range.setStart(node, local)
+      range.setEnd(holder, holder.childNodes.length)
+      const tail = range.extractContents()
+      const tailHolder = document.createElement('div')
+      tailHolder.append(tail)
+      return [holder.innerHTML, tailHolder.innerHTML]
+    }
+    used += length
+    node = walker.nextNode() as Text | null
+  }
+  return [html, '']
+}
+function nextSlot(index: number, side: 'left' | 'right') {
+  if (side === 'left') return { index, side: 'right' as const }
+  return { index: index + 1, side: 'left' as const }
+}
+function focusEnd(index: number, side: 'left' | 'right') {
+  if (spread.value !== index) return
+  const el = side === 'left' ? leftText.value : rightText.value
+  if (!el) return
+  el.focus()
+  const range = document.createRange(); range.selectNodeContents(el); range.collapse(false)
+  const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range)
+}
+function paginateOverflow(startIndex: number, startSide: 'left' | 'right') {
+  let index = startIndex
+  let side = startSide
+  let moved = false
+  for (let guard = 0; guard < 120; guard += 1) {
+    const sheet = pages.value[index]
+    if (!sheet || plainText(sheet[side]).length <= pageCapacity.value) break
+    const [head, tail] = splitHtmlAt(sheet[side], pageCapacity.value)
+    if (!tail || head === sheet[side]) break
+    sheet[side] = head
+    const next = nextSlot(index, side)
+    while (pages.value.length <= next.index) pages.value.push(blank())
+    pages.value[next.index][next.side] = tail + pages.value[next.index][next.side]
+    index = next.index; side = next.side; moved = true
+  }
+  if (!moved) return
+  syncOut()
+  if (spread.value === startIndex) nextTick(() => { syncPage(); focusEnd(index, side) })
+}
+function paginateAll() {
+  for (let index = 0; index < pages.value.length; index += 1) {
+    paginateOverflow(index, 'left')
+    paginateOverflow(index, 'right')
+  }
+  nextTick(syncPage)
+}
+function onLayoutChange() {
+  layout.value.fontSize = Number(layout.value.fontSize)
+  layout.value.linesPerPage = Number(layout.value.linesPerPage)
+  layout.value.charsPerLine = Number(layout.value.charsPerLine)
+  syncOut()
+  nextTick(paginateAll)
 }
 function currentCanvas(side: 'left' | 'right') { return side === 'left' ? leftCanvas.value : rightCanvas.value }
 function point(canvas: HTMLCanvasElement, event: PointerEvent) { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height } }
@@ -151,7 +252,7 @@ function endInk(event: PointerEvent) {
 }
 function clearInk() { const page = pages.value[spread.value]; if (activeSide.value === 'left') page.leftInk = ''; else page.rightInk = ''; syncPage(); syncOut() }
 function restore(serialized: string) {
-  pages.value = parse(serialized); spread.value = 0; lastSerialized = serialized
+  const data = parse(serialized); pages.value = data.pages; layout.value = data.layout; spread.value = 0; lastSerialized = serialized
   nextTick(syncPage)
   emit('update:modelValue', serialized); emit('dirty')
 }
@@ -215,7 +316,9 @@ defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, ne
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
-  pages.value = parse(value || '')
+  const data = parse(value || '')
+  pages.value = data.pages
+  layout.value = data.layout
   spread.value = 0
   lastSerialized = value?.startsWith(MARKER) ? value : serialize()
   undoHistory.value = []; redoHistory.value = []
@@ -224,7 +327,7 @@ watch(() => props.modelValue, (value) => {
 </script>
 
 <style scoped lang="scss">
-.notebook-shell { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:8px; padding:8px 14px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:wrap; }.tool-sep { height:20px; width:1px; margin:0 4px; background:rgba(255,255,255,.3); }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:hidden; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:min(72vh,820px); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent 37px, rgba(87,151,184,.27) 38px, transparent 39px), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto,auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; font:18px/38px 'KaiTi','STKaiti','Microsoft YaHei',serif; overflow:auto; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:38px; }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }.paper-text :deep(.lk-formula) { display:inline-block; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; }
+.notebook-shell { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:8px; padding:8px 14px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:wrap; }.layout-label { color:#f4eee5; white-space:nowrap; }.tool-sep { height:20px; width:1px; margin:0 4px; background:rgba(255,255,255,.3); }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:hidden; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:min(72vh,820px); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--notebook-line-height) - 2px), rgba(87,151,184,.27) calc(var(--notebook-line-height) - 1px), transparent var(--notebook-line-height)), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto var(--notebook-line-height),auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; font-family:'KaiTi','STKaiti','Microsoft YaHei',serif; overflow:hidden; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:var(--notebook-line-height); }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }.paper-text :deep(.lk-formula) { display:inline-block; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; }
 :global(html[data-theme="paper"]) .notebook-shell { background:linear-gradient(135deg,#b9ad95,#e5decf 48%,#9b8d76); }
 :global(html[data-theme="sepia"]) .notebook-shell { background:linear-gradient(135deg,#5d4635,#a77e57 48%,#4b3629); }
 :global(html[data-theme="sepia"]) .notebook-tools { background:rgba(55,37,27,.78); }
