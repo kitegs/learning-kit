@@ -70,21 +70,25 @@
               <button class="rate-btn rate-again" @click="rate(1)" title="重来（1）">
                 <span class="rate-emoji">&#x1F648;</span>
                 <span class="rate-label">重来</span>
+                <span class="rate-next">{{ ratingInterval('again') }}</span>
                 <span class="rate-key">1</span>
               </button>
               <button class="rate-btn rate-hard" @click="rate(3)" title="困难（2）">
                 <span class="rate-emoji">&#x1F62C;</span>
                 <span class="rate-label">困难</span>
+                <span class="rate-next">{{ ratingInterval('hard') }}</span>
                 <span class="rate-key">2</span>
               </button>
               <button class="rate-btn rate-good" @click="rate(4)" title="良好（3）">
                 <span class="rate-emoji">&#x1F60A;</span>
                 <span class="rate-label">良好</span>
+                <span class="rate-next">{{ ratingInterval('good') }}</span>
                 <span class="rate-key">3</span>
               </button>
               <button class="rate-btn rate-easy" @click="rate(5)" title="简单（4）">
                 <span class="rate-emoji">&#x1F308;</span>
                 <span class="rate-label">简单</span>
+                <span class="rate-next">{{ ratingInterval('easy') }}</span>
                 <span class="rate-key">4</span>
               </button>
             </template>
@@ -104,6 +108,8 @@
           <div class="stat"><div class="v">{{ todayReviewed }}</div><div class="k">今日已复习</div></div>
           <div class="stat"><div class="v">{{ stats.mastery?.learning ?? 0 }}</div><div class="k">待巩固</div></div>
           <div class="stat"><div class="v">{{ stats.mastery?.mastered ?? 0 }}</div><div class="k">已掌握</div></div>
+          <div class="stat"><div class="v">{{ stats.accuracy30 == null ? '—' : stats.accuracy30 + '%' }}</div><div class="k">30 天正确率</div></div>
+          <div class="stat"><div class="v">{{ stats.fsrsCount ?? 0 }}</div><div class="k">FSRS 卡片</div></div>
         </div>
         <div class="h2">复习间隔分布</div>
         <div class="bars">
@@ -208,6 +214,7 @@ const totalNew = ref(0)
 const totalOld = ref(0)
 const cardSource = ref<{ type: string; id: string } | null>(null)
 const weakCards = ref<any[]>([])
+const fsrsPreview = ref<{ algorithm: 'fsrs'; again: number; hard: number; good: number; easy: number } | null>(null)
 
 const cur = computed(() => queue.value[0] || {})
 const currentDeckTitle = computed(() => decks.value.find((d) => d.id === currentDeckId.value)?.title || 'All')
@@ -227,6 +234,7 @@ const renderBack = computed(() => {
 
 // Preview next interval
 const previewInterval = computed(() => {
+  if (fsrsPreview.value) return `${fsrsPreview.value.good || '＜1'} 天`
   const c = cur.value
   if (!c.ease) return '1d'
   const e = c.ease || 2.5, i = c.interval || 0, r = c.reps || 0
@@ -240,11 +248,19 @@ const progress = ref({ open: false, loading: false, text: '' })
 
 watch(() => cur.value.id, async (cardId) => {
   cardSource.value = null
+  fsrsPreview.value = null
   if (!cardId) return
   const links = await window.lk.linkAllForEntity('card', cardId)
   const source = links.find((link: any) => link.target_type === 'card' && link.target_id === cardId && link.link_type === 'derived_from')
   if (source) cardSource.value = { type: source.source_type, id: source.source_id }
+  fsrsPreview.value = await window.lk.srsPreview(cardId)
 }, { immediate: true })
+
+function ratingInterval(kind: 'again' | 'hard' | 'good' | 'easy') {
+  const value = fsrsPreview.value?.[kind]
+  if (value === undefined) return ''
+  return value === 0 ? '＜1 天' : `${value} 天`
+}
 
 function openCardSource() {
   if (!cardSource.value) return
@@ -500,7 +516,7 @@ onUnmounted(() => {})
 .rate-btn { display:flex; flex-direction:column; align-items:center; gap:2px; padding:10px 16px; border:1px solid var(--border); border-radius:8px; background:transparent; cursor:pointer; transition:all .15s; min-width:72px; &:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.15); } }
 .rate-emoji { font-size:22px; }
 .rate-label { font-size:12px; font-weight:600; }
-.rate-key { font-size:10px; opacity:.5; border:1px solid currentColor; border-radius:3px; padding:0 4px; margin-top:2px; }
+.rate-next { min-height:13px; font-size:10px; opacity:.72; }.rate-key { font-size:10px; opacity:.5; border:1px solid currentColor; border-radius:3px; padding:0 4px; margin-top:2px; }
 .rate-again { color:#ff6b6b; border-color:#ff6b6b40; &:hover { background:#ff6b6b18; } }
 .rate-hard { color:#ffa94d; border-color:#ffa94d40; &:hover { background:#ffa94d18; } }
 .rate-good { color:#4ea1ff; border-color:#4ea1ff40; &:hover { background:#4ea1ff18; } }
@@ -508,7 +524,7 @@ onUnmounted(() => {})
 
 .card-hint { text-align:center; padding:0 20px 12px; font-size:12px; color:var(--text-dim); }
 
-.dash .cards-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; padding:16px 20px; }
+.dash .cards-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:14px; padding:16px 20px; }
 .stat { background:var(--bg-soft); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center; transition:transform .15s; &:hover { transform:translateY(-2px); } }
 .stat .v { font-size:28px; font-weight:700; color:var(--accent); } .stat .k { color:var(--text-dim); font-size:12px; margin-top:4px; text-transform:uppercase; letter-spacing:.5px; }
 .h2 { padding:14px 20px 8px; font-weight:600; font-size:14px; }

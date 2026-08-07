@@ -121,6 +121,7 @@ const api = {
   cardReset: (id: string) => ipcRenderer.invoke('card:reset', id),
   srsDue: () => ipcRenderer.invoke('srs:due'),
   srsReview: (id: string, rating: 1 | 3 | 4 | 5) => ipcRenderer.invoke('srs:review', id, rating),
+  srsPreview: (id: string) => ipcRenderer.invoke('srs:preview', id),
   srsStats: () => ipcRenderer.invoke('srs:stats'),
   srsFromNote: (deckId: string, front: string, back: string, sourceNoteId?: string) =>
     ipcRenderer.invoke('srs:fromNote', deckId, front, back, sourceNoteId),

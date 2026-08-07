@@ -298,6 +298,15 @@ CREATE TABLE IF NOT EXISTS note_versions (
 );
 CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id, created_at DESC);
 
+-- Optional FSRS state. The cards table remains the compatible common index.
+CREATE TABLE IF NOT EXISTS card_scheduling (
+  card_id     TEXT PRIMARY KEY,
+  algorithm   TEXT NOT NULL DEFAULT 'fsrs',
+  state_json  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_card_scheduling_algorithm ON card_scheduling(algorithm);
+
 CREATE TABLE IF NOT EXISTS entity_attributes (
   id          TEXT PRIMARY KEY,
   entity_type TEXT NOT NULL,

@@ -15,6 +15,7 @@
       <el-input-number v-model="layout.charsPerLine" :min="12" :max="56" :step="1" controls-position="right" size="small" style="width:94px" @change="onLayoutChange" />
       <span class="tool-sep"></span>
       <el-button size="small" :type="tool === 'hand' ? 'primary' : 'default'" @click="setTool('hand')">移动纸张</el-button>
+      <el-button size="small" :type="tool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择对象</el-button>
       <el-button size="small" :type="tool === 'pen' ? 'primary' : 'default'" @click="setTool('pen')">画笔</el-button>
       <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
       <el-button size="small" :type="tool === 'line' ? 'primary' : 'default'" @click="setTool('line')">直线</el-button>
@@ -25,6 +26,10 @@
       <el-select v-model="inkColor" size="small" style="width:98px"><el-option label="铅笔灰" value="#4d4a42" /><el-option label="墨水蓝" value="#315b8a" /><el-option label="批注红" value="#b44b45" /></el-select>
       <el-slider v-model="inkWidth" :min="1" :max="9" style="width:110px" />
       <el-button size="small" @click="clearInk">清除本页笔迹</el-button>
+      <el-button size="small" :disabled="!selectedObject" @click="duplicateSelected">复制对象</el-button>
+      <el-button size="small" :disabled="!selectedObject" @click="scaleSelected(.85)">缩小</el-button>
+      <el-button size="small" :disabled="!selectedObject" @click="scaleSelected(1.15)">放大</el-button>
+      <el-button size="small" type="danger" :disabled="!selectedObject" @click="deleteSelected">删除对象</el-button>
       <el-button size="small" @click="undo" :disabled="!undoHistory.length">撤销</el-button>
       <el-button size="small" @click="redo" :disabled="!redoHistory.length">重做</el-button>
       <span class="tool-sep"></span>
@@ -37,13 +42,13 @@
       <article class="paper left-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 1 }}</div>
         <div ref="leftText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
-        <canvas ref="leftCanvas" class="ink" :class="{ active: drawingEnabled }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
+        <canvas ref="leftCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       <div class="spine"></div>
       <article class="paper right-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 2 }}</div>
         <div ref="rightText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
-        <canvas ref="rightCanvas" class="ink" :class="{ active: drawingEnabled }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
+        <canvas ref="rightCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       </div>
     </div>
@@ -52,10 +57,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { getStroke } from 'perfect-freehand'
 import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
 
-type Sheet = { left: string; right: string; leftInk: string; rightInk: string }
+type Point = [number, number, number]
+type InkObject = { id: string; kind: 'stroke' | 'line' | 'arrow' | 'rectangle' | 'ellipse'; color: string; width: number; opacity?: number; points?: Point[]; start?: Point; end?: Point }
+type Sheet = { left: string; right: string; leftInk: string; rightInk: string; leftObjects: InkObject[]; rightObjects: InkObject[] }
 type NotebookLayout = { fontSize: number; linesPerPage: number; charsPerLine: number }
 type NotebookData = { pages: Sheet[]; layout: NotebookLayout }
 const MARKER = '<!-- lk:notebook:v1 -->\n'
@@ -71,17 +79,21 @@ const pages = ref<Sheet[]>([])
 const layout = ref<NotebookLayout>({ ...DEFAULT_LAYOUT })
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
-type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
-const tool = ref<Tool>('select')
+type Tool = 'text' | 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
+const tool = ref<Tool>('text')
 const inkColor = ref('#4d4a42')
 const inkWidth = ref(3)
 const viewScale = ref(1)
 const panX = ref(0)
 const panY = ref(0)
-const drawingEnabled = computed(() => !['select', 'hand'].includes(tool.value))
+const drawingEnabled = computed(() => !['text', 'select', 'hand'].includes(tool.value))
+const inkInteractive = computed(() => !['text', 'hand'].includes(tool.value))
 let drawing = false
 let drawingSide: 'left' | 'right' = 'left'
-let startPoint: { x: number; y: number } | null = null
+let startPoint: Point | null = null
+let currentObject: InkObject | null = null
+let dragLast: Point | null = null
+const selectedObject = ref<{ side: 'left' | 'right'; id: string } | null>(null)
 let panning = false
 let panStart = { x: 0, y: 0, left: 0, top: 0 }
 let lastSerialized = ''
@@ -89,14 +101,17 @@ const undoHistory = ref<string[]>([])
 const redoHistory = ref<string[]>([])
 const MAX_HISTORY = 80
 
-function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '' } }
+function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '', leftObjects: [], rightObjects: [] } }
+function normaliseSheet(value: Partial<Sheet>): Sheet {
+  return { ...blank(), ...value, leftObjects: Array.isArray(value.leftObjects) ? value.leftObjects : [], rightObjects: Array.isArray(value.rightObjects) ? value.rightObjects : [] }
+}
 function parse(value: string): NotebookData {
   if (value.startsWith(MARKER)) {
     try {
       const data = JSON.parse(value.slice(MARKER.length))
       if (Array.isArray(data.pages) && data.pages.length) {
         return {
-          pages: data.pages,
+          pages: data.pages.map((page: Partial<Sheet>) => normaliseSheet(page)),
           layout: { ...DEFAULT_LAYOUT, ...(data.layout || {}) }
         }
       }
@@ -112,8 +127,8 @@ function syncPage() {
   const page = pages.value[spread.value] || blank()
   if (leftText.value) leftText.value.innerHTML = page.left
   if (rightText.value) rightText.value.innerHTML = page.right
-  paint(leftCanvas.value, page.leftInk)
-  paint(rightCanvas.value, page.rightInk)
+  paint(leftCanvas.value, page.leftInk, page.leftObjects, selectedObject.value?.side === 'left' ? selectedObject.value.id : null)
+  paint(rightCanvas.value, page.rightInk, page.rightObjects, selectedObject.value?.side === 'right' ? selectedObject.value.id : null)
 }
 function syncOut() {
   const next = serialize()
@@ -217,22 +232,64 @@ function onLayoutChange() {
   nextTick(paginateAll)
 }
 function currentCanvas(side: 'left' | 'right') { return side === 'left' ? leftCanvas.value : rightCanvas.value }
-function point(canvas: HTMLCanvasElement, event: PointerEvent) { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height } }
+function point(canvas: HTMLCanvasElement, event: PointerEvent): Point { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height, Math.max(.1, event.pressure || .5)] }
+function objectKey(side: 'left' | 'right') { return side === 'left' ? 'leftObjects' : 'rightObjects' }
+function newObjectId() { return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `ink-${Date.now()}-${Math.random().toString(36).slice(2)}` }
+function bounds(object: InkObject): { x: number; y: number; w: number; h: number } {
+  const points = object.points?.length ? object.points : [object.start, object.end].filter(Boolean) as Point[]
+  if (!points.length) return { x: 0, y: 0, w: 0, h: 0 }
+  const xs = points.map((point) => point[0]), ys = points.map((point) => point[1])
+  const padding = object.width * 5
+  const minX = Math.min(...xs) - padding, minY = Math.min(...ys) - padding
+  return { x: minX, y: minY, w: Math.max(1, Math.max(...xs) - Math.min(...xs) + padding * 2), h: Math.max(1, Math.max(...ys) - Math.min(...ys) + padding * 2) }
+}
+function findObject(side: 'left' | 'right', at: Point): InkObject | null {
+  const page = pages.value[spread.value]
+  for (const object of [...page[objectKey(side)]].reverse()) {
+    const box = bounds(object)
+    if (at[0] >= box.x && at[0] <= box.x + box.w && at[1] >= box.y && at[1] <= box.y + box.h) return object
+  }
+  return null
+}
+function offsetObject(object: InkObject, dx: number, dy: number) {
+  if (object.points) object.points = object.points.map(([x, y, pressure]) => [x + dx, y + dy, pressure])
+  if (object.start) object.start = [object.start[0] + dx, object.start[1] + dy, object.start[2]]
+  if (object.end) object.end = [object.end[0] + dx, object.end[1] + dy, object.end[2]]
+}
 function startInk(side: 'left' | 'right', event: PointerEvent) {
-  if (!drawingEnabled.value) return
   const canvas = currentCanvas(side); if (!canvas) return
-  drawing = true; drawingSide = side; canvas.setPointerCapture(event.pointerId)
-  const c = canvas.getContext('2d')!; const p = point(canvas, event); startPoint = p; c.beginPath(); c.moveTo(p.x, p.y)
+  const p = point(canvas, event)
+  if (tool.value === 'select') {
+    const hit = findObject(side, p)
+    selectedObject.value = hit ? { side, id: hit.id } : null
+    currentObject = hit; drawingSide = side; dragLast = p; drawing = Boolean(hit)
+    canvas.setPointerCapture(event.pointerId); syncPage(); return
+  }
+  if (tool.value === 'eraser') {
+    const hit = findObject(side, p)
+    if (hit) {
+      const objects = pages.value[spread.value][objectKey(side)]
+      const index = objects.findIndex((object) => object.id === hit.id)
+      if (index >= 0) objects.splice(index, 1)
+      selectedObject.value = null; syncPage(); syncOut()
+    }
+    return
+  }
+  if (!drawingEnabled.value) return
+  drawing = true; drawingSide = side; canvas.setPointerCapture(event.pointerId); startPoint = p
+  currentObject = (tool.value === 'pen' || tool.value === 'highlighter')
+    ? { id: newObjectId(), kind: 'stroke', color: inkColor.value, width: inkWidth.value * 3, opacity: tool.value === 'highlighter' ? .28 : 1, points: [p] }
+    : null
+  if (currentObject) pages.value[spread.value][objectKey(side)].push(currentObject)
 }
 function moveInk(event: PointerEvent) {
-  if (!drawing || !drawingEnabled.value) return
+  if (!drawing) return
   const canvas = currentCanvas(drawingSide); if (!canvas) return
-  const c = canvas.getContext('2d')!; const p = point(canvas, event)
-  if (tool.value === 'line' || tool.value === 'arrow' || tool.value === 'rectangle' || tool.value === 'ellipse') return
-  c.globalCompositeOperation = tool.value === 'eraser' ? 'destination-out' : 'source-over'
-  c.globalAlpha = tool.value === 'highlighter' ? .28 : 1
-  c.strokeStyle = inkColor.value; c.lineWidth = (tool.value === 'eraser' ? inkWidth.value * 7 : inkWidth.value * 3) * (event.pressure && event.pressure > 0 ? .7 + event.pressure : 1); c.lineCap = 'round'; c.lineJoin = 'round'; c.lineTo(p.x, p.y); c.stroke()
-  c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'
+  const p = point(canvas, event)
+  if (tool.value === 'select' && currentObject && dragLast) {
+    offsetObject(currentObject, p[0] - dragLast[0], p[1] - dragLast[1]); dragLast = p; syncPage(); return
+  }
+  if (currentObject?.kind === 'stroke') { currentObject.points?.push(p); paint(canvas, drawingSide === 'left' ? pages.value[spread.value].leftInk : pages.value[spread.value].rightInk, pages.value[spread.value][objectKey(drawingSide)], selectedObject.value?.side === drawingSide ? selectedObject.value.id : null) }
 }
 function endInk(event: PointerEvent) {
   if (!drawing) return
@@ -240,17 +297,12 @@ function endInk(event: PointerEvent) {
   const canvas = currentCanvas(drawingSide)
   if (!canvas) return
   if ((tool.value === 'line' || tool.value === 'arrow' || tool.value === 'rectangle' || tool.value === 'ellipse') && startPoint) {
-    const c = canvas.getContext('2d')!; const last = point(canvas, event)
-    c.strokeStyle = inkColor.value; c.lineWidth = inkWidth.value * 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(startPoint.x, startPoint.y); c.lineTo(last.x, last.y); c.stroke()
-    if (tool.value === 'arrow') { const angle = Math.atan2(last.y - startPoint.y, last.x - startPoint.x); const size = 18 + inkWidth.value; c.beginPath(); c.moveTo(last.x, last.y); c.lineTo(last.x - size * Math.cos(angle - .45), last.y - size * Math.sin(angle - .45)); c.moveTo(last.x, last.y); c.lineTo(last.x - size * Math.cos(angle + .45), last.y - size * Math.sin(angle + .45)); c.stroke() }
-    if (tool.value === 'rectangle') c.strokeRect(startPoint.x, startPoint.y, last.x - startPoint.x, last.y - startPoint.y)
-    if (tool.value === 'ellipse') { const cx = (startPoint.x + last.x) / 2; const cy = (startPoint.y + last.y) / 2; c.beginPath(); c.ellipse(cx, cy, Math.abs(last.x - startPoint.x) / 2, Math.abs(last.y - startPoint.y) / 2, 0, 0, Math.PI * 2); c.stroke() }
+    const kind = tool.value
+    pages.value[spread.value][objectKey(drawingSide)].push({ id: newObjectId(), kind, color: inkColor.value, width: inkWidth.value * 3, start: startPoint, end: point(canvas, event) })
   }
-  const page = pages.value[spread.value]
-  if (drawingSide === 'left') page.leftInk = canvas.toDataURL('image/png'); else page.rightInk = canvas.toDataURL('image/png')
-  syncOut()
+  currentObject = null; dragLast = null; startPoint = null; syncPage(); syncOut()
 }
-function clearInk() { const page = pages.value[spread.value]; if (activeSide.value === 'left') page.leftInk = ''; else page.rightInk = ''; syncPage(); syncOut() }
+function clearInk() { const page = pages.value[spread.value]; if (activeSide.value === 'left') { page.leftInk = ''; page.leftObjects = [] } else { page.rightInk = ''; page.rightObjects = [] }; selectedObject.value = null; syncPage(); syncOut() }
 function restore(serialized: string) {
   const data = parse(serialized); pages.value = data.pages; layout.value = data.layout; spread.value = 0; lastSerialized = serialized
   nextTick(syncPage)
@@ -268,13 +320,65 @@ function onKeydown(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
   event.preventDefault(); if (event.shiftKey) redo(); else undo()
 }
-function paint(canvas: HTMLCanvasElement | null, data: string) {
+function drawObject(context: CanvasRenderingContext2D, object: InkObject) {
+  context.save(); context.strokeStyle = object.color; context.fillStyle = object.color; context.lineWidth = object.width; context.globalAlpha = object.opacity ?? 1; context.lineCap = 'round'; context.lineJoin = 'round'
+  if (object.kind === 'stroke' && object.points?.length) {
+    const outline = getStroke(object.points, { size: object.width, thinning: .55, smoothing: .55, streamline: .45, simulatePressure: false })
+    if (outline.length) { context.beginPath(); context.moveTo(outline[0][0], outline[0][1]); for (const point of outline.slice(1)) context.lineTo(point[0], point[1]); context.closePath(); context.fill() }
+  } else if (object.start && object.end) {
+    const [sx, sy] = object.start, [ex, ey] = object.end
+    context.beginPath()
+    if (object.kind === 'rectangle') context.strokeRect(sx, sy, ex - sx, ey - sy)
+    else if (object.kind === 'ellipse') context.ellipse((sx + ex) / 2, (sy + ey) / 2, Math.abs(ex - sx) / 2, Math.abs(ey - sy) / 2, 0, 0, Math.PI * 2)
+    else { context.moveTo(sx, sy); context.lineTo(ex, ey); if (object.kind === 'arrow') { const angle = Math.atan2(ey - sy, ex - sx), size = 18 + object.width; context.moveTo(ex, ey); context.lineTo(ex - size * Math.cos(angle - .45), ey - size * Math.sin(angle - .45)); context.moveTo(ex, ey); context.lineTo(ex - size * Math.cos(angle + .45), ey - size * Math.sin(angle + .45)) } }
+    context.stroke()
+  }
+  context.restore()
+}
+function drawSelection(context: CanvasRenderingContext2D, object: InkObject) {
+  const box = bounds(object); context.save(); context.setLineDash([10, 7]); context.strokeStyle = '#4f83c4'; context.lineWidth = 3; context.strokeRect(box.x, box.y, box.w, box.h); context.restore()
+}
+function paint(canvas: HTMLCanvasElement | null, data: string, objects: InkObject[], selectedId: string | null) {
   if (!canvas) return
   const c = canvas.getContext('2d')!; c.clearRect(0, 0, canvas.width, canvas.height)
-  if (!data) return
-  const img = new Image(); img.onload = () => c.drawImage(img, 0, 0, canvas.width, canvas.height); img.src = data
+  const renderObjects = () => { for (const object of objects) drawObject(c, object); const selected = selectedId ? objects.find((object) => object.id === selectedId) : null; if (selected) drawSelection(c, selected) }
+  if (!data) { renderObjects(); return }
+  const img = new Image(); img.onload = () => { c.clearRect(0, 0, canvas.width, canvas.height); c.drawImage(img, 0, 0, canvas.width, canvas.height); renderObjects() }; img.src = data
 }
-function setTool(next: Tool) { tool.value = tool.value === next ? 'select' : next }
+function selectedCollection() {
+  if (!selectedObject.value) return null
+  return pages.value[spread.value][objectKey(selectedObject.value.side)]
+}
+function deleteSelected() {
+  const objects = selectedCollection(); const selection = selectedObject.value
+  if (!objects || !selection) return
+  const index = objects.findIndex((object) => object.id === selection.id)
+  if (index >= 0) objects.splice(index, 1)
+  selectedObject.value = null; syncPage(); syncOut()
+}
+function duplicateSelected() {
+  const objects = selectedCollection(); const selection = selectedObject.value
+  if (!objects || !selection) return
+  const original = objects.find((object) => object.id === selection.id)
+  if (!original) return
+  const copy = JSON.parse(JSON.stringify(original)) as InkObject
+  copy.id = newObjectId(); offsetObject(copy, 28, 28); objects.push(copy)
+  selectedObject.value = { side: selection.side, id: copy.id }; syncPage(); syncOut()
+}
+function scaleSelected(factor: number) {
+  const objects = selectedCollection(); const selection = selectedObject.value
+  if (!objects || !selection) return
+  const object = objects.find((item) => item.id === selection.id)
+  if (!object) return
+  const box = bounds(object)
+  const scalePoint = (point: Point): Point => [box.x + (point[0] - box.x) * factor, box.y + (point[1] - box.y) * factor, point[2]]
+  if (object.points) object.points = object.points.map(scalePoint)
+  if (object.start) object.start = scalePoint(object.start)
+  if (object.end) object.end = scalePoint(object.end)
+  object.width = Math.max(1, object.width * factor)
+  syncPage(); syncOut()
+}
+function setTool(next: Tool) { tool.value = tool.value === next ? 'text' : next }
 function togglePen() { setTool('pen') }
 function zoomBy(delta: number) { viewScale.value = Math.max(.45, Math.min(1.8, Number((viewScale.value + delta).toFixed(2)))) }
 function resetView() { viewScale.value = 1; panX.value = 0; panY.value = 0 }
@@ -292,6 +396,7 @@ function onContextMenu(event: MouseEvent) {
     { label: 'AI 生成复习题', icon: 'QuestionFilled' as any, action: () => emit('open-ai', { context, label: '当前双页 · 复习题', action: '请生成 3 道复习问答题。' }) },
   ]
   const draw = [
+    { label: '选择对象', icon: 'Pointer' as any, action: () => setTool('select') },
     { label: '画笔', icon: 'EditPen' as any, action: () => setTool('pen') },
     { label: '荧光笔', icon: 'Brush' as any, action: () => setTool('highlighter') },
     { label: '直线', icon: 'Minus' as any, action: () => setTool('line') },
@@ -301,7 +406,8 @@ function onContextMenu(event: MouseEvent) {
     { label: '橡皮擦', icon: 'Delete' as any, action: () => setTool('eraser') },
     { label: '移动纸张', icon: 'Rank' as any, action: () => setTool('hand') },
   ]
-  menu.open(event, [...common, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
+  const objectActions = selectedObject.value ? [{ label: '复制选中对象', icon: 'CopyDocument' as any, action: duplicateSelected }, { label: '缩小选中对象', icon: 'ZoomOut' as any, action: () => scaleSelected(.85) }, { label: '放大选中对象', icon: 'ZoomIn' as any, action: () => scaleSelected(1.15) }, { label: '删除选中对象', icon: 'Delete' as any, danger: true, action: deleteSelected }, { separator: true }] : []
+  menu.open(event, [...common, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, ...objectActions, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
 }
 function insertHtml(html: string) {
   const el = activeSide.value === 'left' ? leftText.value : rightText.value

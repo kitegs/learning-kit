@@ -120,6 +120,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { diffWordsWithSpace } from 'diff'
 import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
 import { useSettingsStore } from '../stores/chat'
@@ -613,8 +614,13 @@ async function openVersions() {
 async function previewVersion(id: string) { versionPreview.value = await window.lk.noteVersionGet(id) }
 const diffText = computed(() => {
   if (!versionPreview.value || !current.value) return ''
-  const oldLines = String(versionPreview.value.body || '').split('\n'); const nowLines = String(current.value.body || '').split('\n')
-  return ['— 保存的版本', ...oldLines.map((line: string) => `- ${line}`), '', '＋ 当前版本', ...nowLines.map((line: string) => `+ ${line}`)].join('\n').slice(0, 14000)
+  const before = String(versionPreview.value.body || '')
+  const after = String(current.value.body || '')
+  const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' })
+  return diffWordsWithSpace(before, after, { intlSegmenter: segmenter }).map((part) => {
+    const prefix = part.added ? '＋ ' : part.removed ? '− ' : '  '
+    return part.value.split('\n').map((line) => prefix + line).join('\n')
+  }).join('').slice(0, 14000)
 })
 async function restoreVersion() {
   if (!versionPreview.value || !current.value) return

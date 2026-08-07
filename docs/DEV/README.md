@@ -17,3 +17,4 @@
 | 2026-08-02 | DEV-20260802-03-block-history-attribute-view.md | 内容块图谱、历史和属性视图方案 | implemented |
 | 2026-08-04 | DEV-20260804-01-notebook-pagination-layout.md | 纸质笔记分页与版式持久化方案 | implemented |
 | 2026-08-04 | DEV-20260804-02-phase-one-reliability.md | 第一阶段可靠性技术方案 | implemented |
+| 2026-08-08 | DEV-20260808-01-learning-loop-pro-notebook.md | 第二、三阶段：学习闭环与专业笔记体验 | implemented |

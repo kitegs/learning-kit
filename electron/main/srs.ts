@@ -1,7 +1,29 @@
 import { ipcMain, dialog } from 'electron'
+import { createEmptyCard, fsrs, Rating, type CardInput } from 'ts-fsrs'
 import { getDb, schedulePersist, uuid, qAll, qOne, qRun } from './db'
 
 const DAY = 24 * 3600 * 1000
+const fsrsScheduler = fsrs({ enable_fuzz: false })
+type StoredFsrsCard = Omit<CardInput, 'due' | 'last_review'> & { due: string; last_review?: string | null }
+
+function dateString(value: Date): string { return value.toISOString().slice(0, 19).replace('T', ' ') }
+function encodeFsrs(card: CardInput): string {
+  return JSON.stringify({ ...card, due: new Date(card.due).toISOString(), last_review: card.last_review ? new Date(card.last_review).toISOString() : null })
+}
+function decodeFsrs(raw: string): CardInput {
+  const card = JSON.parse(raw) as StoredFsrsCard
+  return { ...card, due: new Date(card.due), last_review: card.last_review ? new Date(card.last_review) : undefined }
+}
+function createFsrsState(now = new Date()): string { return encodeFsrs(createEmptyCard(now)) }
+function saveFsrsState(cardId: string, state: CardInput): void {
+  qRun(getDb(), `INSERT INTO card_scheduling(card_id,algorithm,state_json,updated_at) VALUES(?,?,?,datetime('now'))
+    ON CONFLICT(card_id) DO UPDATE SET algorithm=excluded.algorithm,state_json=excluded.state_json,updated_at=excluded.updated_at`, [cardId, 'fsrs', encodeFsrs(state)])
+}
+function attachFsrsState(cardId: string): void {
+  const exists = qOne(getDb(), 'SELECT card_id FROM card_scheduling WHERE card_id=?', [cardId])
+  if (!exists) qRun(getDb(), 'INSERT INTO card_scheduling(card_id,algorithm,state_json) VALUES(?,?,?)', [cardId, 'fsrs', createFsrsState()])
+}
+function toLegacyInterval(now: Date, due: Date): number { return Math.max(0, Math.round((due.getTime() - now.getTime()) / DAY)) }
 
 function schedule2(prev: { ease: number; interval: number; reps: number; lapses: number }, rating: 1 | 3 | 4 | 5) {
   let ease = prev.ease, interval = prev.interval, reps = prev.reps, lapses = prev.lapses
@@ -38,11 +60,14 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     const id = c.id ?? uuid()
     qRun(getDb(), `INSERT INTO cards(id,deck_id,front,back,kind,tags) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET front=excluded.front,back=excluded.back,kind=excluded.kind,tags=excluded.tags,updated_at=datetime('now')`,
       [id, c.deckId, c.front ?? '', c.back ?? '', c.kind ?? 'qa', c.tags ?? null])
+    if (!c.id) attachFsrsState(id)
     schedulePersist(); return id
   })
-  ipc.handle('card:delete', (_e, id: string) => { qRun(getDb(), 'DELETE FROM cards WHERE id=?', [id]); schedulePersist(); return true })
+  ipc.handle('card:delete', (_e, id: string) => { qRun(getDb(), 'DELETE FROM card_scheduling WHERE card_id=?', [id]); qRun(getDb(), 'DELETE FROM cards WHERE id=?', [id]); schedulePersist(); return true })
   ipc.handle('card:reset', (_e, id: string) => {
     qRun(getDb(), `UPDATE cards SET ease=2.5,interval=0,reps=0,lapses=0,due=datetime('now'),updated_at=datetime('now') WHERE id=?`, [id])
+    qRun(getDb(), 'DELETE FROM card_scheduling WHERE card_id=?', [id])
+    attachFsrsState(id)
     schedulePersist(); return true
   })
 
@@ -54,6 +79,25 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
   ipc.handle('srs:review', async (_e, cardId: string, rating: 1 | 3 | 4 | 5) => {
     const card = qOne(getDb(), 'SELECT * FROM cards WHERE id=?', [cardId])
     if (!card) return null
+    const scheduling = qOne(getDb(), 'SELECT state_json FROM card_scheduling WHERE card_id=? AND algorithm=?', [cardId, 'fsrs']) as { state_json: string } | undefined
+    if (scheduling) {
+      const now = new Date()
+      const grade = rating === 1 ? Rating.Again : rating === 3 ? Rating.Hard : rating === 4 ? Rating.Good : Rating.Easy
+      const result = fsrsScheduler.next(decodeFsrs(scheduling.state_json), now, grade)
+      const dueStr = dateString(result.card.due)
+      const interval = toLegacyInterval(now, result.card.due)
+      saveFsrsState(cardId, result.card)
+      qRun(getDb(), 'UPDATE cards SET ease=?,interval=?,reps=?,lapses=?,due=?,updated_at=datetime("now") WHERE id=?',
+        [Math.max(1.3, 3.2 - result.card.difficulty / 3), interval, result.card.reps, result.card.lapses, dueStr, cardId])
+      qRun(getDb(), 'INSERT INTO review_log(id,card_id,rating,ease,interval,due) VALUES(?,?,?,?,?,?)',
+        [uuid(), cardId, rating, Math.max(1.3, 3.2 - result.card.difficulty / 3), interval, dueStr])
+      const dStr = now.toISOString().slice(0, 10)
+      const row = qOne(getDb(), 'SELECT count FROM streak WHERE date=?', [dStr]) as { count: number } | undefined
+      if (row) qRun(getDb(), 'UPDATE streak SET count=? WHERE date=?', [row.count + 1, dStr])
+      else qRun(getDb(), 'INSERT INTO streak(date,count) VALUES(?,1)', [dStr])
+      schedulePersist()
+      return { ease: Math.max(1.3, 3.2 - result.card.difficulty / 3), interval, reps: result.card.reps, lapses: result.card.lapses, due: dueStr, algorithm: 'fsrs' }
+    }
     const result = schedule2({ ease: card.ease, interval: card.interval, reps: card.reps, lapses: card.lapses }, rating)
     const due = new Date(Date.now() + result.dueInDays * DAY)
     const dueStr = due.toISOString().slice(0, 19).replace('T', ' ')
@@ -66,7 +110,16 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     if (row) qRun(getDb(), 'UPDATE streak SET count=? WHERE date=?', [row.count + 1, dStr])
     else qRun(getDb(), 'INSERT INTO streak(date,count) VALUES(?,1)', [dStr])
     schedulePersist()
-    return { ease: result.ease, interval: result.interval, reps: result.reps, lapses: result.lapses, due: dueStr }
+    return { ease: result.ease, interval: result.interval, reps: result.reps, lapses: result.lapses, due: dueStr, algorithm: 'sm2' }
+  })
+
+  ipc.handle('srs:preview', (_e, cardId: string) => {
+    const scheduling = qOne(getDb(), 'SELECT state_json FROM card_scheduling WHERE card_id=? AND algorithm=?', [cardId, 'fsrs']) as { state_json: string } | undefined
+    if (!scheduling) return null
+    const now = new Date()
+    const options = fsrsScheduler.repeat(decodeFsrs(scheduling.state_json), now)
+    const intervalFor = (grade: Rating) => toLegacyInterval(now, options[grade].card.due)
+    return { algorithm: 'fsrs', again: intervalFor(Rating.Again), hard: intervalFor(Rating.Hard), good: intervalFor(Rating.Good), easy: intervalFor(Rating.Easy) }
   })
 
   ipc.handle('srs:stats', async () => {
@@ -85,7 +138,9 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     const dateSet = new Set(streakRows.map((r: any) => r.date))
     let cursor = new Date()
     while (dateSet.has(cursor.toISOString().slice(0, 10))) { streak++; cursor = new Date(cursor.getTime() - DAY) }
-    return { due, dueCount: due, total, overdueReviewed: overdue, masteryByInterval: naive, mastery: { fresh: mastery?.fresh ?? 0, learning: mastery?.learning ?? 0, mastered: mastery?.mastered ?? 0 }, streak, streakDays: streakRows }
+    const last30 = qOne(getDb(), `SELECT COUNT(*) total, SUM(CASE WHEN rating > 1 THEN 1 ELSE 0 END) correct FROM review_log WHERE reviewed_at >= datetime('now','-30 days')`) as { total?: number; correct?: number } | undefined
+    const fsrsCount = (qOne(getDb(), "SELECT COUNT(*) c FROM card_scheduling WHERE algorithm='fsrs'") as { c?: number } | undefined)?.c ?? 0
+    return { due, dueCount: due, total, overdueReviewed: overdue, masteryByInterval: naive, mastery: { fresh: mastery?.fresh ?? 0, learning: mastery?.learning ?? 0, mastered: mastery?.mastered ?? 0 }, streak, streakDays: streakRows, accuracy30: last30?.total ? Math.round(((last30.correct ?? 0) / last30.total) * 100) : null, fsrsCount }
   })
 
   ipc.handle('srs:fromNote', async (_e, deckId: string, front: string, back: string, sourceNoteId?: string) => {
@@ -96,6 +151,7 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     }
     const id = uuid()
     qRun(getDb(), 'INSERT INTO cards(id,deck_id,front,back,kind) VALUES(?,?,?,?,?)', [id, deckId, front, back, 'qa'])
+    attachFsrsState(id)
     if (sourceNoteId) {
       qRun(getDb(), 'INSERT INTO links(id,source_type,source_id,target_type,target_id,link_type,created_at) VALUES(?,?,?,?,?,?,unixepoch())',
         [uuid(), 'note', sourceNoteId, 'card', id, 'derived_from'])
@@ -113,6 +169,7 @@ export function registerSrsIpcs(ipc: typeof ipcMain): void {
     }
     const id = uuid()
     qRun(getDb(), 'INSERT INTO cards(id,deck_id,front,back,kind) VALUES(?,?,?,?,?)', [id, deckId, front, back, 'qa'])
+    attachFsrsState(id)
     if (sourceType && sourceId) {
       qRun(getDb(), 'INSERT INTO links(id,source_type,source_id,target_type,target_id,link_type,created_at) VALUES(?,?,?,?,?,?,unixepoch())',
         [uuid(), sourceType, sourceId, 'card', id, 'derived_from'])
