@@ -33,6 +33,7 @@ const api = {
   msgDelete: (id) => ipcRenderer.invoke('db:msg:delete', id),
   turnCollapse: (turnId: string, collapsed: boolean) => ipcRenderer.invoke('db:turn:collapse', turnId, collapsed).then(u),
   turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null; targetFoldId?: string | null }) => ipcRenderer.invoke('db:turn:move', args).then(u),
+  turnReparent: (args: { turnId: string; targetConversationId: string; parentTurnId?: string | null; foldId?: string | null; position: 'before' | 'inside' | 'after'; referenceTurnId?: string | null }) => ipcRenderer.invoke('db:turn:reparent', args).then(u),
   turnRestore: (turnId: string) => ipcRenderer.invoke('db:turn:restore', turnId).then(u),
   foldList: (conversationId: string) => ipcRenderer.invoke('db:fold:list', conversationId),
   foldCreate: (fold: { conversationId: string; title?: string; tags?: string; sort?: number }) => ipcRenderer.invoke('db:fold:create', fold).then(u),

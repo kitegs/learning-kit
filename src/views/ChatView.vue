@@ -3,7 +3,7 @@
     <div class="msg-list" v-if="turns.length">
       <div class="flow-intro"><span class="eyebrow">连续对话流</span><span>{{ turns.length }} 轮问答 · 每轮可拖入章节收纳</span><el-button size="small" plain @click="createFold">+ 新建章节</el-button></div>
       <template v-for="block in flowBlocks" :key="block.id">
-        <ConversationTurn v-if="block.kind === 'turn'" :turn="block.turn" @followup="$emit('followup', $event)" @toggle-collapse="toggleCollapse" @drag-start="dragTurnId = $event" @drop="dropToRoot" @move-into-chapter="dropIntoFold" @move-request="openMove" @restore="restoreTurn" @toggle-chapter="toggleFold" @chapter-menu="openChapterMenu" />
+        <ConversationTurn v-if="block.kind === 'turn'" :turn="block.turn" @followup="$emit('followup', $event)" @toggle-collapse="toggleCollapse" @drag-start="dragTurnId = $event" @drop="dropOnTurn" @move-into-chapter="dropIntoFold" @move-request="openMove" @restore="restoreTurn" @toggle-chapter="toggleFold" @chapter-menu="openChapterMenu" />
         <section v-else class="fold-group" :class="{ closed: block.fold.collapsed, 'is-drop-target': dropFoldId === block.fold.id }" @dragenter.prevent="dropFoldId = block.fold.id" @dragover.prevent="dropFoldId = block.fold.id" @dragleave="dropFoldId = ''" @drop.prevent="dropIntoFold(block.fold.id)">
           <header class="fold-head" @click="toggleFold(block.fold)" @contextmenu.prevent="openFoldMenu($event, block.fold)">
             <span class="fold-arrow">▶</span>
@@ -12,7 +12,7 @@
             <span class="fold-count">{{ block.turns.length }} 轮</span><span class="fold-hint">{{ dropFoldId === block.fold.id ? '松开鼠标收纳本轮' : '右键管理 · 拖到这里收纳' }}</span><el-button text size="small" @click.stop="openFoldMenu($event, block.fold)">···</el-button>
           </header>
           <div v-if="dropFoldId === block.fold.id" class="root-drop-tip">松开鼠标，将“用户消息 + AI 回复”折叠收纳到「{{ block.fold.title }}」</div>
-          <div v-show="!block.fold.collapsed" class="fold-content"><div class="chapter-note">章节内保持连续追问；每条追问会显示在对应 AI 回复框中。</div><ConversationTurn v-for="turn in block.turns" :key="turn.id" :turn="turn" @followup="$emit('followup', $event)" @toggle-collapse="toggleCollapse" @drag-start="dragTurnId = $event" @drop="dropIntoFold(block.fold.id)" @move-into-chapter="dropIntoFold" @move-request="openMove" @restore="restoreTurn" @toggle-chapter="toggleFold" @chapter-menu="openChapterMenu" /></div>
+          <div v-show="!block.fold.collapsed" class="fold-content"><div class="chapter-note">章节内保持连续追问；拖到轮次中部可变成多级追问，拖到上下边缘可调整同级顺序。</div><ConversationTurn v-for="turn in block.turns" :key="turn.id" :turn="turn" @followup="$emit('followup', $event)" @toggle-collapse="toggleCollapse" @drag-start="dragTurnId = $event" @drop="dropOnTurn" @move-into-chapter="dropIntoFold" @move-request="openMove" @restore="restoreTurn" @toggle-chapter="toggleFold" @chapter-menu="openChapterMenu" /></div>
         </section>
       </template>
     </div>
@@ -56,6 +56,9 @@ const turns = computed<Turn[]>(() => {
   }
   const list = order.map((id) => map.get(id)!)
   for (const turn of list) { let parent = turn.parentTurnId ? map.get(turn.parentTurnId) : undefined; if (parent) parent.children.push(turn); while (parent) { turn.depth++; parent.childrenCount++; parent = parent.parentTurnId ? map.get(parent.parentTurnId) : undefined } }
+  const rootTurns = list.filter((item) => !item.parentTurnId)
+  const numberTurns = (items: Turn[], prefix = '') => items.forEach((turn, index) => { turn.outlineNumber = `${prefix}${index + 1}`; numberTurns(turn.children, `${turn.outlineNumber}.`) })
+  numberTurns(rootTurns)
   for (const turn of list) turn.branches = makeBranches(turn.children)
   return list
 })
@@ -77,15 +80,22 @@ watch(() => messages.value.map((m: Msg) => m.id + ':' + m.content.length).join('
 watch(() => chat.currentConvId, async (id) => { if (id) { folds.value = await window.lk.foldList(id) as Fold[]; await loadLinks() }; scrollToBottom() }, { immediate: true })
 async function reload() { const id = chat.currentConvId; if (!id) return; await chat.selectConv(id); folds.value = await window.lk.foldList(id) as Fold[]; await loadLinks() }
 async function toggleCollapse(turn: Turn) { const collapsed = !turn.collapsed; await window.lk.turnCollapse(turn.id, collapsed); for (const message of messages.value) if (message.turn_id === turn.id) message.collapsed = collapsed ? 1 : 0 }
-async function dropToRoot(targetTurnId: string) { if (!dragTurnId.value || dragTurnId.value === targetTurnId || !chat.currentConvId) return; await window.lk.turnMove({ turnId: dragTurnId.value, targetConversationId: chat.currentConvId, afterTurnId: targetTurnId, targetFoldId: null }); dragTurnId.value = ''; await reload() }
-async function dropIntoFold(foldId: string) { dropFoldId.value = ''; if (!dragTurnId.value || !chat.currentConvId) return; await window.lk.turnMove({ turnId: dragTurnId.value, targetConversationId: chat.currentConvId, targetFoldId: foldId }); dragTurnId.value = ''; await reload() }
+async function dropOnTurn(target: { targetTurnId: string; position: 'before' | 'inside' | 'after' }) {
+  if (!dragTurnId.value || dragTurnId.value === target.targetTurnId || !chat.currentConvId) return
+  const targetTurn = turns.value.find((turn) => turn.id === target.targetTurnId)
+  if (!targetTurn) return
+  try {
+    await window.lk.turnReparent({ turnId: dragTurnId.value, targetConversationId: chat.currentConvId, parentTurnId: target.position === 'inside' ? target.targetTurnId : targetTurn.parentTurnId, foldId: target.position === 'inside' ? null : targetTurn.foldId, position: target.position, referenceTurnId: target.position === 'inside' ? null : target.targetTurnId })
+  } finally { dragTurnId.value = ''; await reload() }
+}
+async function dropIntoFold(foldId: string) { dropFoldId.value = ''; if (!dragTurnId.value || !chat.currentConvId) return; try { await window.lk.turnReparent({ turnId: dragTurnId.value, targetConversationId: chat.currentConvId, parentTurnId: null, foldId, position: 'inside' }) } finally { dragTurnId.value = ''; await reload() } }
 async function createFold() { if (!chat.currentConvId) return; const result = await ElMessageBox.prompt('为章节命名', '新建对话章节', { inputValue: '待整理追问' }).catch(() => null); if (!result?.value) return; await window.lk.foldCreate({ conversationId: chat.currentConvId, title: result.value }); await reload() }
 async function toggleFold(fold: Fold) { await window.lk.foldPatch(fold.id, { collapsed: !fold.collapsed }); fold.collapsed = fold.collapsed ? 0 : 1 }
 async function renameFold(fold: Fold) { const result = await ElMessageBox.prompt('章节名称', '重命名章节', { inputValue: fold.title }).catch(() => null); if (!result?.value) return; await window.lk.foldPatch(fold.id, { title: result.value }); fold.title = result.value }
 async function editTags(fold: Fold) { const result = await ElMessageBox.prompt('用逗号分隔标签', '章节标签', { inputValue: fold.tags ?? '' }).catch(() => null); if (!result) return; await window.lk.foldPatch(fold.id, { tags: result.value }); fold.tags = result.value }
 async function deleteFold(id: string) { await window.lk.foldDelete(id); await reload() }
 function openMove(turn: Turn) { moveDialog.value = { open: true, turnId: turn.id, targetConv: '' } }
-async function moveToConversation() { if (!moveDialog.value.targetConv) return; await window.lk.turnMove({ turnId: moveDialog.value.turnId, targetConversationId: moveDialog.value.targetConv, targetFoldId: null }); moveDialog.value.open = false; await reload() }
+async function moveToConversation() { if (!moveDialog.value.targetConv) return; await window.lk.turnReparent({ turnId: moveDialog.value.turnId, targetConversationId: moveDialog.value.targetConv, parentTurnId: null, foldId: null, position: 'inside' }); moveDialog.value.open = false; await reload() }
 async function restoreTurn(turn: Turn) { await window.lk.turnRestore(turn.id); await reload() }
 function openReference(fold: Fold) { referenceDialog.value = { open: true, foldId: fold.id, targetConv: '' } }
 async function addReference() { const dialog = referenceDialog.value; if (!dialog.targetConv) return; await window.lk.linkRelate('fold', dialog.foldId, 'conversation', dialog.targetConv, 'references'); dialog.open = false; await loadLinks() }

@@ -17,3 +17,4 @@
 | 2026-08-04 | REQ-20260804-01-notebook-pagination-layout.md | 纸质笔记自动分页与版式控制 | implemented |
 | 2026-08-04 | REQ-20260804-02-phase-one-reliability.md | 第一阶段：可靠引用、可控 AI 与数据保护 | implemented |
 | 2026-08-08 | REQ-20260808-01-learning-loop-pro-notebook.md | 第二、三阶段：学习闭环与专业笔记体验 | implemented |
+| 2026-08-08 | REQ-20260808-02-outline-chat-and-compact-notebook.md | 对话层级与紧凑笔记工具栏 | implemented |

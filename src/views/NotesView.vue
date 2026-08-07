@@ -36,40 +36,24 @@
     <main class="main" @contextmenu="onEditorCtx">
       <div v-if="!current" class="empty"><p>选择或新建一份笔记。</p></div>
       <div v-else class="editor-wrap">
-        <div class="toolbar">
+        <div class="toolbar word-toolbar">
           <el-input v-model="current.title" placeholder="标题" class="title-in" @change="markDirty" size="small" />
           <el-input v-model="tagStr" placeholder="#tags" class="tag-in" @change="updateTags" size="small" />
-          <span class="sep"></span>
-          <el-button size="small" @click="insertCmd('# ','')">H1</el-button>
-          <el-button size="small" @click="insertCmd('## ','')">H2</el-button>
-          <el-button size="small" @click="insertCmd('### ','')">H3</el-button>
-          <el-button size="small" @click="insertCmd('- ','')">列表</el-button>
-          <el-button size="small" @click="insertCmd('> ','')">引用</el-button>
-          <el-button size="small" @click="insertCmd('```\n','\n```')">代码</el-button>
-          <el-button size="small" @click="insertCmd('**','**')">B</el-button>
-          <el-button size="small" @click="insertCmd('*','*')">I</el-button>
-          <el-button size="small" @click="insertCmd('~~','~~')">S</el-button>
-          <el-button size="small" @click="insertFormula">公式</el-button>
-          <el-button size="small" @click="nextNotebookSpread">新双页</el-button>
           <el-button size="small" @click="undoNote">撤销</el-button>
           <el-button size="small" @click="redoNote">重做</el-button>
           <span class="spacer"></span>
-          <el-button size="small" @click="imagePicker?.click()">图片/截图</el-button>
-          <el-button size="small" @click="toggleNotebookPen">手写</el-button>
-          <el-button size="small" @click="citeBook">引用电子书</el-button>
-          <el-button size="small" @click="citeConversation">引用对话</el-button>
-          <el-button size="small" @click="createContentBlock">创建内容块</el-button>
-          <el-button size="small" @click="referenceContentBlock">引用块</el-button>
-          <el-button size="small" @click="saveSticky">复用便签</el-button>
-          <el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button>
-          <el-button size="small" @click="openVersions">历史</el-button>
-          <el-button size="small" @click="openAttributes">属性</el-button>
           <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸质笔记本' : '打开笔记本' }}</el-button>
-          <el-button size="small" :type="useBlockEditor?'primary':'default'" @click="useBlockEditor=!useBlockEditor" title="兼容旧笔记">{{ useBlockEditor ? '纯文本' : '富文本' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
-          <el-button size="small" @click="makeCard">闪卡</el-button>
-          <el-button size="small" @click="exportMd">导出</el-button>
           <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
+          <el-button size="small" text @click="ribbonOpen=!ribbonOpen">{{ ribbonOpen ? '收起功能区' : '功能区' }}</el-button>
+        </div>
+        <div class="ribbon-tabs"><button v-for="tab in ribbonTabs" :key="tab.id" :class="{ active: ribbonTab === tab.id }" @click="ribbonTab = tab.id; ribbonOpen = true">{{ tab.label }}</button></div>
+        <div v-show="ribbonOpen" class="ribbon-panel">
+          <template v-if="ribbonTab === 'home'"><el-button size="small" @click="insertCmd('# ','')">标题</el-button><el-button size="small" @click="insertCmd('- ','')">列表</el-button><el-button size="small" @click="insertCmd('> ','')">引用</el-button><el-button size="small" @click="insertCmd('**','**')"><b>B</b></el-button><el-button size="small" @click="insertCmd('*','*')"><i>I</i></el-button><el-button size="small" @click="insertCmd('~~','~~')">删除线</el-button><el-button size="small" @click="useBlockEditor=!useBlockEditor">{{ useBlockEditor ? '纯文本模式' : '富文本模式' }}</el-button></template>
+          <template v-else-if="ribbonTab === 'insert'"><el-button size="small" @click="imagePicker?.click()">图片/截图</el-button><el-button size="small" @click="insertFormula">数学公式</el-button><el-button size="small" @click="nextNotebookSpread">新双页</el-button><el-button size="small" @click="citeBook">引用电子书</el-button><el-button size="small" @click="citeConversation">引用对话</el-button><el-button size="small" @click="referenceContentBlock">引用内容块</el-button></template>
+          <template v-else-if="ribbonTab === 'draw'"><el-button size="small" type="primary" @click="toggleNotebookPen">画笔</el-button><el-button size="small" @click="sketchOpen=true">草图 / 图表</el-button><span class="ribbon-hint">更多画笔、图形和纸张移动工具可在纸页右键中使用。</span></template>
+          <template v-else-if="ribbonTab === 'links'"><el-button size="small" @click="createContentBlock">创建内容块</el-button><el-button size="small" @click="saveSticky">复用便签</el-button><el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button><el-button size="small" @click="openAttributes">属性</el-button></template>
+          <template v-else><el-button size="small" @click="askAiAboutNote">AI 辅助</el-button><el-button size="small" @click="makeCard">生成闪卡</el-button><el-button size="small" @click="openVersions">历史版本</el-button><el-button size="small" @click="exportMd">导出</el-button></template>
         </div>
         <div class="split" v-if="!useBlockEditor && !paperMode">
           <div class="ta-wrap" @contextmenu.stop="onEditorCtx">
@@ -154,6 +138,9 @@ const cursorLine = ref(1)
 const lineCount = computed(() => (current.value?.body || '').split('\n').length)
 const useBlockEditor = ref(false)
 const paperMode = ref(true)
+const ribbonOpen = ref(false)
+const ribbonTab = ref<'home' | 'insert' | 'draw' | 'links' | 'review'>('home')
+const ribbonTabs = [{ id: 'home' as const, label: '开始' }, { id: 'insert' as const, label: '插入' }, { id: 'draw' as const, label: '绘制' }, { id: 'links' as const, label: '引用' }, { id: 'review' as const, label: '复习' }]
 const paperIndex = ref(0)
 const backlinks = ref<any[]>([])
 const backlinksOpen = ref(false)
@@ -798,7 +785,8 @@ function getAllIds(nodes: any[]): string[] {
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }
 .editor-wrap { position:relative; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.toolbar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-wrap: wrap; flex-shrink: 0; }
+.toolbar { display: flex; gap: 4px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-shrink: 0; min-height: 34px; }.word-toolbar :deep(.el-button) { padding-inline:8px; }
+.ribbon-tabs { display:flex; gap:2px; height:28px; padding:0 10px; align-items:end; border-bottom:1px solid var(--border); background:var(--bg-elev); }.ribbon-tabs button { height:27px; padding:0 11px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--text-dim); cursor:pointer; font-size:12px; }.ribbon-tabs button:hover,.ribbon-tabs button.active { color:var(--accent-text); border-bottom-color:var(--accent); }.ribbon-panel { display:flex; align-items:center; gap:5px; min-height:42px; padding:5px 10px; border-bottom:1px solid var(--border); background:var(--bg-elev); flex-wrap:wrap; }.ribbon-hint { margin-left:6px; color:var(--text-dim); font-size:11px; }
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
 .backlink-empty { color:var(--text-dim); padding:18px 4px; font-size:13px; }.backlink-row { display:flex; align-items:center; gap:9px; padding:10px 4px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }.backlink-row:hover { color:var(--accent-text); background:var(--bg-hover); }.backlink-type { border-radius:10px; padding:2px 7px; background:var(--accent-dim); color:var(--accent-text); font-size:11px; }.backlink-arrow { margin-left:auto; color:var(--text-dim); }
 .version-layout { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:360px; border:1px solid var(--border); }.version-list { overflow:auto; border-right:1px solid var(--border); }.version-list button { display:grid; gap:4px; width:100%; padding:10px; text-align:left; color:var(--text); background:transparent; border:0; border-bottom:1px solid var(--border); cursor:pointer; }.version-list button.active,.version-list button:hover { background:var(--accent-dim); }.version-list small,.attrs-hint { color:var(--text-dim); font-size:11px; }.version-list p,.version-preview>p { padding:14px; color:var(--text-dim); font-size:12px; }.version-preview { min-width:0; padding:14px; overflow:auto; }.version-preview h4 { margin:0 0 10px; }.version-preview pre { min-height:230px; max-height:370px; overflow:auto; white-space:pre-wrap; color:var(--text-secondary); background:var(--bg-soft); padding:10px; border-radius:7px; font-size:12px; }.attr-row { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin:8px 0; }

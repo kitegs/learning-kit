@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS messages (
   origin_conversation_id TEXT,
   origin_fold_id  TEXT,
   origin_sort     INTEGER,
+  origin_parent_turn_id TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, sort);
@@ -346,6 +347,7 @@ function migrate(d: Database): void {
   if (!messageCols.includes('origin_conversation_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN origin_conversation_id TEXT') } catch {} }
   if (!messageCols.includes('origin_fold_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN origin_fold_id TEXT') } catch {} }
   if (!messageCols.includes('origin_sort')) { try { d.exec('ALTER TABLE messages ADD COLUMN origin_sort INTEGER') } catch {} }
+  if (!messageCols.includes('origin_parent_turn_id')) { try { d.exec('ALTER TABLE messages ADD COLUMN origin_parent_turn_id TEXT') } catch {} }
   const foldCols = qAll(d, 'PRAGMA table_info(conversation_folds)').map((r: { name: string }) => r.name)
   if (!foldCols.includes('tags')) { try { d.exec("ALTER TABLE conversation_folds ADD COLUMN tags TEXT NOT NULL DEFAULT ''") } catch {} }
   d.exec("UPDATE messages SET turn_id=id WHERE turn_id IS NULL OR turn_id='' ")

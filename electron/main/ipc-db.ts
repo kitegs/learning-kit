@@ -114,10 +114,48 @@ export function registerDbIpcs(ipc: typeof ipcMain): void {
     ) UPDATE messages SET conversation_id=?, fold_id=?, sort=? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, args.targetFoldId ?? null, sort])
     schedulePersist(); return true
   })
+  registerIpc(ipc, 'db:turn:reparent', (_e, args: { turnId: string; targetConversationId: string; parentTurnId?: string | null; foldId?: string | null; position: 'before' | 'inside' | 'after'; referenceTurnId?: string | null }) => {
+    const d = getDb()
+    const source = qOne(d, 'SELECT conversation_id,parent_turn_id,fold_id,MIN(sort) AS sort FROM messages WHERE turn_id=?', [args.turnId]) as { conversation_id?: string; parent_turn_id?: string | null; fold_id?: string | null; sort?: number } | undefined
+    if (!source?.conversation_id) throw new Error('找不到要移动的问答轮次')
+    const branch = qAll(d, `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) SELECT turn_id FROM branch`, [args.turnId]).map((row: { turn_id: string }) => row.turn_id)
+    if (args.parentTurnId && branch.includes(args.parentTurnId)) throw new Error('不能把问答拖入自身或其追问')
+    if (args.referenceTurnId && branch.includes(args.referenceTurnId)) throw new Error('不能把问答拖到自身分支内')
+    if (args.parentTurnId) {
+      const parent = qOne(d, 'SELECT conversation_id FROM messages WHERE turn_id=? LIMIT 1', [args.parentTurnId]) as { conversation_id?: string } | undefined
+      if (!parent || parent.conversation_id !== args.targetConversationId) throw new Error('目标追问不在当前对话中')
+    }
+    if (args.foldId) {
+      const fold = qOne(d, 'SELECT conversation_id FROM conversation_folds WHERE id=?', [args.foldId]) as { conversation_id?: string } | undefined
+      if (!fold || fold.conversation_id !== args.targetConversationId) throw new Error('目标章节不在当前对话中')
+    }
+    const reference = args.referenceTurnId ? qOne(d, 'SELECT MIN(sort) AS first_sort, MAX(sort) AS last_sort FROM messages WHERE turn_id=?', [args.referenceTurnId]) as { first_sort?: number; last_sort?: number } | undefined : undefined
+    const sibling = qOne(d, 'SELECT MAX(sort) AS last_sort FROM messages WHERE conversation_id=? AND parent_turn_id IS ? AND fold_id IS ? AND turn_id<>?', [args.targetConversationId, args.parentTurnId ?? null, args.foldId ?? null, args.turnId]) as { last_sort?: number } | undefined
+    const base = args.position === 'before' && reference?.first_sort !== undefined ? Number(reference.first_sort) - 0.25
+      : args.position === 'after' && reference?.last_sort !== undefined ? Number(reference.last_sort) + 0.25
+        : Number(sibling?.last_sort ?? Date.now()) + 1
+    const originalBase = Number(source.sort ?? 0)
+    qRun(d, `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) UPDATE messages SET
+      origin_conversation_id=COALESCE(origin_conversation_id, conversation_id),
+      origin_fold_id=CASE WHEN origin_conversation_id IS NULL THEN fold_id ELSE origin_fold_id END,
+      origin_sort=COALESCE(origin_sort, sort),
+      origin_parent_turn_id=CASE WHEN origin_conversation_id IS NULL THEN parent_turn_id ELSE origin_parent_turn_id END
+      WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId])
+    qRun(d, `WITH RECURSIVE branch(turn_id) AS (
+      SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
+    ) UPDATE messages SET conversation_id=?, fold_id=NULL, sort=sort-?+? WHERE turn_id IN (SELECT turn_id FROM branch)`, [args.turnId, args.targetConversationId, originalBase, base])
+    qRun(d, 'UPDATE messages SET parent_turn_id=?, fold_id=? WHERE turn_id=?', [args.parentTurnId ?? null, args.parentTurnId ? null : (args.foldId ?? null), args.turnId])
+    schedulePersist(); return true
+  })
   registerIpc(ipc, 'db:turn:restore', (_e, turnId: string) => {
     qRun(getDb(), `WITH RECURSIVE branch(turn_id) AS (
       SELECT ? UNION SELECT DISTINCT m.turn_id FROM messages m JOIN branch b ON m.parent_turn_id=b.turn_id
     ) UPDATE messages SET conversation_id=COALESCE(origin_conversation_id, conversation_id), fold_id=origin_fold_id, sort=COALESCE(origin_sort, sort), origin_conversation_id=NULL, origin_fold_id=NULL, origin_sort=NULL WHERE turn_id IN (SELECT turn_id FROM branch)`, [turnId])
+    qRun(getDb(), 'UPDATE messages SET parent_turn_id=COALESCE(origin_parent_turn_id,parent_turn_id), origin_parent_turn_id=NULL WHERE turn_id=?', [turnId])
     schedulePersist(); return true
   })
   ipc.handle('db:fold:list', (_e, conversationId: string) => qAll(getDb(), 'SELECT * FROM conversation_folds WHERE conversation_id=? ORDER BY sort, created_at', [conversationId]))

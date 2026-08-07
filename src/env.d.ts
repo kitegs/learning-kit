@@ -25,6 +25,7 @@ interface LkApi {
   msgDelete: (id: string) => Promise<boolean>
   turnCollapse: (turnId: string, collapsed: boolean) => Promise<boolean>
   turnMove: (args: { turnId: string; targetConversationId: string; afterTurnId?: string | null; targetFoldId?: string | null }) => Promise<boolean>
+  turnReparent: (args: { turnId: string; targetConversationId: string; parentTurnId?: string | null; foldId?: string | null; position: 'before' | 'inside' | 'after'; referenceTurnId?: string | null }) => Promise<boolean>
   turnRestore: (turnId: string) => Promise<boolean>
   foldList: (conversationId: string) => Promise<any[]>
   foldCreate: (fold: { conversationId: string; title?: string; tags?: string; sort?: number }) => Promise<string>
