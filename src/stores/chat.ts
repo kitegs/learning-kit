@@ -157,6 +157,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const temperature = ref(0.6)
   const theme = ref<ThemeId>('dark')
   const connected = ref(false)
+  const testMode = ref(false)
   const noteAutosaveMs = ref(900)
   const readerTheme = ref<'paper' | 'sepia' | 'night'>('paper')
   const reviewNewLimit = ref(30)
@@ -191,6 +192,7 @@ export const useSettingsStore = defineStore('settings', () => {
     model.value = (await window.lk.getSetting('model')) || 'deepseek-v4-flash'
     temperature.value = Number(await window.lk.getSetting('temperature')) || 0.6
     customBaseUrl.value = (await window.lk.getSetting('customBaseUrl')) || ''
+    testMode.value = (await window.lk.getSetting('testMode')) === 'true'
     const t = await window.lk.getSetting('theme')
     theme.value = t === 'light' || t === 'paper' || t === 'sepia' || t === 'forest' ? t : 'dark'
     applyTheme()
@@ -216,6 +218,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function saveAll() {
     await window.lk.setSetting('provider', provider.value); await window.lk.setSetting('model', model.value)
     await window.lk.setSetting('temperature', String(temperature.value)); await window.lk.setSetting('customBaseUrl', customBaseUrl.value)
+    await window.lk.setSetting('testMode', String(testMode.value))
     await window.lk.setSetting('theme', theme.value)
     await window.lk.setSetting('noteAutosaveMs', String(noteAutosaveMs.value))
     await window.lk.setSetting('readerTheme', readerTheme.value)
@@ -230,5 +233,5 @@ export const useSettingsStore = defineStore('settings', () => {
   function setConnected(v: boolean) { connected.value = v }
   function getShortcut(key: string): string { return shortcuts.value[key] || (defaultShortcuts as any)[key] || '' }
 
-  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
+  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, testMode, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
 })

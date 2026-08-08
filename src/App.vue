@@ -10,7 +10,7 @@
           <el-icon class="mode-icon"><component :is="modeIcon" /></el-icon>
           <el-input v-if="mode === 'chat'" v-model="titleDraft" class="title-input" size="small" placeholder="对话标题" @change="applyTitle" @blur="applyTitle" />
           <span v-else class="mode-title">{{ modeTitle }}</span>
-          <el-tag v-if="mode === 'chat'" size="small" :type="settings.connected ? 'success' : 'info'" :effect="settings.connected ? 'dark' : 'plain'" :class="{'tag-glow': settings.connected}">{{ settings.provider }} - {{ settings.model }}</el-tag>
+          <el-tag v-if="mode === 'chat'" size="small" :type="settings.testMode ? 'warning' : (settings.connected ? 'success' : 'info')" :effect="settings.testMode || settings.connected ? 'dark' : 'plain'" :class="{'tag-glow': settings.connected && !settings.testMode}">{{ settings.testMode ? '测试模式 · 本地预设回复' : `${settings.provider} - ${settings.model}` }}</el-tag>
         </div>
         <div class="toolbar">
           <el-button size="small" @click="searchOpen=true">搜索</el-button>
@@ -328,18 +328,20 @@ async function onStudyPlanCreated(planText: string) {
   if (!chat.currentConvId) { const c = await chat.newConv(null, '学习方案'); await chat.selectConv(c.id) }
   await onSend(planText)
 }
+function localTestReply(text: string) {
+  const topic = text.trim().replace(/\s+/g, ' ').slice(0, 72) || '这条学习问题'
+  return `> 🧪 **测试模式 · 本地预设回复**\n> 此回复未调用 API，不消耗 Token；这轮问答已按正常方式保存，可用于测试追问、拖动和折叠。\n\n### 关于「${topic}」\n\n这是用于界面测试的固定示例回答。你可以将这轮拖进章节，或在下方继续追问，验证多级对话的整理效果。\n\n**测试要点**\n\n- 用户消息与 AI 回复属于同一轮\n- 可拖入折叠组或变成另一轮的追问\n- 切换对话、重启软件后仍会保留\n\n> 想恢复真实模型回答，请在“设置”中关闭测试模式。`
+}
 async function onSend(text: string, parentTurnId: string | null = null) {
   if (streaming.value) return
   log('send_start', text.slice(0, 60))
   const citation = pendingCitation.value
   if (citation) pendingCitation.value = null
+  let convId: string | null = null
+  let rMsg: any | null = null
   try {
     if (!chat.currentConvId) { const c = await chat.newConv(null, text.slice(0, 30) || 'New Chat'); await chat.selectConv(c.id) }
-    const convId = chat.currentConvId!
-      if (!settings.currentApiKey()) {
-      chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '**No API Key configured.** Open Settings (gear icon) and enter your API key for ' + settings.provider + '.', model: 'system' } as any)
-      return
-    }
+    convId = chat.currentConvId!
     const citationText = citation
       ? citation.page
         ? `> 📖 **${citation.bookTitle}** · 第 ${citation.page} 页\n> *"${citation.quote.slice(0, 300)}${citation.quote.length > 300 ? '...' : ''}"*\n\n`
@@ -353,13 +355,28 @@ async function onSend(text: string, parentTurnId: string | null = null) {
       sort: Date.now(), turn_id: turnId, parent_turn_id: parentTurnId
     }
     await window.lk.msgSave(userMsg); chat.activeMessages.push(userMsg)
-    const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: Date.now() + 1, turn_id: turnId, parent_turn_id: parentTurnId }
+    const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.testMode ? 'local-test' : settings.model, sort: Date.now() + 1, turn_id: turnId, parent_turn_id: parentTurnId }
     assistantMsg.id = await chat.saveNewMessage(assistantMsg)
     chat.activeMessages.push(assistantMsg)
     // grab the reactive proxy from the array so mutations trigger re-render
-    const rMsg = chat.activeMessages[chat.activeMessages.length - 1]
+    rMsg = chat.activeMessages[chat.activeMessages.length - 1]
+    if (settings.testMode) {
+      rMsg.content = localTestReply(text)
+      await window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+      await window.lk.convTouch(convId)
+      log('test_reply', `len=${rMsg.content.length}`)
+      return
+    }
+    if (!settings.currentApiKey()) {
+      rMsg.content = `> 未配置 API Key。此轮对话已保存，可拖动、折叠或继续编辑。\n\n请在“设置”中配置 ${settings.provider} 的 API Key，或开启“测试模式”使用本地预设回复。`
+      rMsg.model = 'system'
+      await window.lk.msgPatch(rMsg.id, { content: rMsg.content })
+      await window.lk.convTouch(convId)
+      return
+    }
     streaming.value = true; activeAbort?.()
     currentReqId = await window.lk.uuid()
+    const requestConvId = convId
     const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
     log('stream_start', currentReqId.slice(0, 8))
     activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
@@ -376,7 +393,7 @@ async function onSend(text: string, parentTurnId: string | null = null) {
             rMsg.content += '\n\n---\n> AI 已提出工具操作，请在“AI 工具管理中心”确认后执行。'
           }
           window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
-          window.lk.convTouch(convId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
+          window.lk.convTouch(requestConvId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
         }
       } catch (e) { console.error('[onChunk]', e) }
     })
@@ -386,8 +403,12 @@ async function onSend(text: string, parentTurnId: string | null = null) {
     log('send_error', err?.message || String(err))
     const msg = err?.message || String(err)
     console.error('[onSend] send failed:', err)
-    if (chat.currentConvId) {
-      chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: chat.currentConvId, role: 'assistant', content: `**Send failed:** ${msg}\n\nCheck your API key and network connection in Settings.`, model: 'error' } as any)
+    if (rMsg) {
+      rMsg.content = `**发送失败：** ${msg}\n\n这轮对话已保存。请检查设置中的 API Key、网络或切换到测试模式。`
+      rMsg.model = 'error'
+      window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[send] msgPatch fail', e))
+    } else if (convId) {
+      chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: `**发送失败：** ${msg}`, model: 'error' } as any)
     }
   }
 }
@@ -556,7 +577,7 @@ onMounted(async () => {
   window.addEventListener('lk:nav', onNav as EventListener)
   await settings.load(); await chat.refreshGroups(); chat.convs = await window.lk.convAll()
   // silent connection test on startup
-  if (settings.currentApiKey()) {
+  if (!settings.testMode && settings.currentApiKey()) {
     window.lk.aiTest({ provider: settings.provider, model: settings.model, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
       .then((r: any) => { settings.setConnected(!!r?.ok) }).catch(() => {})
   }

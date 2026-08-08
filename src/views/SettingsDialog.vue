@@ -52,6 +52,11 @@
         </span>
       </el-form-item>
 
+      <el-form-item label="测试模式">
+        <el-switch v-model="s.testMode" active-text="使用本地预设回复" inactive-text="调用已配置模型" />
+        <span class="muted">开启后不调用 API、不消耗 Token；可测试追问、拖拽和折叠。</span>
+      </el-form-item>
+
       <el-form-item label="温度">
         <el-slider v-model="s.temperature" :min="0" :max="1.5" :step="0.05" show-input />
       </el-form-item>
@@ -146,6 +151,12 @@ const testResult = ref<{ ok: boolean; reply?: string; error?: string } | null>(n
 async function testConnection() {
   testing.value = true; testResult.value = null
   try {
+    if (s.testMode) {
+      testResult.value = { ok: true, reply: '测试模式已启用：不会请求 API。' }
+      s.setConnected(false)
+      testing.value = false
+      return
+    }
     testResult.value = await window.lk.aiTest({
       provider: s.provider,
       model: s.model,

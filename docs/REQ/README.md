@@ -18,3 +18,4 @@
 | 2026-08-04 | REQ-20260804-02-phase-one-reliability.md | 第一阶段：可靠引用、可控 AI 与数据保护 | implemented |
 | 2026-08-08 | REQ-20260808-01-learning-loop-pro-notebook.md | 第二、三阶段：学习闭环与专业笔记体验 | implemented |
 | 2026-08-08 | REQ-20260808-02-outline-chat-and-compact-notebook.md | 对话层级与紧凑笔记工具栏 | implemented |
+| 2026-08-09 | REQ-20260809-01-local-chat-test-mode.md | 本地对话测试模式 | implemented |
