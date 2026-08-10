@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS highlights (
   link_msg_id TEXT,
   rect_x REAL, rect_y REAL, rect_w REAL, rect_h REAL,
   href      TEXT,
+  rects_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_high_book ON highlights(book_id, page);
@@ -358,6 +359,7 @@ function migrate(d: Database): void {
     if (!hCols.includes(col)) { try { d.exec(`ALTER TABLE highlights ADD COLUMN ${col} ${type}`) } catch {} }
   }
   if (!hCols.includes('href')) { try { d.exec('ALTER TABLE highlights ADD COLUMN href TEXT') } catch {} }
+  if (!hCols.includes('rects_json')) { try { d.exec('ALTER TABLE highlights ADD COLUMN rects_json TEXT') } catch {} }
 
   // Mindmaps: add drawing and annotations
   const mmCols = tableCols('mindmaps')

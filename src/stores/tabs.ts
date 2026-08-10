@@ -62,8 +62,15 @@ export const useTabStore = defineStore('tabs', () => {
     const idx = tabs.value.findIndex(t => t.id === id)
     if (idx < 0) return
     const wasActive = activeId.value === id
-    // don't close last tab
-    if (tabs.value.length === 1) return
+    // A reader must always have a visible exit. Replacing the last ebook tab
+    // with the library home is clearer than making its close button a no-op.
+    if (tabs.value.length === 1) {
+      if (tabs.value[0].type === 'ebook') {
+        tabs.value[0] = { id, type: 'library', title: '图书馆', data: {} }
+        activeId.value = id
+      }
+      return
+    }
     tabs.value.splice(idx, 1)
     if (wasActive) {
       activeId.value = tabs.value[Math.min(idx, tabs.value.length - 1)].id

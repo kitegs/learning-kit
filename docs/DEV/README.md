@@ -20,3 +20,4 @@
 | 2026-08-08 | DEV-20260808-01-learning-loop-pro-notebook.md | 第二、三阶段：学习闭环与专业笔记体验 | implemented |
 | 2026-08-08 | DEV-20260808-02-outline-chat-and-compact-notebook.md | 对话层级与紧凑笔记工具栏 | implemented |
 | 2026-08-09 | DEV-20260809-01-local-chat-test-mode.md | 本地对话测试模式 | implemented |
+| 2026-08-11 | DEV-20260811-01-ebook-navigation-and-highlights.md | 电子书返回与文本标记修复 | implemented |

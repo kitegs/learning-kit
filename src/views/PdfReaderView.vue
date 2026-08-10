@@ -2,19 +2,19 @@
   <div class="reader-root">
     <aside class="side" :class="{ open: sideOpen }">
       <div class="side-tabs">
-        <button :class="{active: tab==='toc'}" @click="tab='toc'">TOC</button>
-        <button :class="{active: tab==='marks'}" @click="tab='marks'">Book/HL</button>
+        <button :class="{active: tab==='toc'}" @click="tab='toc'">目录</button>
+        <button :class="{active: tab==='marks'}" @click="tab='marks'">书签/划线</button>
       </div>
       <div class="side-body">
         <div v-if="tab==='toc'">
-          <el-empty v-if="!outline.length" description="no TOC" :image-size="60" />
+          <el-empty v-if="!outline.length" description="暂无目录" :image-size="60" />
           <div v-for="(it, i) in outline" :key="i" class="toc-item" :style="{ paddingLeft: it.depth*12+'px' }" @click="goOutline(it)">{{ it.title }}</div>
         </div>
         <div v-else>
-          <el-button size="small" plain @click="addBookmark" style="margin-bottom:6px">+ Bookmark</el-button>
-          <el-empty v-if="!bookmarks.length" description="none" :image-size="60" />
-          <div v-for="b in bookmarks" :key="b.id" class="mark" @click="goPage(b.page)">Page {{ b.page }} <el-button text size="small" type="danger" @click.stop="delBookmark(b.id)">x</el-button></div>
-          <el-divider content-position="left">HL ({{ highlights.length }})</el-divider>
+          <el-button size="small" plain @click="addBookmark" style="margin-bottom:6px">+ 添加书签</el-button>
+          <el-empty v-if="!bookmarks.length" description="暂无书签" :image-size="60" />
+          <div v-for="b in bookmarks" :key="b.id" class="mark" @click="goPage(b.page)">第 {{ b.page }} 页 <el-button text size="small" type="danger" @click.stop="delBookmark(b.id)">删</el-button></div>
+          <el-divider content-position="left">划线 ({{ highlights.length }})</el-divider>
           <div v-for="h in highlights" :key="h.id" class="hl" @click="goPage(h.page)">
             <span class="hl-dot-sm" :style="{ background: HL_COLORS[h.color] || HL_COLORS.yellow }"></span>
             <div class="hl-text">{{ h.text }}</div>
@@ -27,8 +27,8 @@
     </aside>
     <div class="main">
       <div class="ctrl">
-        <el-button size="small" text @click="$emit('back')">Back</el-button>
-        <el-button size="small" text @click="sideOpen=!sideOpen">TOC</el-button>
+        <el-button size="small" text @click="$emit('back')">← 图书馆</el-button>
+        <el-button size="small" text @click="sideOpen=!sideOpen">目录</el-button>
         <span class="title">{{ book?.title }}</span>
         <span class="spacer"></span>
         <el-button size="small" @click="prevPage" :disabled="page<=1">&lt;</el-button>
@@ -36,25 +36,26 @@
         <el-button size="small" @click="nextPage" :disabled="!totalPages||page>=totalPages">&gt;</el-button>
         <el-slider v-model="zoom" :min="80" :max="300" :step="10" style="width:100px;margin:0 6px" @change="() => renderPage()" />
         <span class="zoom-lbl">{{ zoom }}%</span>
-        <el-button size="small" @click="fitZoom">Fit</el-button>
-        <el-button size="small" @click="resetView">Reset</el-button>
-        <el-button v-if="panX!==0||panY!==0" size="small" type="warning" @click="recenterPage">Center</el-button>
-        <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">Annotate</el-button>
+        <el-button size="small" @click="fitZoom">适应宽度</el-button>
+        <el-button size="small" @click="resetView">回到首页</el-button>
+        <el-button v-if="panX!==0||panY!==0" size="small" type="warning" @click="recenterPage">页面居中</el-button>
+        <el-button size="small" :type="annMode?'primary':'default'" @click="annMode=!annMode;renderPage()">{{ annMode ? '结束手绘' : '手绘批注' }}</el-button>
         <el-button size="small" type="success" @click="refOpen=true">引用</el-button>
       </div>
       <div v-if="annMode" class="ann-toolbar">
         <el-button-group size="small">
           <el-button :type="annTool==='pen'?'primary':'default'" @click="annTool='pen'">画笔</el-button>
-          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">荧光笔</el-button>
+          <el-button :type="annTool==='highlighter'?'primary':'default'" @click="annTool='highlighter'">手绘荧光笔</el-button>
           <el-button :type="annTool==='rect'?'primary':'default'" @click="annTool='rect'">矩形</el-button>
           <el-button :type="annTool==='circle'?'primary':'default'" @click="annTool='circle'">圆形</el-button>
           <el-button :type="annTool==='line'?'primary':'default'" @click="annTool='line'">直线</el-button>
-          <el-button :type="annTool==='eraser'?'primary':'default'" title="点击要删除的图形">橡皮擦</el-button>
+          <el-button :type="annTool==='eraser'?'primary':'default'" title="点击要删除的图形" @click="annTool='eraser'">橡皮擦</el-button>
           <el-button :type="annTool==='sticky'?'primary':'default'" @click="annTool='sticky'">便签</el-button>
         </el-button-group>
         <el-color-picker v-model="annColor" size="small" style="margin-left:6px" />
         <el-slider v-model="annWidth" :min="1" :max="12" :step="0.5" style="width:80px;margin-left:6px" />
         <el-button size="small" @click="clearPageAnnotations">清除本页批注</el-button>
+        <span class="ann-hint">文本划线请先退出手绘批注模式，再直接拖选正文。</span>
       </div>
       <div class="canvas-wrap" ref="wrap"
         @pointerdown="onPointerDown"
@@ -131,7 +132,8 @@ const annMode = ref(false)
 const annTool = ref<'pen'|'highlighter'|'rect'|'circle'|'line'|'eraser'|'sticky'>('pen')
 const annColor = ref('#ffeb3b')
 const annWidth = ref(3)
-const selPopup = ref({ show: false, x: 0, y: 0, text: '', rectX: null as number|null, rectY: null as number|null, rectW: null as number|null, rectH: null as number|null })
+type HighlightRect = { x: number; y: number; w: number; h: number }
+const selPopup = ref({ show: false, x: 0, y: 0, text: '', rectX: null as number|null, rectY: null as number|null, rectW: null as number|null, rectH: null as number|null, rects: [] as HighlightRect[] })
 const aiMenuOpen = ref(false)
 const refOpen = ref(false)
 const dragHint = ref<string|null>(null)
@@ -196,6 +198,26 @@ function flattenOutline(items: any[], depth = 0): any[] {
   return out
 }
 
+function rectsForHighlight(highlight: any): HighlightRect[] {
+  try {
+    const rects = JSON.parse(highlight.rects_json || '[]')
+    if (Array.isArray(rects) && rects.length) return rects.filter((rect) => Number.isFinite(rect?.x) && Number.isFinite(rect?.y) && Number.isFinite(rect?.w) && Number.isFinite(rect?.h))
+  } catch { /* old or malformed records fall back to the legacy rectangle */ }
+  if (highlight.rect_x == null || highlight.rect_y == null || highlight.rect_w == null || highlight.rect_h == null) return []
+  return [{ x: Number(highlight.rect_x), y: Number(highlight.rect_y), w: Number(highlight.rect_w), h: Number(highlight.rect_h) }]
+}
+
+function selectionRects(selection: Selection | null): HighlightRect[] {
+  const container = pageHost.value?.querySelector('.page-container') as HTMLElement | null
+  if (!container || !selection?.rangeCount) return []
+  try {
+    const bounds = container.getBoundingClientRect()
+    return Array.from(selection.getRangeAt(0).getClientRects())
+      .filter((rect) => rect.width > 1 && rect.height > 1 && rect.right >= bounds.left && rect.left <= bounds.right && rect.bottom >= bounds.top && rect.top <= bounds.bottom)
+      .map((rect) => ({ x: (rect.left - bounds.left) / bounds.width, y: (rect.top - bounds.top) / bounds.height, w: rect.width / bounds.width, h: rect.height / bounds.height }))
+  } catch { return [] }
+}
+
 async function renderPage() {
   if (!pdfDoc || !pageHost.value) return
   loading.value = true
@@ -218,6 +240,18 @@ async function renderPage() {
   container.appendChild(canvas)
   const ctx = canvas.getContext('2d')!
   await p.render({ canvasContext: ctx, viewport: vp, transform: [dpr, 0, 0, dpr, 0, 0] } as any).promise
+
+  // Keep text highlights separate from hand-drawn ink. Multiply preserves dark
+  // glyphs instead of painting an opaque rectangle over them.
+  const textHighlightCanvas = document.createElement('canvas')
+  textHighlightCanvas.width = w; textHighlightCanvas.height = h
+  textHighlightCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:1;pointer-events:none;mix-blend-mode:multiply`
+  container.appendChild(textHighlightCanvas)
+  const textHighlightCtx = textHighlightCanvas.getContext('2d')!
+  for (const highlight of highlights.value.filter((item: any) => item.page === page.value)) {
+    textHighlightCtx.fillStyle = HL_COLORS[highlight.color] || HL_COLORS.yellow
+    for (const rect of rectsForHighlight(highlight)) textHighlightCtx.fillRect(rect.x * w, rect.y * h, rect.w * w, rect.h * h)
+  }
 
   // text layer (transparent, selectable)
   const textLayerDiv = document.createElement('div')
@@ -249,14 +283,6 @@ async function renderPage() {
     annCanvas.style.pointerEvents = 'none'
   }
   host.appendChild(container)
-
-  // text highlights
-  if (annCtx) {
-    for (const hl of highlights.value.filter((x: any) => x.page === page.value && x.rect_x != null)) {
-      annCtx.fillStyle = HL_COLORS[hl.color] || HL_COLORS.yellow
-      annCtx.fillRect(hl.rect_x * w, hl.rect_y * h, hl.rect_w * w, hl.rect_h * h)
-    }
-  }
 
   // annotations from DB
   const rows = await window.lk.annList(bookId.value!, page.value)
@@ -310,7 +336,7 @@ function renderAnnotations(rows: any[]) {
       annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'
       annCtx.beginPath(); for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i === 0 ? annCtx.moveTo(pt[0], pt[1]) : annCtx.lineTo(pt[0], pt[1]) }; annCtx.stroke()
     } else if (r.type === 'highlighter') {
-      annCtx.strokeStyle = d.color || '#ffeb3b'; annCtx.globalAlpha = 0.35; annCtx.lineWidth = (d.width || 8) * 2; annCtx.lineCap = 'round'
+      annCtx.strokeStyle = d.color || '#ffeb3b'; annCtx.globalAlpha = 0.22; annCtx.lineWidth = (d.width || 8) * 2; annCtx.lineCap = 'round'
       annCtx.beginPath(); for (let i = 0; i < (d.points?.length || 0); i++) { const pt = d.points[i]; i === 0 ? annCtx.moveTo(pt[0], pt[1]) : annCtx.lineTo(pt[0], pt[1]) }; annCtx.stroke(); annCtx.globalAlpha = 1
     } else if (r.type === 'rect') { annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.strokeRect(d.x, d.y, d.w, d.h) }
     else if (r.type === 'circle') { annCtx.strokeStyle = d.color || annColor.value; annCtx.lineWidth = d.width || annWidth.value; annCtx.beginPath(); annCtx.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI * 2); annCtx.stroke() }
@@ -440,7 +466,7 @@ function onAnnMouseMove(e: MouseEvent) {
   if (annTool.value === 'pen' || annTool.value === 'highlighter') {
     annPts.push([x, y]); annCtx.save()
     annCtx.strokeStyle = annTool.value === 'highlighter' ? '#ffeb3b' : annColor.value
-    annCtx.globalAlpha = annTool.value === 'highlighter' ? 0.35 : 1
+    annCtx.globalAlpha = annTool.value === 'highlighter' ? 0.22 : 1
     annCtx.lineWidth = annTool.value === 'highlighter' ? annWidth.value * 2 : annWidth.value
     annCtx.lineCap = 'round'; annCtx.lineJoin = 'round'; annCtx.beginPath()
     for (let i = 0; i < annPts.length; i++) { i === 0 ? annCtx.moveTo(annPts[i][0], annPts[i][1]) : annCtx.lineTo(annPts[i][0], annPts[i][1]) }
@@ -540,23 +566,16 @@ function showMenuA(e: MouseEvent) {
 function showMenuB(e: MouseEvent) {
   const text = window.getSelection()?.toString().trim() || ''
   selPopup.value.show = false
-  // capture rect for highlight
-  let rx: number|null = null, ry: number|null = null, rw: number|null = null, rh: number|null = null
-  const container = pageHost.value?.querySelector('.page-container') as HTMLElement
   const sel = window.getSelection()
-  if (container && sel && sel.rangeCount) {
-    try {
-      const rects = sel.getRangeAt(0).getClientRects()
-      if (rects.length) { const cr = container.getBoundingClientRect(); const r = rects[0]; rx = (r.left-cr.left)/cr.width; ry = (r.top-cr.top)/cr.height; rw = r.width/cr.width; rh = r.height/cr.height }
-    } catch {}
-  }
+  const rects = selectionRects(sel)
+  const first = rects[0]
   menu.open(e, [
     { label: '复制', icon: 'CopyDocument' as any, action: () => { navigator.clipboard.writeText(text); ElMessage.success('已复制') } },
     { label: '添加划线', icon: 'EditPen' as any, children: [
-      { label: '黄色', icon: 'Sunny' as any, action: () => saveSelText(text, rx, ry, rw, rh) },
-      { label: '绿色', icon: 'Sunny' as any, action: () => { hlColor.value='green'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-      { label: '蓝色', icon: 'Sunny' as any, action: () => { hlColor.value='blue'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
-      { label: '粉色', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, rx, ry, rw, rh); hlColor.value='yellow' } },
+      { label: '黄色', icon: 'Sunny' as any, action: () => saveSelText(text, first?.x, first?.y, first?.w, first?.h, rects) },
+      { label: '绿色', icon: 'Sunny' as any, action: () => { hlColor.value='green'; saveSelText(text, first?.x, first?.y, first?.w, first?.h, rects); hlColor.value='yellow' } },
+      { label: '蓝色', icon: 'Sunny' as any, action: () => { hlColor.value='blue'; saveSelText(text, first?.x, first?.y, first?.w, first?.h, rects); hlColor.value='yellow' } },
+      { label: '粉色', icon: 'Sunny' as any, action: () => { hlColor.value='pink'; saveSelText(text, first?.x, first?.y, first?.w, first?.h, rects); hlColor.value='yellow' } },
     ]},
     { label: '询问 AI', icon: 'ChatDotRound' as any, action: () => emit('ask-ai', { quote: text, question: '请分析这段内容。', bookId: bookId.value!, page: page.value }) },
     { label: '生成闪卡', icon: 'Plus' as any, action: () => makeCardFromSelection(text) },
@@ -639,25 +658,10 @@ function onSelectionEnd(e: MouseEvent) {
     checkHighlightClick(e)
     return
   }
-  // capture selection rect relative to page container
-  let rectX: number|null = null, rectY: number|null = null, rectW: number|null = null, rectH: number|null = null
-  const container = pageHost.value?.querySelector('.page-container') as HTMLElement
-  if (container && sel.rangeCount) {
-    try {
-      const range = sel.getRangeAt(0)
-      const rects = range.getClientRects()
-      if (rects.length) {
-        const cr = container.getBoundingClientRect()
-        const r = rects[0]
-        rectX = (r.left - cr.left) / cr.width
-        rectY = (r.top - cr.top) / cr.height
-        rectW = r.width / cr.width
-        rectH = r.height / cr.height
-      }
-    } catch { /* ignore */ }
-  }
+  const rects = selectionRects(sel)
+  const first = rects[0]
   const wr = wrap.value!.getBoundingClientRect()
-  selPopup.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 260), y: Math.max(40, e.clientY - wr.top - 50), text, rectX, rectY, rectW, rectH }
+  selPopup.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 260), y: Math.max(40, e.clientY - wr.top - 50), text, rectX: first?.x ?? null, rectY: first?.y ?? null, rectW: first?.w ?? null, rectH: first?.h ?? null, rects }
   aiMenuOpen.value = false
 }
 
@@ -667,7 +671,7 @@ function checkHighlightClick(e: MouseEvent) {
   const cr = container.getBoundingClientRect()
   const nx = (e.clientX - cr.left) / cr.width
   const ny = (e.clientY - cr.top) / cr.height
-  const hit = highlights.value.find((h: any) => h.page === page.value && h.rect_x != null && nx >= h.rect_x && nx <= h.rect_x + h.rect_w && ny >= h.rect_y && ny <= h.rect_y + h.rect_h)
+  const hit = highlights.value.find((h: any) => h.page === page.value && rectsForHighlight(h).some((rect) => nx >= rect.x && nx <= rect.x + rect.w && ny >= rect.y && ny <= rect.y + rect.h))
   if (hit) {
     const wr = wrap.value!.getBoundingClientRect()
     hlActionBar.value = { show: true, x: Math.min(e.clientX - wr.left, wr.width - 240), y: Math.max(10, e.clientY - wr.top - 40), id: hit.id, text: hit.text, color: hit.color || 'yellow' }
@@ -677,11 +681,11 @@ function copySelection() { navigator.clipboard.writeText(selPopup.value.text); E
 function askSel(q: string) { emit('ask-ai', { quote: selPopup.value.text, question: q, bookId: bookId.value!, page: page.value }); selPopup.value.show = false; aiMenuOpen.value = false }
 async function saveSel() {
   const sp = selPopup.value
-  await saveSelText(sp.text, sp.rectX, sp.rectY, sp.rectW, sp.rectH)
+  await saveSelText(sp.text, sp.rectX, sp.rectY, sp.rectW, sp.rectH, sp.rects)
   selPopup.value.show = false
 }
-async function saveSelText(text: string, rx?: number|null, ry?: number|null, rw?: number|null, rh?: number|null) {
-  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text, color: hlColor.value, rectX: rx ?? null, rectY: ry ?? null, rectW: rw ?? null, rectH: rh ?? null })
+async function saveSelText(text: string, rx?: number|null, ry?: number|null, rw?: number|null, rh?: number|null, rects: HighlightRect[] = []) {
+  await window.lk.highlightAdd({ bookId: bookId.value, page: page.value, text, color: hlColor.value, rectX: rx ?? null, rectY: ry ?? null, rectW: rw ?? null, rectH: rh ?? null, rectsJson: rects.length ? JSON.stringify(rects) : null })
   highlights.value = await window.lk.highlightList(bookId.value!); ElMessage.success('Highlighted'); renderPage()
 }
 function askHl(h: any) { emit('ask-ai', { quote: h.text, bookId: bookId.value!, page: h.page }) }
@@ -794,7 +798,7 @@ onUnmounted(() => {
 .spacer { flex:1; }
 .pg-ind { font-size:12px; color:var(--text-dim); min-width:50px; text-align:center; }
 .zoom-lbl { font-size:11px; color:var(--text-dim); min-width:36px; }
-.ann-toolbar { display:flex; align-items:center; gap:4px; padding:4px 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); flex-wrap:wrap; font-size:12px; }
+.ann-toolbar { display:flex; align-items:center; gap:4px; padding:4px 12px; background:var(--bg-soft); border-bottom:1px solid var(--border); flex-wrap:wrap; font-size:12px; }.ann-hint { color:var(--text-dim); font-size:11px; }
 .canvas-wrap { flex:1; overflow-y:auto; overflow-x:hidden; padding:10px 0; background:#3b3b3b; position:relative; display:flex; justify-content:center; }
 .canvas-wrap::-webkit-scrollbar { width:8px; }
 .canvas-wrap::-webkit-scrollbar-thumb { background:var(--accent); border-radius:5px; }

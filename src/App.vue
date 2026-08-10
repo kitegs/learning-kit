@@ -129,8 +129,14 @@ function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; no
 // watch tab activation -> switch mode + data
 watch(() => tabStore.activeTab, (tab) => {
   if (!tab) return
+  // A library tab is always the library home, not the last reader that was open.
+  if (tab.type === 'library') openBookId.value = null
   const m = tab.type === 'ebook' ? 'library' : tab.type === 'note' ? 'notes' : tab.type === 'mindmap' ? 'mindmap' : tab.type === 'review' ? 'review' : tab.type === 'library' ? 'library' : 'chat'
   switchMode(m as Mode, { bookId: tab.data.bookId, noteId: tab.data.noteId })
+})
+watch(() => tabStore.tabs.map((tab) => `${tab.type}:${tab.data.bookId ?? ''}`).join('|'), () => {
+  const id = openBookId.value
+  if (id && !tabStore.tabs.some((tab) => tab.type === 'ebook' && tab.data.bookId === id)) openBookId.value = null
 })
 
 const jumpToNoteId = ref<string | null>(null)
@@ -199,7 +205,12 @@ watch(openBookId, async (id) => {
   bookKind.value = b?.kind || 'pdf'
 })
 
-function onModeSwitch(m: Mode) { log('mode_switch', m); switchMode(m) }
+function openLibraryHome() {
+  openBookId.value = null
+  switchMode('library')
+  tabStore.openTab({ type: 'library', title: '图书馆', data: {} })
+}
+function onModeSwitch(m: Mode) { log('mode_switch', m); if (m === 'library') openLibraryHome(); else switchMode(m) }
 function startResize(e: MouseEvent) {
   const startX = e.clientX; const startW = sideWidth.value
   const move = (ev: MouseEvent) => { sideWidth.value = Math.max(220, Math.min(560, startW + (ev.clientX - startX))) }
@@ -227,7 +238,7 @@ function applyTitle() {
   if (c) c.title = titleDraft.value
 }
 function onSettingsSaved() {}
-function onReaderBack() { openBookId.value = null }
+function onReaderBack() { log('reader_back'); openLibraryHome() }
 function goBackToBook() { log('go_back_book'); switchMode('library') }
 function onSearchJump(target: { kind: string; id?: string; conversationId?: string; bookId?: string; deckId?: string; page?: number; href?: string }) {
   log('search_jump', target.kind + (target.id ? ' ' + target.id.slice(0,8) : ''))

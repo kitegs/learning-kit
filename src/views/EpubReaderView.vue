@@ -22,7 +22,7 @@
           <el-divider content-position="left">划线 ({{ highlights.length }})</el-divider>
           <div v-for="h in highlights" :key="h.id" class="hl" @click="goHighlight(h)">
             <div class="hl-text">{{ h.text }}</div>
-            <div class="hl-meta">第 {{ h.page }} 页</div>
+            <div class="hl-meta">{{ h.page ? `第 ${h.page} 页` : '已定位到正文' }}</div>
             <div class="hl-actions">
               <el-button text size="small" @click.stop="askHl(h)">问AI</el-button>
               <el-button text size="small" @click.stop="delHl(h.id)">删</el-button>
@@ -102,6 +102,7 @@ const locText = ref('')
 const epubZoom = ref(100)
 const flowLayout = ref<'paginated' | 'scrolled-doc'>('paginated')
 const readerTheme = ref<'paper' | 'sepia' | 'night'>(settings.readerTheme)
+const EPUB_HL_COLORS: Record<string, string> = { yellow: '#f6d54a', green: '#9bd68a', blue: '#9bc4ef', pink: '#efa9c2' }
 
 function flattenToc(items: any[], depth = 0): any[] {
   const out: any[] = []
@@ -139,8 +140,9 @@ async function load() {
     bindRenditionEvents()
     const pageTarget = props.jumpPage || book.value?.last_page
     const savedSection = pageTarget ? (epubBook!.spine as any).get(pageTarget - 1)?.href : undefined
-    rendition.display(savedSection)
+    await rendition.display(savedSection)
     applyReaderTheme()
+    applyEpubHighlights()
   }
 }
 
@@ -197,6 +199,7 @@ async function saveSel() {
     href: selPopup.value.href || currentCfi.value || null
   })
   highlights.value = await window.lk.highlightList(bookId.value!)
+  applyEpubHighlights()
   selPopup.value.show = false
   ElMessage.success('已加入划线')
 }
@@ -221,6 +224,10 @@ function askHl(h: any) {
   emit('ask-ai', { quote: h.text, bookId: bookId.value!, page: 0 })
 }
 async function delHl(id: string) {
+  const highlight = highlights.value.find((item: any) => item.id === id)
+  if (highlight?.href && rendition) {
+    try { rendition.annotations.remove(highlight.href, 'highlight') } catch { /* annotation may not be mounted in this chapter */ }
+  }
   await window.lk.highlightDelete(id)
   highlights.value = await window.lk.highlightList(bookId.value!)
 }
@@ -262,8 +269,23 @@ function toggleFlow() {
     flow: flowLayout.value
   } as any)
   bindRenditionEvents()
-  rendition.display(currentCfi.value || undefined)
+  rendition.display(currentCfi.value || undefined).then(() => applyEpubHighlights())
   applyReaderTheme()
+}
+
+function applyEpubHighlights() {
+  if (!rendition) return
+  for (const highlight of highlights.value) {
+    if (!highlight.href) continue
+    try {
+      rendition.annotations.remove(highlight.href, 'highlight')
+      rendition.annotations.highlight(highlight.href, { highlightId: highlight.id }, () => {}, 'lk-ebook-highlight', {
+        fill: EPUB_HL_COLORS[highlight.color] || EPUB_HL_COLORS.yellow,
+        'fill-opacity': '0.30',
+        'mix-blend-mode': 'multiply'
+      })
+    } catch { /* invalid historical CFI stays available from the sidebar */ }
+  }
 }
 
 function onEpubZoomChange() {
