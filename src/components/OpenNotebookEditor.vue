@@ -141,7 +141,7 @@ function onText(side: 'left' | 'right', event: Event) {
   const page = pages.value[spread.value]
   page[side] = (event.currentTarget as HTMLElement).innerHTML
   syncOut()
-  nextTick(() => paginateOverflow(spread.value, side))
+  nextTick(() => reflowFrom(spread.value, side))
 }
 
 function escapeHtml(value: string) {
@@ -238,24 +238,16 @@ function nextSlot(index: number, side: 'left' | 'right') {
   if (side === 'left') return { index, side: 'right' as const }
   return { index: index + 1, side: 'left' as const }
 }
-function focusEnd(index: number, side: 'left' | 'right') {
-  if (spread.value !== index) return
-  const el = side === 'left' ? leftText.value : rightText.value
-  if (!el) return
-  el.focus()
-  const range = document.createRange(); range.selectNodeContents(el); range.collapse(false)
-  const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range)
-}
 function makePaginationProbe(side: 'left' | 'right') {
   const source = side === 'left' ? leftText.value : rightText.value
   if (!source) return null
   const probe = source.cloneNode(false) as HTMLElement
-  const rect = source.getBoundingClientRect()
   const computed = window.getComputedStyle(source)
   probe.contentEditable = 'false'
   // The clone is mounted outside `.paper`, so copy inherited values that affect line and table height.
   probe.style.setProperty('--notebook-line-height', computed.getPropertyValue('--notebook-line-height'))
-  probe.style.cssText += `;position:fixed;visibility:hidden;pointer-events:none;left:-10000px;top:0;width:${rect.width}px;height:${rect.height}px;min-height:0;overflow:hidden;font-family:${computed.fontFamily};font-size:${computed.fontSize};line-height:${computed.lineHeight};padding:${computed.padding};box-sizing:${computed.boxSizing};`
+  // client dimensions are layout dimensions. getBoundingClientRect would include the visual Ctrl+wheel scale.
+  probe.style.cssText += `;position:fixed;visibility:hidden;pointer-events:none;left:-10000px;top:0;width:${source.clientWidth}px;height:${source.clientHeight}px;min-height:0;overflow:hidden;font-family:${computed.fontFamily};font-size:${computed.fontSize};line-height:${computed.lineHeight};padding:${computed.padding};box-sizing:${computed.boxSizing};`
   document.body.appendChild(probe)
   return probe
 }
@@ -299,7 +291,7 @@ function paginateOverflow(startIndex: number, startSide: 'left' | 'right') {
   let side = startSide
   let moved = false
   const probe = makePaginationProbe(startSide)
-  if (!probe) return
+  if (!probe) return false
   for (let guard = 0; guard < 400; guard += 1) {
     const sheet = pages.value[index]
     if (!sheet) break
@@ -312,15 +304,76 @@ function paginateOverflow(startIndex: number, startSide: 'left' | 'right') {
     index = next.index; side = next.side; moved = true
   }
   probe.remove()
-  if (!moved) return
+  return moved
+}
+function serialiseNode(node: Node) {
+  const holder = document.createElement('div')
+  holder.appendChild(node.cloneNode(true))
+  return holder.innerHTML
+}
+function takeFirstBlock(html: string): [string, string] {
+  const holder = document.createElement('div')
+  holder.innerHTML = html
+  const node = Array.from(holder.childNodes).find((item) => item.nodeType !== Node.TEXT_NODE || Boolean(item.textContent?.trim()))
+  if (!node) return ['', html]
+  const first = serialiseNode(node)
+  node.remove()
+  return [first, holder.innerHTML]
+}
+function findFollowingContent(index: number, side: 'left' | 'right') {
+  let cursor = nextSlot(index, side)
+  for (let guard = 0; guard < 400; guard += 1) {
+    const sheet = pages.value[cursor.index]
+    if (!sheet) return null
+    if (sheet[cursor.side].trim()) return cursor
+    cursor = nextSlot(cursor.index, cursor.side)
+  }
+  return null
+}
+function refillAvailableSpace(startIndex: number, startSide: 'left' | 'right') {
+  const probe = makePaginationProbe(startSide)
+  if (!probe) return false
+  let index = startIndex
+  let side = startSide
+  let moved = false
+  for (let guard = 0; guard < 400; guard += 1) {
+    const current = pages.value[index]
+    if (!current) break
+    for (let fillGuard = 0; fillGuard < 400; fillGuard += 1) {
+      const following = findFollowingContent(index, side)
+      if (!following) break
+      const source = pages.value[following.index]
+      const [block, remainder] = takeFirstBlock(source[following.side])
+      if (!block) break
+      probe.innerHTML = current[side] + block
+      if (hasVisualOverflow(probe)) break
+      current[side] += block
+      source[following.side] = remainder
+      moved = true
+    }
+    const next = nextSlot(index, side)
+    if (!pages.value[next.index]) break
+    index = next.index
+    side = next.side
+  }
+  probe.remove()
+  return moved
+}
+function reflowFrom(startIndex: number, startSide: 'left' | 'right') {
+  const flowedForward = paginateOverflow(startIndex, startSide)
+  const flowedBackward = refillAvailableSpace(startIndex, startSide)
+  if (!flowedForward && !flowedBackward) return
   syncOut()
-  if (spread.value === startIndex) nextTick(() => { syncPage(); focusEnd(index, side) })
+  nextTick(syncPage)
 }
 function paginateAll() {
+  let changed = false
   for (let index = 0; index < pages.value.length; index += 1) {
-    paginateOverflow(index, 'left')
-    paginateOverflow(index, 'right')
+    changed = paginateOverflow(index, 'left') || changed
+    changed = paginateOverflow(index, 'right') || changed
   }
+  changed = refillAvailableSpace(0, 'left') || changed
+  if (changed) syncOut()
   nextTick(syncPage)
 }
 function onLayoutChange() {
