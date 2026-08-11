@@ -21,3 +21,4 @@
 | 2026-08-08 | DEV-20260808-02-outline-chat-and-compact-notebook.md | 对话层级与紧凑笔记工具栏 | implemented |
 | 2026-08-09 | DEV-20260809-01-local-chat-test-mode.md | 本地对话测试模式 | implemented |
 | 2026-08-11 | DEV-20260811-01-ebook-navigation-and-highlights.md | 电子书返回与文本标记修复 | implemented |
+| 2026-08-11 | DEV-20260811-02-notebook-flow-and-ink-controls.md | 笔记排版流与画笔控制 | implemented |
