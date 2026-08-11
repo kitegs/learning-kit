@@ -251,8 +251,11 @@ function makePaginationProbe(side: 'left' | 'right') {
   if (!source) return null
   const probe = source.cloneNode(false) as HTMLElement
   const rect = source.getBoundingClientRect()
+  const computed = window.getComputedStyle(source)
   probe.contentEditable = 'false'
-  probe.style.cssText += `;position:fixed;visibility:hidden;pointer-events:none;left:-10000px;top:0;width:${rect.width}px;height:${rect.height}px;min-height:0;overflow:hidden;`
+  // The clone is mounted outside `.paper`, so copy inherited values that affect line and table height.
+  probe.style.setProperty('--notebook-line-height', computed.getPropertyValue('--notebook-line-height'))
+  probe.style.cssText += `;position:fixed;visibility:hidden;pointer-events:none;left:-10000px;top:0;width:${rect.width}px;height:${rect.height}px;min-height:0;overflow:hidden;font-family:${computed.fontFamily};font-size:${computed.fontSize};line-height:${computed.lineHeight};padding:${computed.padding};box-sizing:${computed.boxSizing};`
   document.body.appendChild(probe)
   return probe
 }
@@ -540,7 +543,7 @@ watch(() => props.modelValue, (value) => {
   spread.value = 0
   lastSerialized = value?.startsWith(MARKER) ? value : serialize()
   undoHistory.value = []; redoHistory.value = []
-  nextTick(syncPage)
+  nextTick(() => { syncPage(); paginateAll() })
 }, { immediate: true })
 </script>
 

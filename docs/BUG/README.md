@@ -8,3 +8,4 @@
 | 2026-07-21 | BUG-20260721-02-sqljs-statement-closed.md | sql.js 重复使用 prepared statement 报 Statement closed | fixed |
 | 2026-07-21 | BUG-20260721-01-better-sqlite3-native-build.md | better-sqlite3 native build 在 Windows 全部失败 | wontfix |
 | 2026-08-03 | BUG-20260803-01-reader-route-and-theme-contrast.md | 电子书返回丢失与护眼主题文字对比不足 | fixed |
+| 2026-08-11 | BUG-20260811-01-notebook-pagination-probe.md | 纸质笔记表格被裁切 | fixed |
