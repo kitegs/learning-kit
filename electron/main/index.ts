@@ -11,6 +11,11 @@ import { registerPrdV3Ipcs } from './prd-v3'
 import { startDrawioServer, stopDrawioServer } from './drawio-server'
 import { registerSafetyIpcs } from './safety'
 
+// UI tests run the real app against an isolated disposable profile. Production
+// launches never set this variable and continue to use Electron's normal path.
+const isolatedUserData = process.env['LK_E2E_USER_DATA_DIR']
+if (isolatedUserData) app.setPath('userData', isolatedUserData)
+
 // register privileged scheme before any app ready (CSP + fetch support)
 protocol.registerSchemesAsPrivileged([
   { scheme: 'book', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }

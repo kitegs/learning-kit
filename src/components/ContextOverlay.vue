@@ -8,6 +8,8 @@
             v-else
             class="item"
             :class="{ danger: item.danger, disabled: item.disabled, 'has-sub': !!item.children?.length }"
+            data-testid="context-menu-item"
+            :data-label="item.label"
             @click="!item.disabled && !item.children?.length && menu.trigger(item)"
             @mouseenter="openSub(i, $event)"
             @mouseleave="scheduleCloseSub"
@@ -23,7 +25,7 @@
       <ul v-if="subVisible && subItems.length" class="cx-menu cx-sub" :style="{ left: subX + 'px', top: subY + 'px' }" @click.stop @mouseenter="cancelCloseSub" @mouseleave="scheduleCloseSub">
         <template v-for="(item, i) in subItems" :key="i">
           <li v-if="item.separator" class="sep"></li>
-          <li v-else class="item" :class="{ danger: item.danger, disabled: item.disabled }" @click="!item.disabled && triggerSub(item)">
+          <li v-else class="item" :class="{ danger: item.danger, disabled: item.disabled }" data-testid="context-submenu-item" :data-label="item.label" @click="!item.disabled && triggerSub(item)">
             <el-icon v-if="item.icon"><component :is="ElIcons[item.icon]" /></el-icon>
             <span class="lbl">{{ item.label }}</span>
             <span class="shortcut" v-if="item.shortcut">{{ item.shortcut }}</span>

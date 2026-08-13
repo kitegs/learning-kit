@@ -22,13 +22,13 @@
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 1 }}</div>
-        <div ref="leftText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @click="onPaperClick" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="leftText" class="paper-text" data-testid="notebook-page-left" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @click="onPaperClick" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="leftCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       <div class="spine"></div>
       <article class="paper right-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 2 }}</div>
-        <div ref="rightText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @click="onPaperClick" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="rightText" class="paper-text" data-testid="notebook-page-right" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @click="onPaperClick" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="rightCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       </div>
@@ -151,6 +151,7 @@ function turn(direction: number) {
   nextTick(syncPage)
 }
 function onText(side: 'left' | 'right', event: Event) {
+  while (pages.value.length <= spread.value) pages.value.push(blank())
   const page = pages.value[spread.value]
   page[side] = (event.currentTarget as HTMLElement).innerHTML
   syncOut()
@@ -660,14 +661,20 @@ function goToSpread(target: number) {
 }
 function revealAnchor(target: number, anchorId: string) {
   goToSpread(target)
-  nextTick(() => {
+  let attempts = 0
+  const revealWhenReady = () => {
     const element = document.getElementById(anchorId)
-    if (!element) return
+    if (!element) {
+      attempts += 1
+      if (attempts < 20) window.requestAnimationFrame(revealWhenReady)
+      return
+    }
     activeSide.value = rightText.value?.contains(element) ? 'right' : 'left'
     element.scrollIntoView({ block: 'center', inline: 'center' })
     element.classList.add('revealed')
     window.setTimeout(() => element.classList.remove('revealed'), 1800)
-  })
+  }
+  nextTick(() => window.requestAnimationFrame(revealWhenReady))
 }
 defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, wrapSelectionWithLink, revealAnchor })
 

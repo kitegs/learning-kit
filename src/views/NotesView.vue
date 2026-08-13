@@ -3,7 +3,7 @@
     <aside class="side" :style="{ width: sideW + 'px' }">
       <div class="head">
         <el-button size="small" type="primary" plain @click="newFolder">+目录</el-button>
-        <el-button size="small" @click="newNote()">+笔记</el-button>
+        <el-button size="small" data-testid="new-note" @click="newNote()">+笔记</el-button>
         <el-button size="small" text @click="expandAll">展开</el-button>
         <el-button size="small" text @click="collapseAll">折叠</el-button>
       </div>
@@ -23,7 +23,7 @@
           @node-drop="onDrop"
         >
           <template #default="{ data }">
-            <span :class="{ active: currentId === data.id, 'is-folder': data.kind === 'folder' }">
+            <span :class="{ active: currentId === data.id, 'is-folder': data.kind === 'folder' }" :data-testid="`note-tree-item-${data.id}`" :data-note-title="data.title">
               <span v-if="data.kind === 'folder'" style="margin-right:4px">📁</span>
               <span v-else style="margin-right:4px">{{ data.kind === 'sticky' ? '📌' : '📄' }}</span>
               {{ data.title }}
@@ -37,7 +37,7 @@
       <div v-if="!current" class="empty"><p>选择或新建一份笔记。</p></div>
       <div v-else class="editor-wrap">
         <div class="toolbar word-toolbar">
-          <el-input v-model="current.title" placeholder="标题" class="title-in" @change="markDirty" size="small" />
+          <el-input v-model="current.title" placeholder="标题" class="title-in" data-testid="note-title" @change="markDirty" size="small" />
           <el-input v-model="tagStr" placeholder="#tags" class="tag-in" @change="updateTags" size="small" />
           <el-button size="small" @click="undoNote">撤销</el-button>
           <el-button size="small" @click="redoNote">重做</el-button>
@@ -506,9 +506,13 @@ async function createNotebookLocationLink(payload: { spread: number; anchorId: s
     anchorKey: `notebook-anchor:${current.value.id}:${payload.anchorId}`
   })
   const href = `app://block/${blockId}`
-  await navigator.clipboard.writeText(href)
   localStorage.setItem('lk_last_note_location', JSON.stringify({ href, label: payload.quote || current.value.title }))
-  ElMessage.success('当前位置链接已复制；在目录文字上右键即可链接')
+  try {
+    await navigator.clipboard.writeText(href)
+    ElMessage.success('当前位置链接已复制；在目录文字上右键即可链接')
+  } catch {
+    ElMessage.success('当前位置已保存；在目录文字上右键即可链接')
+  }
 }
 async function chooseNoteLocation(): Promise<{ href: string; label: string } | null> {
   const blocks = (await window.lk.blockList()).filter((block: any) => block.source_type === 'note' && block.block_type === 'note_anchor')
@@ -803,9 +807,6 @@ onMounted(async () => {
   if (saved) defaultExpand.value = JSON.parse(saved)
 })
 
-watch(() => props.jumpNoteId, (id) => {
-  if (id && id !== currentId.value) open(id)
-})
 async function revealBlock(id: string) {
   const block = await window.lk.blockGet(id)
   if (!block || block.source_type !== 'note' || block.source_id !== currentId.value) return
@@ -835,7 +836,13 @@ async function revealBlock(id: string) {
     ElMessage.info(block.stale ? '已定位原选区；内容可能已变更，请核对。' : '已定位到引用选区')
   }
 }
-watch(() => props.jumpBlockId, (id) => { if (id) nextTick(() => revealBlock(id)) }, { immediate: true })
+watch([() => props.jumpNoteId, () => props.jumpBlockId], async ([noteId, blockId]) => {
+  if (noteId && noteId !== currentId.value) await open(noteId)
+  if (blockId) {
+    await nextTick()
+    await revealBlock(blockId)
+  }
+})
 watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.value = Math.max(0, pages.length - 1) })
 onBeforeUnmount(async () => {
   unmounted = true

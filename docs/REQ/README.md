@@ -22,3 +22,4 @@
 | 2026-08-11 | REQ-20260811-01-ebook-navigation-and-highlights.md | 电子书返回与文本标记修复 | implemented |
 | 2026-08-11 | REQ-20260811-02-notebook-flow-and-ink-controls.md | 笔记排版流与画笔控制 | implemented |
 | 2026-08-13 | REQ-20260813-01-note-safety-links-and-management.md | 笔记安全、位置链接与管理效率 | in progress |
+| 2026-08-13 | REQ-20260813-02-notebook-anchor-ui-test.md | 笔记锚点跨笔记持久化 UI 测试 | done |

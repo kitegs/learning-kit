@@ -10,3 +10,4 @@
 | 2026-08-03 | BUG-20260803-01-reader-route-and-theme-contrast.md | 电子书返回丢失与护眼主题文字对比不足 | fixed |
 | 2026-08-11 | BUG-20260811-01-notebook-pagination-probe.md | 纸质笔记表格被裁切 | fixed |
 | 2026-08-13 | BUG-20260813-01-note-id-and-empty-page-overwrite.md | 新建笔记报错与空页覆盖 | fixed |
+| 2026-08-13 | BUG-20260813-02-anchor-navigation-runtime-races.md | 锚点创建与跨笔记定位运行时竞态 | fixed |

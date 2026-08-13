@@ -132,7 +132,7 @@ watch(() => tabStore.activeTab, (tab) => {
   // A library tab is always the library home, not the last reader that was open.
   if (tab.type === 'library') openBookId.value = null
   const m = tab.type === 'ebook' ? 'library' : tab.type === 'note' ? 'notes' : tab.type === 'mindmap' ? 'mindmap' : tab.type === 'review' ? 'review' : tab.type === 'library' ? 'library' : 'chat'
-  switchMode(m as Mode, { bookId: tab.data.bookId, noteId: tab.data.noteId })
+  switchMode(m as Mode, { bookId: tab.data.bookId, noteId: tab.data.noteId, blockId: tab.data.blockId })
 })
 watch(() => tabStore.tabs.map((tab) => `${tab.type}:${tab.data.bookId ?? ''}`).join('|'), () => {
   const id = openBookId.value
@@ -622,15 +622,17 @@ async function onAiAction(e: Event) {
 
 async function onNav(e: Event) {
   const { href } = (e as CustomEvent).detail as { href: string }
-  const u = new URL(href)
-  const kind = u.hostname
-  const id = u.pathname.replace(/^\//, '')
+  const appLink = href.match(/^app:\/{1,2}([^/?#]+)\/([^?#]+)(?:\?([^#]*))?$/)
+  const u = appLink ? null : new URL(href)
+  const kind = appLink?.[1] || u?.hostname || ''
+  const id = decodeURIComponent(appLink?.[2] || u?.pathname.replace(/^\//, '') || '')
+  const params = new URLSearchParams(appLink?.[3] || u?.search || '')
   if (!id) return
   log('nav', kind + ' ' + id.slice(0, 8))
   if (kind === 'note') { switchMode('notes', { noteId: id }) }
   else if (kind === 'book') {
-    const page = Number(u.searchParams.get('page'))
-    const cfi = u.searchParams.get('cfi')
+    const page = Number(params.get('page'))
+    const cfi = params.get('cfi')
     switchMode('library', { bookId: id, bookHref: cfi || undefined, highlight: Number.isFinite(page) && page > 0 ? { bookId: id, page } : undefined })
     window.lk.bookUpdate(id, {}).catch(() => {})
   }
@@ -641,7 +643,7 @@ async function onNav(e: Event) {
     if (!block) return
     if (block.source_type === 'note') {
       switchMode('notes', { noteId: block.source_id, blockId: id })
-      tabStore.openTab({ type: 'note', title: '内容块', data: { noteId: block.source_id } })
+      tabStore.openTab({ type: 'note', title: '内容块', data: { noteId: block.source_id, blockId: id } })
       return
     }
     else if (block.source_type === 'highlight') {

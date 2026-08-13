@@ -3,7 +3,7 @@
     <!-- left dock bar -->
     <nav class="dock-left">
       <div class="dock-group">
-        <button v-for="m in modes" :key="m.key" class="dock-btn" :class="{active: mode===m.key}" @click="$emit('switch', m.key)" :title="m.label">
+        <button v-for="m in modes" :key="m.key" class="dock-btn" :class="{active: mode===m.key}" @click="$emit('switch', m.key)" :title="m.label" :data-testid="`dock-mode-${m.key}`">
           <el-icon><component :is="m.icon" /></el-icon>
         </button>
       </div>

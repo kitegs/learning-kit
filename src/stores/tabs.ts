@@ -10,6 +10,7 @@ export interface Tab {
   data: {
     convId?: string
     noteId?: string
+    blockId?: string
     bookId?: string
     mindmapId?: string
   }

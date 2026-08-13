@@ -23,3 +23,4 @@
 | 2026-08-11 | DEV-20260811-01-ebook-navigation-and-highlights.md | 电子书返回与文本标记修复 | implemented |
 | 2026-08-11 | DEV-20260811-02-notebook-flow-and-ink-controls.md | 笔记排版流与画笔控制 | implemented |
 | 2026-08-13 | DEV-20260813-01-note-safety-links-and-management.md | 笔记安全、位置链接与管理效率 | in progress |
+| 2026-08-13 | DEV-20260813-02-electron-cdp-ui-tests.md | Electron CDP 笔记锚点 UI 测试方案 | done |
