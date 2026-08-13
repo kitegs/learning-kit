@@ -73,7 +73,7 @@
           </div>
           <div class="preview markdown-body" v-html="html" @click="onPreviewClick"></div>
         </div>
-        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" />
+        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" @create-location-link="createNotebookLocationLink" @link-selection="linkNotebookSelection" />
         <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
         <NotebookAiPanel v-model="notebookAi.open" :context="notebookAi.context" :context-label="notebookAi.label" :suggested-prompt="notebookAi.action" @insert="insertAiAnswer" @append="appendAiAnswer" />
         <el-dialog v-model="backlinksOpen" title="本笔记的关联与回链" width="520px">
@@ -151,11 +151,14 @@ const attributesOpen = ref(false)
 const attributeRows = ref<Array<{ key: string; value: string }>>([])
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
-const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void } | null>(null)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void; wrapSelectionWithLink: (href: string, label: string) => void; revealAnchor: (spread: number, anchorId: string) => void } | null>(null)
 const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+let editRevision = 0
+let saveChain: Promise<void> = Promise.resolve()
+let unmounted = false
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
   { label: '# H1', hint: 'Heading 1', md: { pre: '# ', post: '' }, tags: ['h1','heading','title','biaoti'] },
@@ -227,6 +230,26 @@ async function open(id: string) {
     if (dirty.value) await saveCurrent()
     const n = await window.lk.notesGet(id)
     if (n) {
+      if (isInvalidNotebookBody(String(n.body || ''))) {
+        const history = await window.lk.noteVersions(id)
+        let restored = false
+        for (const row of history) {
+          const version = await window.lk.noteVersionGet(row.id)
+          if (version?.body && !isInvalidNotebookBody(String(version.body))) {
+            n.body = version.body
+            await window.lk.notesPatch(id, { body: version.body })
+            ElMessage.warning('检测到空页数据，已从最近的有效历史版本恢复')
+            restored = true
+            break
+          }
+        }
+        if (!restored) {
+          n.body = ''
+          await window.lk.notesPatch(id, { body: '' })
+          ElMessage.warning('检测到无效空页数据；没有可恢复历史，已打开安全空白页')
+        }
+      }
+      editRevision += 1
       current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); await loadBacklinks()
       undoStack.value = []; redoStack.value = []
       if (props.jumpBlockId) nextTick(() => revealBlock(props.jumpBlockId!))
@@ -255,20 +278,37 @@ async function newFolder() {
   await loadTree()
 }
 function markDirty() {
+  editRevision += 1
   dirty.value = true
   if (autosaveTimer) clearTimeout(autosaveTimer)
-  autosaveTimer = setTimeout(() => { if (dirty.value) saveCurrentSilently() }, settings.noteAutosaveMs)
+  autosaveTimer = setTimeout(() => { if (dirty.value && !unmounted) void saveCurrentSilently() }, settings.noteAutosaveMs)
 }
 function saveCurrent() { return persistCurrent(false) }
 function saveCurrentSilently() { return persistCurrent(true) }
-async function persistCurrent(silent: boolean) {
-  if (!current.value) return
+function isInvalidNotebookBody(body: string) {
+  if (!body.includes('lk:notebook:v1') && !body.trim().startsWith('{')) return false
   try {
-    // sync textarea value explicitly in case v-model lag
-    if (ta.value) current.value.body = ta.value.value
-    await window.lk.notesPatch(current.value.id, { title: current.value.title, body: current.value.body, tags: tagStr.value })
-    dirty.value = false; await loadTree(); if (!silent) ElMessage.success('已保存')
-  } catch (e: any) { ElMessage.error('Failed to save: ' + (e?.message || e)) }
+    const json = body.includes('lk:notebook:v1') ? body.slice(body.indexOf('\n') + 1) : body
+    const data = JSON.parse(json)
+    return Array.isArray(data.pages) && data.pages.length === 0
+  } catch { return false }
+}
+function persistCurrent(silent: boolean) {
+  const note = current.value
+  if (!note?.id) return Promise.resolve()
+  if (ta.value) note.body = ta.value.value
+  const snapshot = { id: String(note.id), title: String(note.title || '未命名笔记'), body: String(note.body || ''), tags: tagStr.value, revision: editRevision }
+  saveChain = saveChain.then(async () => {
+    if (isInvalidNotebookBody(snapshot.body)) {
+      const stored = await window.lk.notesGet(snapshot.id)
+      if (stored?.body && !isInvalidNotebookBody(String(stored.body))) throw new Error('检测到无效空页状态，已阻止覆盖原笔记')
+    }
+    await window.lk.notesPatch(snapshot.id, { title: snapshot.title, body: snapshot.body, tags: snapshot.tags })
+    if (current.value?.id === snapshot.id && editRevision === snapshot.revision) dirty.value = false
+    await loadTree()
+    if (!silent && current.value?.id === snapshot.id) ElMessage.success('已保存')
+  }).catch((e: any) => { ElMessage.error('保存失败：' + (e?.message || e)) })
+  return saveChain
 }
 function updateTags() { markDirty() }
 function startResize(e: MouseEvent) {
@@ -442,6 +482,7 @@ function onEditorCtx(e: MouseEvent) {
   const aiChildren = buildAiMenuItems(sel || current.value.body.slice(0, 500))
   menu.open(e, [
     { label: '保存', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
+    { label: '创建笔记链接…', icon: 'Link' as any, shortcut: settings.getShortcut('createNoteLink'), action: () => linkNotebookSelection({ label: sel }) },
     { separator: true },
     { label: 'H1', shortcut: '#', action: () => insertCmd('# ', '') },
     { label: 'H2', shortcut: '##', action: () => insertCmd('## ', '') },
@@ -453,6 +494,52 @@ function onEditorCtx(e: MouseEvent) {
     { label: '生成闪卡', icon: 'Plus' as any, action: makeCard },
     { label: '导出', icon: 'Download' as any, action: exportMd },
   ])
+}
+
+async function createNotebookLocationLink(payload: { spread: number; anchorId: string; quote: string }) {
+  if (!current.value) return
+  await saveCurrentSilently()
+  const blockId = await window.lk.blockUpsert({
+    sourceType: 'note', sourceId: current.value.id, blockType: 'note_anchor',
+    text: payload.quote || `${current.value.title} · 第 ${payload.spread * 2 + 1}-${payload.spread * 2 + 2} 页`,
+    anchor: JSON.stringify({ kind: 'notebook-anchor', spread: payload.spread, anchorId: payload.anchorId, quote: payload.quote }),
+    anchorKey: `notebook-anchor:${current.value.id}:${payload.anchorId}`
+  })
+  const href = `app://block/${blockId}`
+  await navigator.clipboard.writeText(href)
+  localStorage.setItem('lk_last_note_location', JSON.stringify({ href, label: payload.quote || current.value.title }))
+  ElMessage.success('当前位置链接已复制；在目录文字上右键即可链接')
+}
+async function chooseNoteLocation(): Promise<{ href: string; label: string } | null> {
+  const blocks = (await window.lk.blockList()).filter((block: any) => block.source_type === 'note' && block.block_type === 'note_anchor')
+  let latest: { href: string; label: string } | null = null
+  try { latest = JSON.parse(localStorage.getItem('lk_last_note_location') || 'null') } catch { /* ignore */ }
+  const options = [...(latest ? [{ id: latest.href.replace('app://block/', ''), text: `最近位置 · ${latest.label}` }] : []), ...blocks.map((block: any) => ({ id: block.id, text: String(block.text || '笔记位置') }))]
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index).slice(0, 40)
+  if (!options.length) { ElMessage.warning('请先到目标位置右键“复制当前位置链接”'); return null }
+  const list = options.map((item, index) => `${index + 1}. ${item.text.replace(/\s+/g, ' ').slice(0, 80)}`).join('\n')
+  const result = await ElMessageBox.prompt(`选择跳转位置：\n${list}`, '创建笔记链接', { inputValue: '1' }).catch(() => null)
+  if (!result) return null
+  const target = options[Number(result.value) - 1]
+  return target ? { href: `app://block/${target.id}`, label: target.text.replace(/^最近位置 · /, '') } : null
+}
+async function linkNotebookSelection(payload: { label?: string } = {}) {
+  if (!current.value) return
+  const target = await chooseNoteLocation()
+  if (!target) return
+  if (paperMode.value) notebookRef.value?.wrapSelectionWithLink(target.href, payload.label || target.label)
+  else {
+    const t = ta.value
+    if (!t) return
+    pushUndo()
+    const start = t.selectionStart, end = t.selectionEnd
+    const label = current.value.body.slice(start, end) || payload.label || target.label
+    current.value.body = current.value.body.slice(0, start) + `[${label}](${target.href})` + current.value.body.slice(end)
+    markDirty()
+  }
+  await window.lk.linkRelate('note', current.value.id, 'block', target.href.replace('app://block/', ''), 'references')
+  await saveCurrentSilently()
+  ElMessage.success('已创建跳转链接')
 }
 
 function buildAiMenuItems(text: string) {
@@ -690,10 +777,20 @@ function onPreviewClick(e: MouseEvent) {
   if (href.startsWith('app://')) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href } })) }
 }
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
+function onBeforeAppClose(event: Event) {
+  const detail = (event as CustomEvent<{ waitUntil?: (promise: Promise<unknown>) => void }>).detail
+  detail?.waitUntil?.(dirty.value && current.value ? saveCurrent() : saveChain)
+}
 onMounted(async () => {
-  window.addEventListener('beforeunload', saveCurrent)
+  window.addEventListener('lk:before-close', onBeforeAppClose)
+  window.addEventListener('lk:save-note', saveCurrent as EventListener)
+  window.addEventListener('lk:new-note-folder', newFolder as EventListener)
+  window.addEventListener('lk:focus-note-manager', focusNoteManager as EventListener)
+  window.addEventListener('lk:create-note-link', linkNotebookSelection as EventListener)
   await loadTree()
-  if (!rawTree.value.length) {
+  if (props.jumpNoteId) {
+    await open(props.jumpNoteId)
+  } else if (!rawTree.value.length) {
     await newNote(null)
   } else {
     // find first NOTE (not folder) to open
@@ -708,12 +805,18 @@ onMounted(async () => {
 
 watch(() => props.jumpNoteId, (id) => {
   if (id && id !== currentId.value) open(id)
-}, { immediate: true })
+})
 async function revealBlock(id: string) {
   const block = await window.lk.blockGet(id)
   if (!block || block.source_type !== 'note' || block.source_id !== currentId.value) return
-  let anchor: { kind?: string; start?: number; end?: number; spread?: number } = {}
+  let anchor: { kind?: string; start?: number; end?: number; spread?: number; anchorId?: string } = {}
   try { anchor = JSON.parse(block.anchor || '{}') } catch { /* legacy content blocks have no structured anchor */ }
+  if (anchor.kind === 'notebook-anchor') {
+    paperMode.value = true
+    nextTick(() => notebookRef.value?.revealAnchor(anchor.spread || 0, anchor.anchorId || ''))
+    ElMessage.info(block.stale ? '已打开锚点所在纸页；内容变更后请核对位置。' : '已定位到笔记位置')
+    return
+  }
   if (anchor.kind === 'notebook-spread') {
     paperMode.value = true
     nextTick(() => notebookRef.value?.goToSpread(anchor.spread || 0))
@@ -735,10 +838,20 @@ async function revealBlock(id: string) {
 watch(() => props.jumpBlockId, (id) => { if (id) nextTick(() => revealBlock(id)) }, { immediate: true })
 watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.value = Math.max(0, pages.length - 1) })
 onBeforeUnmount(async () => {
+  unmounted = true
   if (autosaveTimer) clearTimeout(autosaveTimer)
-  window.removeEventListener('beforeunload', saveCurrent)
+  window.removeEventListener('lk:before-close', onBeforeAppClose)
+  window.removeEventListener('lk:save-note', saveCurrent as EventListener)
+  window.removeEventListener('lk:new-note-folder', newFolder as EventListener)
+  window.removeEventListener('lk:focus-note-manager', focusNoteManager as EventListener)
+  window.removeEventListener('lk:create-note-link', linkNotebookSelection as EventListener)
   if (dirty.value && current.value) await saveCurrent()
 })
+
+function focusNoteManager() {
+  const first = treeRef.value?.$el?.querySelector?.('.el-tree-node__content') as HTMLElement | undefined
+  first?.focus()
+}
 
 function onExpand() {
   setTimeout(() => saveExpandState(), 100)

@@ -7,6 +7,8 @@ declare module '*.vue' {
 }
 
 interface LkApi {
+  onAppBeforeClose: (cb: () => void | Promise<void>) => () => void
+  appCloseReady: () => Promise<boolean>
   getSetting: (k: string) => Promise<string | null>
   setSetting: (k: string, v: string) => Promise<boolean>
   allSettings: () => Promise<{ key: string; value: string }[]>

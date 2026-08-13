@@ -9,3 +9,4 @@
 | 2026-07-21 | BUG-20260721-01-better-sqlite3-native-build.md | better-sqlite3 native build 在 Windows 全部失败 | wontfix |
 | 2026-08-03 | BUG-20260803-01-reader-route-and-theme-contrast.md | 电子书返回丢失与护眼主题文字对比不足 | fixed |
 | 2026-08-11 | BUG-20260811-01-notebook-pagination-probe.md | 纸质笔记表格被裁切 | fixed |
+| 2026-08-13 | BUG-20260813-01-note-id-and-empty-page-overwrite.md | 新建笔记报错与空页覆盖 | fixed |

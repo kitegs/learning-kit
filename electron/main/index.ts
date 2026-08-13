@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, protocol } from 'electron'
 import { join } from 'path'
-import { initDb } from './db'
+import { initDb, persist } from './db'
 import { registerAiIpcs } from './ai'
 import { registerDbIpcs } from './ipc-db'
 import { registerBookIpcs, registerBookProtocol } from './book'
@@ -17,8 +17,11 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
+let allowWindowClose = false
+let closeFallback: NodeJS.Timeout | null = null
 
 function createWindow(): void {
+  allowWindowClose = false
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -41,6 +44,18 @@ function createWindow(): void {
     // disable built-in Ctrl+wheel pinch zoom and Ctrl+/- shortcuts
     // we want our own wheel logic to handle zoom, not Chromium's
     mainWindow?.webContents.setVisualZoomLevelLimits(1, 1)
+  })
+
+  mainWindow.on('close', (event) => {
+    if (allowWindowClose) return
+    event.preventDefault()
+    mainWindow?.webContents.send('app:before-close')
+    if (closeFallback) clearTimeout(closeFallback)
+    closeFallback = setTimeout(() => {
+      persist()
+      allowWindowClose = true
+      mainWindow?.destroy()
+    }, 2500)
   })
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -73,6 +88,14 @@ app.whenReady().then(async () => {
   registerSearchIpcs(ipcMain)
   registerPrdV3Ipcs(ipcMain)
   registerSafetyIpcs(ipcMain)
+  ipcMain.handle('app:close-ready', () => {
+    if (closeFallback) clearTimeout(closeFallback)
+    closeFallback = null
+    persist()
+    allowWindowClose = true
+    mainWindow?.close()
+    return true
+  })
 
   // Start draw.io static file server
   const drawioPort = await startDrawioServer()
@@ -89,3 +112,5 @@ app.on('window-all-closed', () => {
   stopDrawioServer()
   if (process.platform !== 'darwin') app.quit()
 })
+
+app.on('before-quit', persist)

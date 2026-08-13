@@ -12,7 +12,7 @@ function saveVersion(note: { id: string; title: string; body: string }, reason: 
 }
 const sourceHash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 24)
 function markNoteBlocksStale(noteId: string): void {
-  qRun(getDb(), "UPDATE content_blocks SET stale=1,updated_at=datetime('now') WHERE source_type='note' AND source_id=?", [noteId])
+  qRun(getDb(), "UPDATE content_blocks SET stale=1,updated_at=datetime('now') WHERE source_type='note' AND source_id=? AND block_type<>'note_anchor'", [noteId])
 }
 
 export function registerNoteIpcs(ipc: typeof ipcMain): void {

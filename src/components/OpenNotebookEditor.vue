@@ -10,7 +10,7 @@
       <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
       <el-button size="small" :type="tool === 'eraser' ? 'primary' : 'default'" @click="setTool('eraser')">橡皮</el-button>
       <el-popover placement="bottom-start" :width="310" trigger="click"><template #reference><el-button size="small">画笔设置</el-button></template><div class="tool-popover pen-popover"><div><b>颜色</b><el-color-picker v-model="inkColor" show-alpha @change="saveInkSettings" /><div class="ink-presets"><button v-for="color in inkPresets" :key="color" :style="{ background: color }" :title="color" @click="inkColor=color; saveInkSettings()"></button></div></div><div><b>粗细</b><el-slider v-model="inkWidth" :min="1" :max="16" :step="1" show-input size="small" @change="saveInkSettings" /></div><div><b>荧光</b><el-slider v-model="highlighterOpacity" :min="0.12" :max="0.65" :step="0.01" :format-tooltip="opacityLabel" show-input size="small" @change="saveInkSettings" /></div><small>颜色和粗细同样用于直线、箭头和图形。</small></div></el-popover>
-      <el-popover placement="bottom-start" :width="300" trigger="click"><template #reference><el-button size="small">图形与版式</el-button></template><div class="tool-popover"><div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字号</span><el-select v-model="layout.fontSize" size="small" @change="onLayoutChange"><el-option v-for="size in [14, 16, 18, 20, 22]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="32" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="56" size="small" @change="onLayoutChange" /></div></div></el-popover>
+      <el-popover placement="bottom-start" :width="320" trigger="click"><template #reference><el-button size="small">图形与版式</el-button></template><div class="tool-popover"><div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字号</span><el-select v-model="layout.fontSize" size="small" @change="onLayoutChange"><el-option v-for="size in [14, 16, 18, 20, 22]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="48" size="small" @change="onLayoutChange" /><span>纸张宽</span><el-input-number v-model="layout.pageWidth" :min="420" :max="860" :step="20" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="80" size="small" @change="onLayoutChange" /></div></div></el-popover>
       <el-button size="small" text @click="undo" :disabled="!undoHistory.length">撤销</el-button>
       <el-button size="small" text @click="redo" :disabled="!redoHistory.length">重做</el-button>
       <span class="tool-sep"></span>
@@ -22,13 +22,13 @@
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 1 }}</div>
-        <div ref="leftText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="leftText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @click="onPaperClick" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="leftCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       <div class="spine"></div>
       <article class="paper right-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 2 }}</div>
-        <div ref="rightText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="rightText" class="paper-text" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @click="onPaperClick" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="rightCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       </div>
@@ -47,14 +47,20 @@ import katex from 'katex'
 type Point = [number, number, number]
 type InkObject = { id: string; kind: 'stroke' | 'line' | 'arrow' | 'rectangle' | 'ellipse'; color: string; width: number; opacity?: number; points?: Point[]; start?: Point; end?: Point }
 type Sheet = { left: string; right: string; leftInk: string; rightInk: string; leftObjects: InkObject[]; rightObjects: InkObject[] }
-type NotebookLayout = { fontSize: number; linesPerPage: number; charsPerLine: number }
+type NotebookLayout = { fontSize: number; linesPerPage: number; charsPerLine: number; pageWidth: number }
 type InkSettings = { color: string; width: number; highlighterOpacity: number }
 type NotebookData = { pages: Sheet[]; layout: NotebookLayout; ink: InkSettings }
 const MARKER = '<!-- lk:notebook:v1 -->\n'
-const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, linesPerPage: 18, charsPerLine: 28 }
+const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, linesPerPage: 18, charsPerLine: 28, pageWidth: 560 }
 const DEFAULT_INK: InkSettings = { color: '#4d4a42', width: 3, highlighterOpacity: .28 }
 const props = defineProps<{ modelValue: string }>()
-const emit = defineEmits<{ (e: 'update:modelValue', value: string): void; (e: 'dirty'): void; (e: 'open-ai', value: { context: string; label: string; action?: string }): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string): void
+  (e: 'dirty'): void
+  (e: 'open-ai', value: { context: string; label: string; action?: string }): void
+  (e: 'create-location-link', value: { spread: number; anchorId: string; quote: string }): void
+  (e: 'link-selection', value: { label: string }): void
+}>()
 const menu = useContextMenu()
 const leftText = ref<HTMLElement | null>(null)
 const rightText = ref<HTMLElement | null>(null)
@@ -64,6 +70,7 @@ const pages = ref<Sheet[]>([])
 const layout = ref<NotebookLayout>({ ...DEFAULT_LAYOUT })
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
+let savedTextRange: Range | null = null
 type Tool = 'text' | 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
 const tool = ref<Tool>('text')
 const inkColor = ref(DEFAULT_INK.color)
@@ -92,13 +99,16 @@ function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '
 function normaliseSheet(value: Partial<Sheet>): Sheet {
   return { ...blank(), ...value, leftObjects: Array.isArray(value.leftObjects) ? value.leftObjects : [], rightObjects: Array.isArray(value.rightObjects) ? value.rightObjects : [] }
 }
+function validPages(value: unknown): Sheet[] {
+  return Array.isArray(value) && value.length ? value.map((page) => normaliseSheet(page || {})) : [blank()]
+}
 function parse(value: string): NotebookData {
   if (value.startsWith(MARKER)) {
     try {
       const data = JSON.parse(value.slice(MARKER.length))
       if (Array.isArray(data.pages) && data.pages.length) {
         return {
-          pages: data.pages.map((page: Partial<Sheet>) => normaliseSheet(page)),
+          pages: validPages(data.pages),
           layout: { ...DEFAULT_LAYOUT, ...(data.layout || {}) },
           ink: { ...DEFAULT_INK, ...(data.ink || {}) }
         }
@@ -107,9 +117,12 @@ function parse(value: string): NotebookData {
   }
   return { pages: [{ ...blank(), left: value ? renderMarkdown(value) : '' }], layout: { ...DEFAULT_LAYOUT }, ink: { ...DEFAULT_INK } }
 }
-function serialize() { return MARKER + JSON.stringify({ pages: pages.value, layout: layout.value, ink: { color: inkColor.value, width: inkWidth.value, highlighterOpacity: highlighterOpacity.value } }) }
+function serialize() {
+  if (!pages.value.length) pages.value = [blank()]
+  return MARKER + JSON.stringify({ pages: validPages(pages.value), layout: layout.value, ink: { color: inkColor.value, width: inkWidth.value, highlighterOpacity: highlighterOpacity.value } })
+}
 const lineHeight = computed(() => Math.max(30, Math.round(layout.value.fontSize * 1.85)))
-const paperStyle = computed(() => ({ '--notebook-line-height': `${lineHeight.value}px`, '--notebook-paper-height': `${Math.max(520, lineHeight.value * layout.value.linesPerPage + 88)}px` }))
+const paperStyle = computed(() => ({ '--notebook-line-height': `${lineHeight.value}px`, '--notebook-paper-height': `${Math.max(520, lineHeight.value * layout.value.linesPerPage + 88)}px`, '--notebook-page-width': `${Math.max(420, Math.min(860, layout.value.pageWidth))}px` }))
 const paperTextStyle = computed(() => ({ fontSize: `${layout.value.fontSize}px`, lineHeight: 'var(--notebook-line-height)' }))
 function syncPage() {
   const page = pages.value[spread.value] || blank()
@@ -380,6 +393,7 @@ function onLayoutChange() {
   layout.value.fontSize = Number(layout.value.fontSize)
   layout.value.linesPerPage = Number(layout.value.linesPerPage)
   layout.value.charsPerLine = Number(layout.value.charsPerLine)
+  layout.value.pageWidth = Math.max(420, Math.min(860, Number(layout.value.pageWidth) || DEFAULT_LAYOUT.pageWidth))
   syncOut()
   nextTick(paginateAll)
 }
@@ -546,13 +560,24 @@ function startPan(event: PointerEvent) { if (tool.value !== 'hand') return; pann
 function movePan(event: PointerEvent) { if (!panning) return; panX.value = panStart.left + event.clientX - panStart.x; panY.value = panStart.top + event.clientY - panStart.y }
 function endPan() { panning = false }
 function onContextMenu(event: MouseEvent) {
-  const selected = window.getSelection()?.toString().trim() || ''
+  const clickedText = (event.target as HTMLElement).closest('.paper-text')
+  if (clickedText === leftText.value) activeSide.value = 'left'
+  else if (clickedText === rightText.value) activeSide.value = 'right'
+  const element = anchorElement()
+  const selection = window.getSelection()
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null
+  savedTextRange = range && element?.contains(range.commonAncestorContainer) ? range.cloneRange() : null
+  const selected = savedTextRange?.toString().trim() || ''
   const context = selected || getText()
   const common = [
     { label: '在笔记内打开 AI 小窗口', icon: 'ChatDotRound' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字' : '当前双页' }) },
     { label: 'AI 解释', icon: 'Reading' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 解释' : '当前双页 · 解释', action: '请解释这段笔记。' }) },
     { label: 'AI 润色', icon: 'EditPen' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 润色' : '当前双页 · 润色', action: '请润色这段笔记。' }) },
     { label: 'AI 生成复习题', icon: 'QuestionFilled' as any, action: () => emit('open-ai', { context, label: '当前双页 · 复习题', action: '请生成 3 道复习问答题。' }) },
+  ]
+  const links = [
+    { label: '复制当前位置链接', icon: 'Link' as any, action: () => emit('create-location-link', createAnchor()) },
+    { label: '链接到笔记位置…', icon: 'Connection' as any, action: () => emit('link-selection', { label: selected }) },
   ]
   const draw = [
     { label: '选择对象', icon: 'Pointer' as any, action: () => setTool('select') },
@@ -566,7 +591,57 @@ function onContextMenu(event: MouseEvent) {
     { label: '移动纸张', icon: 'Rank' as any, action: () => setTool('hand') },
   ]
   const objectActions = selectedObject.value ? [{ label: '复制选中对象', icon: 'CopyDocument' as any, action: duplicateSelected }, { label: '缩小选中对象', icon: 'ZoomOut' as any, action: () => scaleSelected(.85) }, { label: '放大选中对象', icon: 'ZoomIn' as any, action: () => scaleSelected(1.15) }, { label: '删除选中对象', icon: 'Delete' as any, danger: true, action: deleteSelected }, { separator: true }] : []
-  menu.open(event, [...common, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, ...objectActions, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
+  menu.open(event, [...common, { separator: true }, ...links, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, ...objectActions, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
+}
+function onPaperClick(event: MouseEvent) {
+  const anchor = (event.target as HTMLElement).closest('a')
+  const href = anchor?.getAttribute('href') || ''
+  if (!href.startsWith('app://')) return
+  event.preventDefault()
+  window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href } }))
+}
+function anchorElement() {
+  return activeSide.value === 'left' ? leftText.value : rightText.value
+}
+function createAnchor() {
+  const element = anchorElement()
+  const selection = window.getSelection()
+  const anchorId = `lk-anchor-${newObjectId()}`
+  const range = savedTextRange || (selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null)
+  const quote = range?.toString().trim().slice(0, 240) || ''
+  if (element) {
+    const marker = document.createElement('span')
+    marker.id = anchorId
+    marker.className = 'lk-note-anchor'
+    marker.contentEditable = 'false'
+    if (range && element.contains(range.commonAncestorContainer)) {
+      range.collapse(true)
+      range.insertNode(marker)
+    } else {
+      element.appendChild(marker)
+    }
+    onText(activeSide.value, { currentTarget: element } as unknown as Event)
+  }
+  savedTextRange = null
+  return { spread: spread.value, anchorId, quote }
+}
+function wrapSelectionWithLink(href: string, fallbackLabel: string) {
+  const element = anchorElement()
+  if (!element) return
+  element.focus()
+  const selection = window.getSelection()
+  if (savedTextRange && element.contains(savedTextRange.commonAncestorContainer)) {
+    selection?.removeAllRanges()
+    selection?.addRange(savedTextRange)
+  }
+  const selected = selection?.toString().trim() || ''
+  if (selected && selection?.rangeCount && element.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    document.execCommand('createLink', false, href)
+  } else {
+    document.execCommand('insertHTML', false, `<a href="${escapeHtml(href)}">${escapeHtml(fallbackLabel || '笔记位置')}</a>`)
+  }
+  savedTextRange = null
+  onText(activeSide.value, { currentTarget: element } as unknown as Event)
 }
 function insertHtml(html: string) {
   const el = activeSide.value === 'left' ? leftText.value : rightText.value
@@ -583,7 +658,18 @@ function goToSpread(target: number) {
   spread.value = target
   nextTick(syncPage)
 }
-defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread })
+function revealAnchor(target: number, anchorId: string) {
+  goToSpread(target)
+  nextTick(() => {
+    const element = document.getElementById(anchorId)
+    if (!element) return
+    activeSide.value = rightText.value?.contains(element) ? 'right' : 'left'
+    element.scrollIntoView({ block: 'center', inline: 'center' })
+    element.classList.add('revealed')
+    window.setTimeout(() => element.classList.remove('revealed'), 1800)
+  })
+}
+defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, wrapSelectionWithLink, revealAnchor })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
@@ -602,6 +688,14 @@ watch(() => props.modelValue, (value) => {
 
 <style scoped lang="scss">
 .notebook-shell { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:5px; min-height:34px; padding:4px 12px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:nowrap; overflow-x:auto; }.page-indicator,.zoom-hint { white-space:nowrap; }.zoom-hint { color:#ede3d3; font-size:11px; }.tool-sep { height:18px; width:1px; margin:0 3px; background:rgba(255,255,255,.3); flex:none; }.tool-popover { display:grid; gap:10px; color:var(--text); }.tool-popover>div { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }.tool-popover b { min-width:34px; color:var(--text-dim); font-size:11px; }.tool-popover small { color:var(--text-dim); font-size:11px; }.pen-popover :deep(.el-slider) { flex:1; min-width:180px; }.ink-presets { display:flex; gap:5px; }.ink-presets button { width:19px; height:19px; border:2px solid #fff; outline:1px solid var(--border); border-radius:50%; cursor:pointer; }.layout-grid { display:grid !important; grid-template-columns:42px 1fr; align-items:center; }.notebook-more { margin-left:auto; }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:flex-start; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:auto; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; margin:auto; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:var(--notebook-paper-height); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--notebook-line-height) - 2px), rgba(87,151,184,.27) calc(var(--notebook-line-height) - 1px), transparent var(--notebook-line-height)), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto var(--notebook-line-height),auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; font-family:'KaiTi','STKaiti','Microsoft YaHei',serif; overflow:hidden; overflow-wrap:anywhere; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:var(--notebook-line-height); }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.paper-text :deep(.lk-formula) { display:inline-block; max-width:100%; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; vertical-align:middle; }.paper-text :deep(.lk-formula-block) { display:block; margin:8px 0; overflow-x:auto; text-align:center; }.paper-text :deep(table) { width:100%; max-width:100%; margin:7px 0; border-collapse:collapse; table-layout:auto; font-size:.88em; }.paper-text :deep(th),.paper-text :deep(td) { min-width:42px; padding:4px 6px; border:1px solid rgba(108,91,61,.42); vertical-align:top; overflow-wrap:anywhere; }.paper-text :deep(th) { background:rgba(131,109,72,.12); font-weight:700; }.paper-text :deep(.lk-paste-table) { display:table; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }
+.layout-grid { grid-template-columns:58px 1fr; }
+.book-spread { flex:none; max-width:none; }
+.paper { flex:0 0 var(--notebook-page-width); width:var(--notebook-page-width); max-width:none; }
+.paper-text :deep(table) { table-layout:fixed; }
+.paper-text :deep(th),.paper-text :deep(td) { min-width:0; }
+.paper-text :deep(pre) { max-width:100%; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+.paper-text :deep(.lk-note-anchor) { display:inline-block; width:2px; height:1.1em; margin-left:-2px; vertical-align:middle; border-radius:2px; }
+.paper-text :deep(.lk-note-anchor.revealed) { background:#e59b27; box-shadow:0 0 0 5px rgba(229,155,39,.24); }
 :global(html[data-theme="paper"]) .notebook-shell { background:linear-gradient(135deg,#b9ad95,#e5decf 48%,#9b8d76); }
 :global(html[data-theme="sepia"]) .notebook-shell { background:linear-gradient(135deg,#5d4635,#a77e57 48%,#4b3629); }
 :global(html[data-theme="sepia"]) .notebook-tools { background:rgba(55,37,27,.78); }

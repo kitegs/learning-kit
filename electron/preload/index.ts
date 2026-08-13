@@ -4,10 +4,19 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 // Handles both old-style (direct return) and new-style ({ok,data,error}) responses.
 function u<T>(r: any): T {
   if (r && typeof r === 'object' && 'ok' in r && r.ok === false) throw new Error(r.error || 'IPC error')
+  if (r && typeof r === 'object' && 'ok' in r && r.ok === true) return r.data as T
   return r as T
 }
 
 const api = {
+  // app lifecycle
+  onAppBeforeClose: (cb: () => void | Promise<void>) => {
+    const listener = () => { void cb() }
+    ipcRenderer.on('app:before-close', listener)
+    return () => ipcRenderer.removeListener('app:before-close', listener)
+  },
+  appCloseReady: () => ipcRenderer.invoke('app:close-ready'),
+
   // settings
   getSetting: (key: string) => ipcRenderer.invoke('db:settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('db:settings:set', key, value),

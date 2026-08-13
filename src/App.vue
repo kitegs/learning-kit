@@ -277,6 +277,9 @@ function onKeyDown(e: KeyboardEvent) {
   if (matchShortcut(e, sc('search'))) { e.preventDefault(); searchOpen.value = true; return }
   if (matchShortcut(e, sc('newConv'))) { e.preventDefault(); newBlankConv(); return }
   if (matchShortcut(e, sc('newNote'))) { e.preventDefault(); newBlankNote(); return }
+  if (matchShortcut(e, sc('newNoteFolder'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:new-note-folder')), 50); return }
+  if (matchShortcut(e, sc('focusNoteManager'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:focus-note-manager')), 50); return }
+  if (matchShortcut(e, sc('createNoteLink'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:create-note-link')), 50); return }
   if (matchShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
   if (matchShortcut(e, sc('saveNote'))) {
     e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:save-note')); return
@@ -573,6 +576,16 @@ async function applyToolProposals(proposals: AiToolProposal[]) {
   }
 }
 
+let removeBeforeCloseListener: (() => void) | null = null
+async function prepareAppClose() {
+  const pending: Promise<unknown>[] = []
+  window.dispatchEvent(new CustomEvent('lk:before-close', {
+    detail: { waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)) }
+  }))
+  await Promise.allSettled(pending)
+  await window.lk.appCloseReady()
+}
+
 onMounted(async () => {
   dumpLog(); clearLog()
   log('app_start')
@@ -586,6 +599,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('lk:ai-action', onAiAction as EventListener)
   window.addEventListener('lk:nav', onNav as EventListener)
+  removeBeforeCloseListener = window.lk.onAppBeforeClose(prepareAppClose)
   await settings.load(); await chat.refreshGroups(); chat.convs = await window.lk.convAll()
   // silent connection test on startup
   if (!settings.testMode && settings.currentApiKey()) {
@@ -644,7 +658,7 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); activeAbort?.() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); removeBeforeCloseListener?.(); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">

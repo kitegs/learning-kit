@@ -224,17 +224,17 @@ watch([() => chat.groups, () => chat.convs], () => {
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: #b8b8b8;
+  color: var(--text-secondary);
 }
 .ex-more {
   font-size: 16px;
-  color: #9a9a9a;
+  color: var(--text-dim);
   cursor: pointer;
   padding: 3px;
   border-radius: 4px;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.ex-more:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.08)); color: #fff; }
+.ex-more:hover { background: var(--bg-hover); color: var(--text); }
 .ex-tree { flex: 1; overflow: auto; padding: 2px 0 8px; }
-.ex-empty { color: #7d7d7d; font-size: 12px; padding: 16px; text-align: center; }
+.ex-empty { color: var(--text-dim); font-size: 12px; padding: 16px; text-align: center; }
 </style>

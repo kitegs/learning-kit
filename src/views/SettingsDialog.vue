@@ -88,7 +88,7 @@
       <el-divider content-position="left">快捷键</el-divider>
       <div class="shortcuts">
         <div v-for="(_, key) in s.shortcuts" :key="key" class="shortcut-row">
-          <span class="sc-label">{{ key }}</span>
+          <span class="sc-label">{{ shortcutLabels[key] || key }}</span>
           <el-input v-model="s.shortcuts[key]" size="small" style="width:180px" placeholder="eg Ctrl+Shift+N" />
         </div>
         <el-button size="small" @click="resetShortcuts" style="margin-top:6px">重置为默认</el-button>
@@ -123,6 +123,13 @@ const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'saved'): void
 }>()
+const shortcutLabels: Record<string, string> = {
+  search: '全局搜索', newConv: '新建对话', newNote: '新建笔记', newNoteFolder: '新建笔记目录',
+  focusNoteManager: '打开笔记管理', createNoteLink: '创建笔记链接', toggleTheme: '切换主题',
+  sendMessage: '发送消息', saveNote: '保存笔记', pageLeft: '上一页', pageRight: '下一页',
+  pageFirst: '第一页', pageLast: '最后一页', centerPage: '纸张居中', addBookmark: '添加书签',
+  fullscreen: '全屏', undo: '撤销', redo: '重做', deleteSelected: '删除选中', cancel: '取消/关闭'
+}
 const visible = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v)

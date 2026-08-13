@@ -141,7 +141,7 @@ function act(name: string, e?: MouseEvent) { actions.groupAction(props.node, nam
   line-height: 26px;
   padding-right: 6px;
   font-size: 13px;
-  color: #c8c8c8;
+  color: var(--text);
   cursor: pointer;
   user-select: none;
   border-radius: 4px;
@@ -151,7 +151,7 @@ function act(name: string, e?: MouseEvent) { actions.groupAction(props.node, nam
 .ti-row:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.05)); }
 .ti-row.item.active {
   background: var(--bg-selected, rgba(78, 161, 255, 0.16));
-  color: #fff;
+  color: var(--text);
 }
 .ti-row.item.active::before {
   content: '';
@@ -163,23 +163,23 @@ function act(name: string, e?: MouseEvent) { actions.groupAction(props.node, nam
 }
 .ti-row.item.dragover { outline: 1px dashed var(--accent, #4ea1ff); outline-offset: -1px; background: rgba(78, 161, 255, 0.1); }
 
-.head { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: #b8b8b8; }
-.head:hover { color: #e0e0e0; }
+.head { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-secondary); }
+.head:hover { color: var(--text); }
 
 .chev {
   width: 16px; height: 16px;
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  color: #9a9a9a;
+  color: var(--text-dim);
   .el-icon { font-size: 11px; }
 }
 .chev.open { transform: rotate(90deg); }
 .chev-slot { width: 16px; flex-shrink: 0; }
 
-.ti-ico { font-size: 15px; margin-right: 7px; flex-shrink: 0; color: #9a9a9a; }
+.ti-ico { font-size: 15px; margin-right: 7px; flex-shrink: 0; color: var(--text-dim); }
 .ti-ico.conv { color: var(--accent, #4ea1ff); font-size: 14px; }
-.ti-row.item.active .ti-ico.conv { color: #fff; }
+.ti-row.item.active .ti-ico.conv { color: var(--accent); }
 
 .ti-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -187,7 +187,7 @@ function act(name: string, e?: MouseEvent) { actions.groupAction(props.node, nam
   margin-left: auto;
   padding-left: 6px;
   font-size: 11px;
-  color: #7d7d7d;
+  color: var(--text-secondary);
   flex-shrink: 0;
   transition: opacity 0.12s ease;
 }
@@ -203,9 +203,9 @@ function act(name: string, e?: MouseEvent) { actions.groupAction(props.node, nam
 .ti-row:hover .ti-actions { opacity: 1; }
 .ti-row:hover .ti-meta { opacity: 0; }
 .ti-row.item.active:hover .ti-actions { background: linear-gradient(90deg, transparent, var(--bg-selected, rgba(78, 161, 255, 0.4)) 30%); }
-.ti-act { font-size: 14px; color: #b0b0b0; padding: 2px; border-radius: 3px; }
-.ti-act:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.ti-act { font-size: 14px; color: var(--text-secondary); padding: 2px; border-radius: 3px; }
+.ti-act:hover { color: var(--text); background: var(--bg-active); }
 
 .ti-children { position: relative; }
-.ti-empty { color: #6a6a6a; font-size: 11px; font-style: italic; height: 22px; line-height: 22px; }
+.ti-empty { color: var(--text-dim); font-size: 11px; font-style: italic; height: 22px; line-height: 22px; }
 </style>
