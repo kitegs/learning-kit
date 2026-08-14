@@ -126,6 +126,8 @@ const emit = defineEmits<{
 const shortcutLabels: Record<string, string> = {
   search: '全局搜索', newConv: '新建对话', newNote: '新建笔记', newNoteFolder: '新建笔记目录',
   focusNoteManager: '打开笔记管理', createNoteLink: '创建笔记链接', toggleTheme: '切换主题',
+  renameNote: '重命名当前笔记', toggleNoteOutline: '打开/关闭笔记目录',
+  noteHeading1: '设为一级标题', noteHeading2: '设为二级标题', noteHeading3: '设为三级标题',
   sendMessage: '发送消息', saveNote: '保存笔记', pageLeft: '上一页', pageRight: '下一页',
   pageFirst: '第一页', pageLast: '最后一页', centerPage: '纸张居中', addBookmark: '添加书签',
   fullscreen: '全屏', undo: '撤销', redo: '重做', deleteSelected: '删除选中', cancel: '取消/关闭'

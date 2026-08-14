@@ -182,6 +182,42 @@ async function clickMenu(cdp, label) {
   if (!clicked) throw new Error(`Context menu action not found: ${label}`)
 }
 
+async function clickButtonByText(cdp, label) {
+  const clicked = await cdp.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === ${JSON.stringify(label)});
+    if (!button) return false; button.click(); return true;
+  })()`)
+  if (!clicked) throw new Error(`Button not found: ${label}`)
+}
+
+async function chooseSelectOption(cdp, selector, label) {
+  await click(cdp, selector)
+  await waitFor(() => cdp.evaluate(`[
+    ...document.querySelectorAll('.el-select-dropdown__item')
+  ].some((item) => item.textContent.trim() === ${JSON.stringify(label)})`), `Select option did not open: ${label}`)
+  const selected = await cdp.evaluate(`(() => {
+    const option = [...document.querySelectorAll('.el-select-dropdown__item')].find((item) => item.textContent.trim() === ${JSON.stringify(label)});
+    if (!option) return false; option.click(); return true;
+  })()`)
+  if (!selected) throw new Error(`Select option not found: ${label}`)
+}
+
+async function pasteClipboardScreenshot(cdp) {
+  const pasted = await cdp.evaluate(`(() => {
+    const el = document.querySelector('[data-testid="notebook-page-left"]');
+    if (!el) return false;
+    el.focus();
+    const range = document.createRange(); range.selectNodeContents(el); range.collapse(false);
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), (char) => char.charCodeAt(0));
+    const transfer = new DataTransfer(); transfer.items.add(new File([bytes], 'clipboard-screenshot.png', { type: 'image/png' }));
+    el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    return true;
+  })()`)
+  if (!pasted) throw new Error('Notebook page was not available for screenshot paste')
+  await waitFor(() => cdp.evaluate(`document.querySelector('[data-testid="notebook-page-left"] img[src^="data:image/png"]') ? true : false`), 'Clipboard screenshot was not inserted')
+}
+
 async function confirmPrompt(cdp) {
   await waitFor(() => cdp.evaluate(`document.querySelector('.el-message-box') ? true : false`), 'Location chooser did not open')
   const confirmed = await cdp.evaluate(`(() => {
@@ -242,7 +278,26 @@ async function firstRun() {
   const { cdp } = await launchApp()
   await openNotes(cdp)
   await setInput(cdp, '.title-in input', TARGET_TITLE)
+  await cdp.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true })); true`)
+  await waitFor(() => cdp.evaluate(`(() => { const input = document.querySelector('.title-in input'); return document.activeElement === input && input.selectionStart === 0 && input.selectionEnd === input.value.length })()`), 'F2 did not focus and select the note title')
   await setPaperText(cdp, `目标正文：${TARGET_TEXT}`)
+
+  await selectTextAndOpenMenu(cdp, TARGET_TEXT)
+  await cdp.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', ctrlKey: true, altKey: true, bubbles: true })); true`)
+  await waitFor(() => cdp.evaluate(`document.querySelector('[data-testid="notebook-page-left"] h1') ? true : false`), 'Heading shortcut did not create H1')
+  await click(cdp, '.cx-overlay')
+  await click(cdp, '[data-testid="notebook-outline-toggle"]')
+  await waitFor(() => cdp.evaluate(`document.querySelector('[data-testid="notebook-outline"] .outline-entry') ? true : false`), 'Notebook outline did not list the heading')
+  await click(cdp, '[data-testid="notebook-outline"] .outline-entry')
+  await waitFor(() => cdp.evaluate(`document.querySelector('[data-testid="notebook-page-left"] h1.heading-revealed') ? true : false`), 'Notebook outline did not locate the heading')
+  await click(cdp, '[data-testid="notebook-outline-toggle"]')
+
+  await clickButtonByText(cdp, '字体与版式')
+  await chooseSelectOption(cdp, '[data-testid="notebook-font-family"]', '微软雅黑')
+  await chooseSelectOption(cdp, '[data-testid="notebook-font-size"]', '24px')
+  await waitFor(() => cdp.evaluate(`(() => { const el = document.querySelector('[data-testid="notebook-page-left"]'); const style = getComputedStyle(el); return style.fontSize === '24px' && style.fontFamily.includes('Microsoft YaHei') })()`), 'Font family or size did not update')
+  await pasteClipboardScreenshot(cdp)
+
   await selectTextAndOpenMenu(cdp, TARGET_TEXT)
   await clickMenu(cdp, '复制当前位置链接')
 
@@ -281,6 +336,7 @@ async function secondRun(blockId) {
   await waitFor(() => cdp.evaluate(`document.querySelector('[data-testid="notebook-page-left"] a[href="app://block/${blockId}"]') ? true : false`), 'Saved cross-note link was missing after restart')
   await click(cdp, `[data-testid="notebook-page-left"] a[href="app://block/${blockId}"]`)
   await assertNavigation(cdp, blockId)
+  await waitFor(() => cdp.evaluate(`(() => { const page = document.querySelector('[data-testid="notebook-page-left"]'); const style = getComputedStyle(page); return !!page.querySelector('img[src^="data:image/png"]') && !!page.querySelector('h1') && style.fontSize === '24px' && style.fontFamily.includes('Microsoft YaHei') })()`), 'Heading, screenshot or font settings were missing after restart')
   await closeApp(activeApp)
 }
 
@@ -288,7 +344,7 @@ async function main() {
   try {
     console.log('Learning Kit — 笔记锚点 UI 测试')
     const blockId = await firstRun()
-    console.log('  ✓ 创建锚点并跨笔记定位')
+    console.log('  ✓ F2、目录、字体、截图、锚点及跨笔记定位')
     await secondRun(blockId)
     console.log('  ✓ 退出重启后链接和锚点仍可定位')
     console.log('\n━━━ 结果: 2 通过, 0 失败 ━━━')

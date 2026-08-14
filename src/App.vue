@@ -280,6 +280,11 @@ function onKeyDown(e: KeyboardEvent) {
   if (matchShortcut(e, sc('newNoteFolder'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:new-note-folder')), 50); return }
   if (matchShortcut(e, sc('focusNoteManager'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:focus-note-manager')), 50); return }
   if (matchShortcut(e, sc('createNoteLink'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:create-note-link')), 50); return }
+  if (matchShortcut(e, sc('renameNote'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:rename-note')), 50); return }
+  if (matchShortcut(e, sc('toggleNoteOutline'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:toggle-note-outline')), 50); return }
+  if (matchShortcut(e, sc('noteHeading1'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 1 } })); return }
+  if (matchShortcut(e, sc('noteHeading2'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 2 } })); return }
+  if (matchShortcut(e, sc('noteHeading3'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 3 } })); return }
   if (matchShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
   if (matchShortcut(e, sc('saveNote'))) {
     e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:save-note')); return

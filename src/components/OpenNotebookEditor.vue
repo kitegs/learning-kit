@@ -4,31 +4,37 @@
       <el-button size="small" text @click="turn(-1)" :disabled="spread === 0">←</el-button>
       <span class="page-indicator">第 {{ spread * 2 + 1 }}–{{ spread * 2 + 2 }} 页</span>
       <el-button size="small" text @click="turn(1)">→</el-button>
+      <el-button size="small" text data-testid="notebook-outline-toggle" :type="outlineOpen ? 'primary' : 'default'" @click="toggleOutline">目录</el-button>
       <span class="tool-sep"></span>
       <el-button size="small" :type="tool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
       <el-button size="small" :type="tool === 'pen' ? 'primary' : 'default'" @click="setTool('pen')">画笔</el-button>
       <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
       <el-button size="small" :type="tool === 'eraser' ? 'primary' : 'default'" @click="setTool('eraser')">橡皮</el-button>
       <el-popover placement="bottom-start" :width="310" trigger="click"><template #reference><el-button size="small">画笔设置</el-button></template><div class="tool-popover pen-popover"><div><b>颜色</b><el-color-picker v-model="inkColor" show-alpha @change="saveInkSettings" /><div class="ink-presets"><button v-for="color in inkPresets" :key="color" :style="{ background: color }" :title="color" @click="inkColor=color; saveInkSettings()"></button></div></div><div><b>粗细</b><el-slider v-model="inkWidth" :min="1" :max="16" :step="1" show-input size="small" @change="saveInkSettings" /></div><div><b>荧光</b><el-slider v-model="highlighterOpacity" :min="0.12" :max="0.65" :step="0.01" :format-tooltip="opacityLabel" show-input size="small" @change="saveInkSettings" /></div><small>颜色和粗细同样用于直线、箭头和图形。</small></div></el-popover>
-      <el-popover placement="bottom-start" :width="320" trigger="click"><template #reference><el-button size="small">图形与版式</el-button></template><div class="tool-popover"><div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字号</span><el-select v-model="layout.fontSize" size="small" @change="onLayoutChange"><el-option v-for="size in [14, 16, 18, 20, 22]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="48" size="small" @change="onLayoutChange" /><span>纸张宽</span><el-input-number v-model="layout.pageWidth" :min="420" :max="860" :step="20" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="80" size="small" @change="onLayoutChange" /></div></div></el-popover>
+      <el-popover placement="bottom-start" :width="330" trigger="click"><template #reference><el-button size="small">字体与版式</el-button></template><div class="tool-popover"><div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字体</span><el-select v-model="layout.fontFamily" size="small" data-testid="notebook-font-family" @change="onLayoutChange"><el-option v-for="font in fontOptions" :key="font.value" :label="font.label" :value="font.value" /></el-select><span>字号</span><el-select v-model="layout.fontSize" size="small" data-testid="notebook-font-size" @change="onLayoutChange"><el-option v-for="size in [12, 14, 16, 18, 20, 22, 24, 28, 32]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="48" size="small" @change="onLayoutChange" /><span>纸张宽</span><el-input-number v-model="layout.pageWidth" :min="420" :max="860" :step="20" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="80" size="small" @change="onLayoutChange" /></div></div></el-popover>
       <el-button size="small" text @click="undo" :disabled="!undoHistory.length">撤销</el-button>
       <el-button size="small" text @click="redo" :disabled="!redoHistory.length">重做</el-button>
       <span class="tool-sep"></span>
       <span class="zoom-hint">Ctrl + 滚轮 · {{ Math.round(viewScale * 100) }}%</span>
       <el-dropdown class="notebook-more" @command="handleMore"><el-button size="small" text>···</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="clear">清除本页笔迹</el-dropdown-item><el-dropdown-item command="copy" :disabled="!selectedObject">复制选中对象</el-dropdown-item><el-dropdown-item command="smaller" :disabled="!selectedObject">缩小选中对象</el-dropdown-item><el-dropdown-item command="larger" :disabled="!selectedObject">放大选中对象</el-dropdown-item><el-dropdown-item command="delete" :disabled="!selectedObject" divided>删除选中对象</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
     </div>
+    <aside v-if="outlineOpen" class="notebook-outline" data-testid="notebook-outline">
+      <header><strong>笔记目录</strong><button title="关闭目录" @click="outlineOpen=false">×</button></header>
+      <button v-for="item in outlineItems" :key="item.id" class="outline-entry" :style="{ paddingLeft: `${10 + (item.level - 1) * 16}px` }" @click="goToHeading(item)"><span>{{ item.text }}</span><small>{{ item.spread * 2 + (item.side === 'left' ? 1 : 2) }}</small></button>
+      <p v-if="!outlineItems.length">还没有标题。选中文字后使用 H1/H2/H3 即可生成目录。</p>
+    </aside>
     <div class="book-table" :class="{ grabbing: panning }" tabindex="0" @wheel="onWheel" @keydown="onKeydown" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 1 }}</div>
-        <div ref="leftText" class="paper-text" data-testid="notebook-page-left" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @click="onPaperClick" @focus="activeSide = 'left'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="leftText" class="paper-text" data-testid="notebook-page-left" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('left', $event)" @paste="onPaste('left', $event)" @click="onPaperClick" @focus="activeSide = 'left'" @mouseup="rememberTextSelection('left')" @keyup="rememberTextSelection('left')" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="leftCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('left', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       <div class="spine"></div>
       <article class="paper right-paper" :style="paperStyle">
         <div class="page-number">{{ spread * 2 + 2 }}</div>
-        <div ref="rightText" class="paper-text" data-testid="notebook-page-right" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @click="onPaperClick" @focus="activeSide = 'right'" data-placeholder="点击纸页直接开始写笔记…"></div>
+        <div ref="rightText" class="paper-text" data-testid="notebook-page-right" :style="paperTextStyle" contenteditable="true" spellcheck="true" @input="onText('right', $event)" @paste="onPaste('right', $event)" @click="onPaperClick" @focus="activeSide = 'right'" @mouseup="rememberTextSelection('right')" @keyup="rememberTextSelection('right')" data-placeholder="点击纸页直接开始写笔记…"></div>
         <canvas ref="rightCanvas" class="ink" :class="{ active: inkInteractive }" width="1500" height="1900" @pointerdown.stop="startInk('right', $event)" @pointermove.stop="moveInk($event)" @pointerup.stop="endInk" @pointerleave.stop="endInk" />
       </article>
       </div>
@@ -43,15 +49,21 @@ import { renderMarkdown } from '../helpers/markdown'
 import { useContextMenu } from '../stores/context-menu'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
+import { ElMessage } from 'element-plus'
 
 type Point = [number, number, number]
 type InkObject = { id: string; kind: 'stroke' | 'line' | 'arrow' | 'rectangle' | 'ellipse'; color: string; width: number; opacity?: number; points?: Point[]; start?: Point; end?: Point }
 type Sheet = { left: string; right: string; leftInk: string; rightInk: string; leftObjects: InkObject[]; rightObjects: InkObject[] }
-type NotebookLayout = { fontSize: number; linesPerPage: number; charsPerLine: number; pageWidth: number }
+type FontFamily = 'kaiti' | 'songti' | 'sans' | 'serif' | 'mono'
+type NotebookLayout = { fontSize: number; fontFamily: FontFamily; linesPerPage: number; charsPerLine: number; pageWidth: number }
 type InkSettings = { color: string; width: number; highlighterOpacity: number }
 type NotebookData = { pages: Sheet[]; layout: NotebookLayout; ink: InkSettings }
 const MARKER = '<!-- lk:notebook:v1 -->\n'
-const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, linesPerPage: 18, charsPerLine: 28, pageWidth: 560 }
+const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, fontFamily: 'kaiti', linesPerPage: 18, charsPerLine: 28, pageWidth: 560 }
+const fontOptions: Array<{ value: FontFamily; label: string }> = [
+  { value: 'kaiti', label: '楷体（手写感）' }, { value: 'songti', label: '宋体（书页）' },
+  { value: 'sans', label: '微软雅黑' }, { value: 'serif', label: '衬线体' }, { value: 'mono', label: '等宽字体' }
+]
 const DEFAULT_INK: InkSettings = { color: '#4d4a42', width: 3, highlighterOpacity: .28 }
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{
@@ -70,6 +82,9 @@ const pages = ref<Sheet[]>([])
 const layout = ref<NotebookLayout>({ ...DEFAULT_LAYOUT })
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
+const outlineOpen = ref(false)
+type OutlineItem = { id: string; text: string; level: number; spread: number; side: 'left' | 'right' }
+const outlineItems = ref<OutlineItem[]>([])
 let savedTextRange: Range | null = null
 type Tool = 'text' | 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
 const tool = ref<Tool>('text')
@@ -123,7 +138,10 @@ function serialize() {
 }
 const lineHeight = computed(() => Math.max(30, Math.round(layout.value.fontSize * 1.85)))
 const paperStyle = computed(() => ({ '--notebook-line-height': `${lineHeight.value}px`, '--notebook-paper-height': `${Math.max(520, lineHeight.value * layout.value.linesPerPage + 88)}px`, '--notebook-page-width': `${Math.max(420, Math.min(860, layout.value.pageWidth))}px` }))
-const paperTextStyle = computed(() => ({ fontSize: `${layout.value.fontSize}px`, lineHeight: 'var(--notebook-line-height)' }))
+function fontStack(font: FontFamily) {
+  return ({ kaiti: "'KaiTi','STKaiti','Microsoft YaHei',serif", songti: "'SimSun','STSong',serif", sans: "'Microsoft YaHei','Segoe UI',sans-serif", serif: "Georgia,'Noto Serif SC','SimSun',serif", mono: "'Cascadia Code','JetBrains Mono',Consolas,monospace" } as Record<FontFamily, string>)[font]
+}
+const paperTextStyle = computed(() => ({ fontSize: `${layout.value.fontSize}px`, lineHeight: 'var(--notebook-line-height)', fontFamily: fontStack(layout.value.fontFamily) }))
 function syncPage() {
   const page = pages.value[spread.value] || blank()
   if (leftText.value) leftText.value.innerHTML = page.left
@@ -155,7 +173,81 @@ function onText(side: 'left' | 'right', event: Event) {
   const page = pages.value[spread.value]
   page[side] = (event.currentTarget as HTMLElement).innerHTML
   syncOut()
-  nextTick(() => reflowFrom(spread.value, side))
+  nextTick(() => {
+    reflowFrom(spread.value, side)
+    if (outlineOpen.value) refreshOutline()
+  })
+}
+
+function refreshOutline() {
+  const items: OutlineItem[] = []
+  const seen = new Set<string>()
+  let changed = false
+  pages.value.forEach((page, pageIndex) => {
+    for (const side of ['left', 'right'] as const) {
+      const holder = document.createElement('div')
+      holder.innerHTML = page[side]
+      holder.querySelectorAll<HTMLElement>('h1,h2,h3').forEach((heading) => {
+        let id = heading.id
+        if (!id || seen.has(id)) {
+          id = `lk-heading-${newObjectId()}`
+          heading.id = id
+          changed = true
+        }
+        seen.add(id)
+        const text = (heading.textContent || '').trim() || '未命名标题'
+        items.push({ id, text, level: Number(heading.tagName.slice(1)), spread: pageIndex, side })
+      })
+      if (changed && page[side] !== holder.innerHTML) page[side] = holder.innerHTML
+    }
+  })
+  outlineItems.value = items
+  if (changed) {
+    syncOut()
+    nextTick(syncPage)
+  }
+}
+function toggleOutline() {
+  outlineOpen.value = !outlineOpen.value
+  if (outlineOpen.value) refreshOutline()
+}
+function goToHeading(item: OutlineItem) {
+  goToSpread(item.spread)
+  let attempts = 0
+  const locate = () => {
+    const heading = document.getElementById(item.id)
+    if (!heading) {
+      attempts += 1
+      if (attempts < 20) window.requestAnimationFrame(locate)
+      return
+    }
+    activeSide.value = item.side
+    heading.scrollIntoView({ block: 'center', inline: 'nearest' })
+    heading.classList.add('heading-revealed')
+    window.setTimeout(() => heading.classList.remove('heading-revealed'), 1600)
+  }
+  nextTick(() => window.requestAnimationFrame(locate))
+}
+function applyHeading(level: 1 | 2 | 3) {
+  const element = anchorElement()
+  if (!element) return
+  element.focus()
+  const selection = window.getSelection()
+  if (savedTextRange && element.contains(savedTextRange.commonAncestorContainer)) {
+    selection?.removeAllRanges()
+    selection?.addRange(savedTextRange)
+  }
+  document.execCommand('formatBlock', false, `h${level}`)
+  savedTextRange = null
+  onText(activeSide.value, { currentTarget: element } as unknown as Event)
+  nextTick(refreshOutline)
+}
+function rememberTextSelection(side: 'left' | 'right') {
+  activeSide.value = side
+  const element = side === 'left' ? leftText.value : rightText.value
+  const selection = window.getSelection()
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null
+  savedTextRange = range && element?.contains(range.commonAncestorContainer) ? range.cloneRange() : null
 }
 
 function escapeHtml(value: string) {
@@ -207,6 +299,35 @@ function structuredPasteMarkup(value: string) {
 function onPaste(side: 'left' | 'right', event: ClipboardEvent) {
   const clipboard = event.clipboardData
   if (!clipboard) return
+  const imageItem = Array.from(clipboard.items || []).find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  const imageFile = imageItem?.getAsFile() || Array.from(clipboard.files || []).find((file) => file.type.startsWith('image/'))
+  if (imageFile) {
+    event.preventDefault()
+    const target = event.currentTarget as HTMLElement
+    const targetSpread = spread.value
+    const selection = window.getSelection()
+    const savedRange = selection?.rangeCount && target.contains(selection.getRangeAt(0).commonAncestorContainer) ? selection.getRangeAt(0).cloneRange() : null
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (!target.isConnected) { ElMessage.warning('笔记已切换，已取消粘贴截图'); return }
+      target.focus()
+      if (savedRange) {
+        const currentSelection = window.getSelection()
+        currentSelection?.removeAllRanges()
+        currentSelection?.addRange(savedRange)
+      }
+      const src = String(reader.result || '')
+      document.execCommand('insertHTML', false, `<img src="${src}" alt="${escapeHtml(imageFile.name || '剪贴板截图')}" />`)
+      while (pages.value.length <= targetSpread) pages.value.push(blank())
+      pages.value[targetSpread][side] = target.innerHTML
+      syncOut()
+      nextTick(() => reflowFrom(targetSpread, side))
+      ElMessage.success('截图已粘贴到笔记')
+    }
+    reader.onerror = () => ElMessage.error('截图读取失败，请重试')
+    reader.readAsDataURL(imageFile)
+    return
+  }
   event.preventDefault()
   const html = clipboard.getData('text/html')
   const text = clipboard.getData('text/plain')
@@ -392,6 +513,7 @@ function paginateAll() {
 }
 function onLayoutChange() {
   layout.value.fontSize = Number(layout.value.fontSize)
+  if (!fontOptions.some((font) => font.value === layout.value.fontFamily)) layout.value.fontFamily = DEFAULT_LAYOUT.fontFamily
   layout.value.linesPerPage = Number(layout.value.linesPerPage)
   layout.value.charsPerLine = Number(layout.value.charsPerLine)
   layout.value.pageWidth = Math.max(420, Math.min(860, Number(layout.value.pageWidth) || DEFAULT_LAYOUT.pageWidth))
@@ -676,7 +798,7 @@ function revealAnchor(target: number, anchorId: string) {
   }
   nextTick(() => window.requestAnimationFrame(revealWhenReady))
 }
-defineExpose({ insertHtml, insertImage, insertFormula, togglePen, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, wrapSelectionWithLink, revealAnchor })
+defineExpose({ insertHtml, insertImage, insertFormula, togglePen, toggleOutline, applyHeading, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, wrapSelectionWithLink, revealAnchor })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
@@ -694,7 +816,7 @@ watch(() => props.modelValue, (value) => {
 </script>
 
 <style scoped lang="scss">
-.notebook-shell { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:5px; min-height:34px; padding:4px 12px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:nowrap; overflow-x:auto; }.page-indicator,.zoom-hint { white-space:nowrap; }.zoom-hint { color:#ede3d3; font-size:11px; }.tool-sep { height:18px; width:1px; margin:0 3px; background:rgba(255,255,255,.3); flex:none; }.tool-popover { display:grid; gap:10px; color:var(--text); }.tool-popover>div { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }.tool-popover b { min-width:34px; color:var(--text-dim); font-size:11px; }.tool-popover small { color:var(--text-dim); font-size:11px; }.pen-popover :deep(.el-slider) { flex:1; min-width:180px; }.ink-presets { display:flex; gap:5px; }.ink-presets button { width:19px; height:19px; border:2px solid #fff; outline:1px solid var(--border); border-radius:50%; cursor:pointer; }.layout-grid { display:grid !important; grid-template-columns:42px 1fr; align-items:center; }.notebook-more { margin-left:auto; }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:flex-start; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:auto; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; margin:auto; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:var(--notebook-paper-height); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--notebook-line-height) - 2px), rgba(87,151,184,.27) calc(var(--notebook-line-height) - 1px), transparent var(--notebook-line-height)), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto var(--notebook-line-height),auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; font-family:'KaiTi','STKaiti','Microsoft YaHei',serif; overflow:hidden; overflow-wrap:anywhere; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:var(--notebook-line-height); }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.paper-text :deep(.lk-formula) { display:inline-block; max-width:100%; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; vertical-align:middle; }.paper-text :deep(.lk-formula-block) { display:block; margin:8px 0; overflow-x:auto; text-align:center; }.paper-text :deep(table) { width:100%; max-width:100%; margin:7px 0; border-collapse:collapse; table-layout:auto; font-size:.88em; }.paper-text :deep(th),.paper-text :deep(td) { min-width:42px; padding:4px 6px; border:1px solid rgba(108,91,61,.42); vertical-align:top; overflow-wrap:anywhere; }.paper-text :deep(th) { background:rgba(131,109,72,.12); font-weight:700; }.paper-text :deep(.lk-paste-table) { display:table; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }
+.notebook-shell { position:relative; flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:5px; min-height:34px; padding:4px 12px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:nowrap; overflow-x:auto; }.page-indicator,.zoom-hint { white-space:nowrap; }.zoom-hint { color:#ede3d3; font-size:11px; }.tool-sep { height:18px; width:1px; margin:0 3px; background:rgba(255,255,255,.3); flex:none; }.tool-popover { display:grid; gap:10px; color:var(--text); }.tool-popover>div { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }.tool-popover b { min-width:34px; color:var(--text-dim); font-size:11px; }.tool-popover small { color:var(--text-dim); font-size:11px; }.pen-popover :deep(.el-slider) { flex:1; min-width:180px; }.ink-presets { display:flex; gap:5px; }.ink-presets button { width:19px; height:19px; border:2px solid #fff; outline:1px solid var(--border); border-radius:50%; cursor:pointer; }.layout-grid { display:grid !important; grid-template-columns:42px 1fr; align-items:center; }.notebook-more { margin-left:auto; }.notebook-outline { position:absolute; z-index:8; left:10px; top:48px; bottom:12px; width:240px; overflow:auto; color:var(--text); background:color-mix(in srgb,var(--bg-elev) 94%,transparent); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); backdrop-filter:blur(10px); }.notebook-outline header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:var(--bg-elev); border-bottom:1px solid var(--border); }.notebook-outline header button { border:0; background:transparent; color:var(--text); cursor:pointer; font-size:18px; }.notebook-outline .outline-entry { display:flex; justify-content:space-between; gap:8px; width:100%; padding-block:8px; padding-right:10px; border:0; border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent); background:transparent; color:var(--text); text-align:left; cursor:pointer; }.notebook-outline .outline-entry:hover { background:var(--bg-hover); color:var(--accent-text); }.notebook-outline .outline-entry span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.notebook-outline .outline-entry small,.notebook-outline>p { color:var(--text-dim); }.notebook-outline>p { padding:12px; font-size:12px; line-height:1.6; }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:flex-start; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:auto; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; margin:auto; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:var(--notebook-paper-height); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--notebook-line-height) - 2px), rgba(87,151,184,.27) calc(var(--notebook-line-height) - 1px), transparent var(--notebook-line-height)), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto var(--notebook-line-height),auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; overflow:hidden; overflow-wrap:anywhere; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:var(--notebook-line-height); }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.paper-text :deep(.lk-formula) { display:inline-block; max-width:100%; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; vertical-align:middle; }.paper-text :deep(.lk-formula-block) { display:block; margin:8px 0; overflow-x:auto; text-align:center; }.paper-text :deep(table) { width:100%; max-width:100%; margin:7px 0; border-collapse:collapse; table-layout:auto; font-size:.88em; }.paper-text :deep(th),.paper-text :deep(td) { min-width:42px; padding:4px 6px; border:1px solid rgba(108,91,61,.42); vertical-align:top; overflow-wrap:anywhere; }.paper-text :deep(th) { background:rgba(131,109,72,.12); font-weight:700; }.paper-text :deep(.lk-paste-table) { display:table; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }
 .layout-grid { grid-template-columns:58px 1fr; }
 .book-spread { flex:none; max-width:none; }
 .paper { flex:0 0 var(--notebook-page-width); width:var(--notebook-page-width); max-width:none; }
@@ -703,6 +825,7 @@ watch(() => props.modelValue, (value) => {
 .paper-text :deep(pre) { max-width:100%; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 .paper-text :deep(.lk-note-anchor) { display:inline-block; width:2px; height:1.1em; margin-left:-2px; vertical-align:middle; border-radius:2px; }
 .paper-text :deep(.lk-note-anchor.revealed) { background:#e59b27; box-shadow:0 0 0 5px rgba(229,155,39,.24); }
+.paper-text :deep(.heading-revealed) { background:rgba(229,155,39,.18); box-shadow:0 0 0 5px rgba(229,155,39,.18); border-radius:4px; }
 :global(html[data-theme="paper"]) .notebook-shell { background:linear-gradient(135deg,#b9ad95,#e5decf 48%,#9b8d76); }
 :global(html[data-theme="sepia"]) .notebook-shell { background:linear-gradient(135deg,#5d4635,#a77e57 48%,#4b3629); }
 :global(html[data-theme="sepia"]) .notebook-tools { background:rgba(55,37,27,.78); }

@@ -37,7 +37,7 @@
       <div v-if="!current" class="empty"><p>选择或新建一份笔记。</p></div>
       <div v-else class="editor-wrap">
         <div class="toolbar word-toolbar">
-          <el-input v-model="current.title" placeholder="标题" class="title-in" data-testid="note-title" @change="markDirty" size="small" />
+          <el-input ref="titleInputRef" v-model="current.title" placeholder="标题" class="title-in" data-testid="note-title" @change="markDirty" size="small" />
           <el-input v-model="tagStr" placeholder="#tags" class="tag-in" @change="updateTags" size="small" />
           <el-button size="small" @click="undoNote">撤销</el-button>
           <el-button size="small" @click="redoNote">重做</el-button>
@@ -49,7 +49,7 @@
         </div>
         <div class="ribbon-tabs"><button v-for="tab in ribbonTabs" :key="tab.id" :class="{ active: ribbonTab === tab.id }" @click="ribbonTab = tab.id; ribbonOpen = true">{{ tab.label }}</button></div>
         <div v-show="ribbonOpen" class="ribbon-panel">
-          <template v-if="ribbonTab === 'home'"><el-button size="small" @click="insertCmd('# ','')">标题</el-button><el-button size="small" @click="insertCmd('- ','')">列表</el-button><el-button size="small" @click="insertCmd('> ','')">引用</el-button><el-button size="small" @click="insertCmd('**','**')"><b>B</b></el-button><el-button size="small" @click="insertCmd('*','*')"><i>I</i></el-button><el-button size="small" @click="insertCmd('~~','~~')">删除线</el-button><el-button size="small" @click="useBlockEditor=!useBlockEditor">{{ useBlockEditor ? '纯文本模式' : '富文本模式' }}</el-button></template>
+          <template v-if="ribbonTab === 'home'"><el-button size="small" @click="applyNoteHeading(1)">H1</el-button><el-button size="small" @click="applyNoteHeading(2)">H2</el-button><el-button size="small" @click="applyNoteHeading(3)">H3</el-button><el-button size="small" @click="toggleNoteOutline">目录</el-button><el-button size="small" @click="insertCmd('- ','')">列表</el-button><el-button size="small" @click="insertCmd('> ','')">引用</el-button><el-button size="small" @click="insertCmd('**','**')"><b>B</b></el-button><el-button size="small" @click="insertCmd('*','*')"><i>I</i></el-button><el-button size="small" @click="insertCmd('~~','~~')">删除线</el-button><el-button size="small" @click="useBlockEditor=!useBlockEditor">{{ useBlockEditor ? '纯文本模式' : '富文本模式' }}</el-button></template>
           <template v-else-if="ribbonTab === 'insert'"><el-button size="small" @click="imagePicker?.click()">图片/截图</el-button><el-button size="small" @click="insertFormula">数学公式</el-button><el-button size="small" @click="nextNotebookSpread">新双页</el-button><el-button size="small" @click="citeBook">引用电子书</el-button><el-button size="small" @click="citeConversation">引用对话</el-button><el-button size="small" @click="referenceContentBlock">引用内容块</el-button></template>
           <template v-else-if="ribbonTab === 'draw'"><el-button size="small" type="primary" @click="toggleNotebookPen">画笔</el-button><el-button size="small" @click="sketchOpen=true">草图 / 图表</el-button><span class="ribbon-hint">更多画笔、图形和纸张移动工具可在纸页右键中使用。</span></template>
           <template v-else-if="ribbonTab === 'links'"><el-button size="small" @click="createContentBlock">创建内容块</el-button><el-button size="small" @click="saveSticky">复用便签</el-button><el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button><el-button size="small" @click="openAttributes">属性</el-button></template>
@@ -123,6 +123,7 @@ const currentId = ref<string | null>(null)
 const dirty = ref(false)
 const tagStr = ref('')
 const ta = ref<HTMLTextAreaElement | null>(null)
+const titleInputRef = ref<any>(null)
 const treeRef = ref<any>(null)
 const rawTree = ref<any[]>([])
 const defaultExpand = ref<string[]>([])
@@ -151,7 +152,7 @@ const attributesOpen = ref(false)
 const attributeRows = ref<Array<{ key: string; value: string }>>([])
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
-const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void; wrapSelectionWithLink: (href: string, label: string) => void; revealAnchor: (spread: number, anchorId: string) => void } | null>(null)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; toggleOutline: () => void; applyHeading: (level: 1 | 2 | 3) => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void; wrapSelectionWithLink: (href: string, label: string) => void; revealAnchor: (spread: number, anchorId: string) => void } | null>(null)
 const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
@@ -437,12 +438,12 @@ async function onTreeCtx(e: any, data: any) {
       { label: '在此新建笔记', icon: 'Document' as any, action: () => newNote(data.id) },
       { label: '新建子文件夹', icon: 'Folder' as any, action: () => newSubFolder(data.id) },
       { separator: true },
-      { label: '重命名', icon: 'Edit' as any, action: () => renameNode(data) },
+      { label: '重命名', icon: 'Edit' as any, shortcut: 'F2', action: () => renameNode(data) },
     )
   } else {
     items.push(
       { label: '打开', icon: 'Document' as any, action: () => open(data.id) },
-      { label: '重命名', icon: 'Edit' as any, action: () => renameNode(data) },
+      { label: '重命名', icon: 'Edit' as any, shortcut: 'F2', action: () => renameNode(data) },
       { separator: true },
       { label: '生成闪卡', icon: 'Plus' as any, action: () => makeCardFromNode(data) },
       { label: '导出', icon: 'Download' as any, action: () => exportNode(data) },
@@ -482,6 +483,8 @@ function onEditorCtx(e: MouseEvent) {
   const aiChildren = buildAiMenuItems(sel || current.value.body.slice(0, 500))
   menu.open(e, [
     { label: '保存', icon: 'Check' as any, shortcut: 'Ctrl+S', action: () => { markDirty(); saveCurrent() } },
+    { label: '重命名当前笔记', icon: 'Edit' as any, shortcut: settings.getShortcut('renameNote'), action: renameCurrentNote },
+    { label: '打开/关闭笔记目录', icon: 'List' as any, shortcut: settings.getShortcut('toggleNoteOutline'), action: toggleNoteOutline },
     { label: '创建笔记链接…', icon: 'Link' as any, shortcut: settings.getShortcut('createNoteLink'), action: () => linkNotebookSelection({ label: sel }) },
     { separator: true },
     { label: 'H1', shortcut: '#', action: () => insertCmd('# ', '') },
@@ -781,6 +784,26 @@ function onPreviewClick(e: MouseEvent) {
   if (href.startsWith('app://')) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href } })) }
 }
 async function exportMd() { if (current.value) { await window.lk.notesExport(current.value.id); ElMessage.success('exported') } }
+function renameCurrentNote() {
+  if (!current.value) return
+  nextTick(() => {
+    titleInputRef.value?.focus?.()
+    const input = titleInputRef.value?.$el?.querySelector?.('input') as HTMLInputElement | undefined
+    input?.select()
+  })
+}
+function toggleNoteOutline() {
+  if (!paperMode.value) paperMode.value = true
+  nextTick(() => notebookRef.value?.toggleOutline())
+}
+function applyNoteHeading(level: 1 | 2 | 3) {
+  if (paperMode.value) notebookRef.value?.applyHeading(level)
+  else insertCmd(`${'#'.repeat(level)} `, '')
+}
+function onNoteHeading(event: Event) {
+  const level = Number((event as CustomEvent<{ level?: number }>).detail?.level)
+  if (level === 1 || level === 2 || level === 3) applyNoteHeading(level)
+}
 function onBeforeAppClose(event: Event) {
   const detail = (event as CustomEvent<{ waitUntil?: (promise: Promise<unknown>) => void }>).detail
   detail?.waitUntil?.(dirty.value && current.value ? saveCurrent() : saveChain)
@@ -791,6 +814,9 @@ onMounted(async () => {
   window.addEventListener('lk:new-note-folder', newFolder as EventListener)
   window.addEventListener('lk:focus-note-manager', focusNoteManager as EventListener)
   window.addEventListener('lk:create-note-link', linkNotebookSelection as EventListener)
+  window.addEventListener('lk:rename-note', renameCurrentNote)
+  window.addEventListener('lk:toggle-note-outline', toggleNoteOutline)
+  window.addEventListener('lk:note-heading', onNoteHeading)
   await loadTree()
   if (props.jumpNoteId) {
     await open(props.jumpNoteId)
@@ -852,6 +878,9 @@ onBeforeUnmount(async () => {
   window.removeEventListener('lk:new-note-folder', newFolder as EventListener)
   window.removeEventListener('lk:focus-note-manager', focusNoteManager as EventListener)
   window.removeEventListener('lk:create-note-link', linkNotebookSelection as EventListener)
+  window.removeEventListener('lk:rename-note', renameCurrentNote)
+  window.removeEventListener('lk:toggle-note-outline', toggleNoteOutline)
+  window.removeEventListener('lk:note-heading', onNoteHeading)
   if (dirty.value && current.value) await saveCurrent()
 })
 
