@@ -24,3 +24,9 @@
 | 2026-08-13 | REQ-20260813-01-note-safety-links-and-management.md | 笔记安全、位置链接与管理效率 | in progress |
 | 2026-08-13 | REQ-20260813-02-notebook-anchor-ui-test.md | 笔记锚点跨笔记持久化 UI 测试 | done |
 | 2026-08-14 | REQ-20260814-01-notebook-font-outline-shortcuts.md | 笔记字体、页内目录、快捷键与截图粘贴 | done |
+| 2026-08-18 | REQ-20260818-01-experience-unification.md | 体验统一阶段：导航、反馈与紧凑工具层 | done |
+| 2026-08-24 | REQ-20260824-01-local-ai-mcp-ocr-exercises.md | 本机 AI 工具、MCP、离线 OCR 与习题集 | in progress |
+| 2026-08-31 | REQ-20260831-01-reader-productivity-ocr.md | 电子书效率、关联笔记与离线 OCR | implemented |
+| 2026-09-01 | REQ-20260901-01-compact-note-navigation.md | 紧凑笔记与章节导航 | implemented |
+| 2026-09-01 | REQ-20260901-02-global-notebook-layout.md | 所有笔记共用纸页版式 | implemented |
+| 2026-09-03 | REQ-20260903-01-product-convergence.md | 产品收敛版本 | in progress |

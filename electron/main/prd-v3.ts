@@ -8,7 +8,7 @@ export function registerPrdV3Ipcs(ipc: typeof ipcMain): void {
   )
   ipc.handle('chapter:upsert', (_e, c: any) => {
     const id = c.id ?? uuid()
-    qRun(getDb(), `INSERT INTO chapters(id,book_id,parent_id,title,sort,section_anchor) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id,title=excluded.title,sort=excluded.sort,section_anchor=excluded.section_anchor`,
+    qRun(getDb(), `INSERT INTO chapters(id,book_id,parent_id,title,sort,section_anchor) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id,title=excluded.title,sort=excluded.sort,section_anchor=excluded.section_anchor,deleted_at=NULL`,
       [id, c.bookId, c.parent_id ?? null, c.title ?? 'Chapter', c.sort ?? 0, c.section_anchor ?? null])
     schedulePersist(); return id
   })

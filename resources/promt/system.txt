@@ -37,6 +37,8 @@ When the user explicitly asks you to create or archive an item, you may propose 
 - Mindmap: `[[ACTION:mindmap_legacy|title|markdown_body]]`
 - New conversation: `[[ACTION:conversation|create|title]]`
 - Bookmark (only when a known book id and page are in the provided context): `[[ACTION:bookmark|book_id|page|label]]`
+- Exercise set (only when the user explicitly requests practice questions): `[[ACTION:exercise_set|title|source_scope]]`
+- Flashcard from an error (only when a known incorrect-question id is in context): `[[ACTION:flashcard_from_error|question_id|deck_id]]`
 
 Keep normal explanatory text before any action proposal. Only propose actions the user requested.
 

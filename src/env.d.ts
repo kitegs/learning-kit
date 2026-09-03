@@ -12,6 +12,7 @@ interface LkApi {
   getSetting: (k: string) => Promise<string | null>
   setSetting: (k: string, v: string) => Promise<boolean>
   allSettings: () => Promise<{ key: string; value: string }[]>
+  ocrRecognize: (imageDataUrl: string) => Promise<{ text: string; confidence: number }>
   groupsTree: () => Promise<RawRow[]>
   groupUpsert: (g: any) => Promise<boolean>
   groupDelete: (id: string) => Promise<boolean>
@@ -87,6 +88,14 @@ interface LkApi {
   toolRunComplete: (id: string, status: 'applied' | 'failed' | 'ignored', result?: string) => Promise<boolean>
   toolRunList: (conversationId?: string | null) => Promise<any[]>
 
+  toolPreview: (request: ToolInput) => Promise<ToolResult>
+  toolExecute: (request: ToolInput) => Promise<ToolResult>
+  toolProposeInternal: (request: ToolInput) => Promise<ToolResult>
+  toolApprove: (operationId: string) => Promise<ToolResult>
+  toolReject: (operationId: string) => Promise<ToolResult>
+  toolUndo: (operationId: string) => Promise<ToolResult>
+  toolOperations: (filter?: ToolOperationFilter) => Promise<RawRow[]>
+
   backupCreate: () => Promise<{ path: string; bytes: number } | null>
   backupRestore: () => Promise<boolean>
 
@@ -145,6 +154,38 @@ interface LkApi {
   codeDelete: (id: string) => Promise<boolean>
 
   drawioPort: () => Promise<number>
+}
+
+type ToolAction =
+  | 'create_note'
+  | 'append_note'
+  | 'add_bookmark'
+  | 'organize_note'
+  | 'create_exercise_set'
+  | 'create_flashcard_from_error'
+  | 'delete'
+  | 'replace_note'
+  | 'bulk_move'
+  | 'import_restore'
+  | 'security_change'
+
+interface ToolInput {
+  action: ToolAction
+  params: Record<string, unknown>
+}
+
+interface ToolResult {
+  operationId: string
+  status: 'applied' | 'pending_confirmation' | 'failed' | 'undone' | 'rejected'
+  preview: string
+  affected: string[]
+  error?: string
+}
+
+interface ToolOperationFilter {
+  source?: 'internal-ai' | 'mcp' | 'renderer'
+  status?: string
+  limit?: number
 }
 
 interface RawRow {

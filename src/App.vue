@@ -1,5 +1,5 @@
 <template>
-  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" @switch="onModeSwitch" @outline-click="onOutlineClick">
+  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" :status-text="appStatus" @switch="onModeSwitch" @outline-click="onOutlineClick">
     <template v-if="mode === 'chat'">
       <SidebarView :style="{ width: sideWidth + 'px' }" class="side chat-side" />
       <div class="resizer" @mousedown="startResize"></div>
@@ -8,6 +8,7 @@
       <header class="topbar">
         <div class="title-area">
           <el-icon class="mode-icon"><component :is="modeIcon" /></el-icon>
+          <span class="breadcrumb"><span>学习空间</span><i>/</i><strong>{{ modeTitle }}</strong></span>
           <el-input v-if="mode === 'chat'" v-model="titleDraft" class="title-input" size="small" placeholder="对话标题" @change="applyTitle" @blur="applyTitle" />
           <span v-else class="mode-title">{{ modeTitle }}</span>
           <el-tag v-if="mode === 'chat'" size="small" :type="settings.testMode ? 'warning' : (settings.connected ? 'success' : 'info')" :effect="settings.testMode || settings.connected ? 'dark' : 'plain'" :class="{'tag-glow': settings.connected && !settings.testMode}">{{ settings.testMode ? '测试模式 · 本地预设回复' : `${settings.provider} - ${settings.model}` }}</el-tag>
@@ -34,11 +35,11 @@
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
   <SelectionToolbar @ai="onSelectionAi" />
-  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" :history="toolHistory" @apply="applyToolProposals" @reject="ignoreToolProposals" />
+  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" :history="toolHistory" @apply="applyToolProposals" @reject="rejectToolProposals" @undo="undoToolOperation" />
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, computed, nextTick, watch } from 'vue'
 import { ChatDotRound, Reading, Edit, Share, DataLine, Collection } from '@element-plus/icons-vue'
 import Dock from './components/Dock.vue'
 import SidebarView from './views/SidebarView.vue'
@@ -61,6 +62,7 @@ import TabBar from './components/TabBar.vue'
 import AiToolCenter, { type AiToolProposal } from './components/AiToolCenter.vue'
 import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
+import { matchesShortcut } from './helpers/shortcuts'
 
 export type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge' | 'attributes'
 
@@ -103,6 +105,12 @@ const pendingCitation = ref<{ bookTitle: string; bookId: string; page: number; q
 const toolCenterOpen = ref(false)
 const toolProposals = ref<AiToolProposal[]>([])
 const toolHistory = ref<any[]>([])
+const appStatus = ref('已就绪')
+
+function onAppStatus(event: Event) {
+  const detail = (event as CustomEvent<{ text?: string }>).detail
+  if (detail?.text) appStatus.value = detail.text
+}
 
 let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; noteId?: string; blockId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
@@ -117,6 +125,7 @@ function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; no
   jumpToHighlight.value = null
   jumpToBookHref.value = null
   mode.value = target
+  if (target !== 'notes') appStatus.value = target === 'chat' ? '对话已就绪' : `${({ library: '图书馆', mindmap: '思维导图', review: '复习', knowledge: '知识库', attributes: '属性视图' } as Partial<Record<Mode, string>>)[target] || '当前模块'}已就绪`
   if (seq !== switchSeq) return
   if (ctx?.bookId) openBookId.value = ctx.bookId
   if (ctx?.noteId) jumpToNoteId.value = ctx.noteId
@@ -253,43 +262,28 @@ function onSearchJump(target: { kind: string; id?: string; conversationId?: stri
   else if (target.kind === 'block' && target.id) window.dispatchEvent(new CustomEvent('lk:nav', { detail: { href: `app://block/${target.id}` } }))
   else if (target.kind === 'kp') switchMode('notes')
 }
-function matchShortcut(e: KeyboardEvent, sc: string): boolean {
-  if (!sc) return false
-  const parts = sc.split('+').map((p) => p.trim())
-  const needCtrl = parts.includes('Ctrl') || parts.includes('Cmd')
-  const needShift = parts.includes('Shift')
-  const needAlt = parts.includes('Alt')
-  const targetKey = parts[parts.length - 1].toUpperCase()
-  const isSingleKey = parts.length === 1
-  if (needCtrl && !e.ctrlKey && !e.metaKey) return false
-  if (needShift && !e.shiftKey) return false
-  if (needAlt && !e.altKey) return false
-  if (isSingleKey && (e.ctrlKey || e.metaKey || e.altKey)) return false
-  return e.key.toUpperCase() === targetKey
-}
-
 function onKeyDown(e: KeyboardEvent) {
   // skip when typing in inputs/textareas
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
     if (!(e.ctrlKey || e.metaKey)) return
   }
   const sc = settings.getShortcut
-  if (matchShortcut(e, sc('search'))) { e.preventDefault(); searchOpen.value = true; return }
-  if (matchShortcut(e, sc('newConv'))) { e.preventDefault(); newBlankConv(); return }
-  if (matchShortcut(e, sc('newNote'))) { e.preventDefault(); newBlankNote(); return }
-  if (matchShortcut(e, sc('newNoteFolder'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:new-note-folder')), 50); return }
-  if (matchShortcut(e, sc('focusNoteManager'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:focus-note-manager')), 50); return }
-  if (matchShortcut(e, sc('createNoteLink'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:create-note-link')), 50); return }
-  if (matchShortcut(e, sc('renameNote'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:rename-note')), 50); return }
-  if (matchShortcut(e, sc('toggleNoteOutline'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:toggle-note-outline')), 50); return }
-  if (matchShortcut(e, sc('noteHeading1'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 1 } })); return }
-  if (matchShortcut(e, sc('noteHeading2'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 2 } })); return }
-  if (matchShortcut(e, sc('noteHeading3'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 3 } })); return }
-  if (matchShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
-  if (matchShortcut(e, sc('saveNote'))) {
+  if (matchesShortcut(e, sc('search'))) { e.preventDefault(); searchOpen.value = true; return }
+  if (matchesShortcut(e, sc('newConv'))) { e.preventDefault(); newBlankConv(); return }
+  if (matchesShortcut(e, sc('newNote'))) { e.preventDefault(); newBlankNote(); return }
+  if (matchesShortcut(e, sc('newNoteFolder'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:new-note-folder')), 50); return }
+  if (matchesShortcut(e, sc('focusNoteManager'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:focus-note-manager')), 50); return }
+  if (matchesShortcut(e, sc('createNoteLink'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:create-note-link')), 50); return }
+  if (matchesShortcut(e, sc('renameNote'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:rename-note')), 50); return }
+  if (matchesShortcut(e, sc('toggleNoteOutline'))) { e.preventDefault(); switchMode('notes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('lk:toggle-note-outline')), 50); return }
+  if (matchesShortcut(e, sc('noteHeading1'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 1 } })); return }
+  if (matchesShortcut(e, sc('noteHeading2'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 2 } })); return }
+  if (matchesShortcut(e, sc('noteHeading3'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:note-heading', { detail: { level: 3 } })); return }
+  if (matchesShortcut(e, sc('toggleTheme'))) { e.preventDefault(); settings.setTheme(settings.theme === 'dark' ? 'light' : 'dark'); return }
+  if (matchesShortcut(e, sc('saveNote'))) {
     e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:save-note')); return
   }
-  if (matchShortcut(e, sc('sendMessage'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:send-message')); return }
+  if (matchesShortcut(e, sc('sendMessage'))) { e.preventDefault(); window.dispatchEvent(new CustomEvent('lk:send-message')); return }
   // tab shortcuts
   if ((e.ctrlKey || e.metaKey) && e.key === 't') { e.preventDefault(); tabStore.openTab({ type: 'chat', title: 'Chat', data: {} }); return }
   if ((e.ctrlKey || e.metaKey) && e.key === 'w') { e.preventDefault(); tabStore.closeTab(tabStore.activeId); return }
@@ -406,13 +400,13 @@ async function onSend(text: string, parentTurnId: string | null = null) {
           log('stream_done', `len=${rMsg.content.length}`)
           streaming.value = false
           const actions = parseActions(rMsg.content)
-          if (actions.length) {
-            toolProposals.value = actions.map((action, index) => ({ id: `${rMsg.id}:${index}`, type: action.type, params: action.params, rawBlock: action.rawBlock }))
-            toolCenterOpen.value = true
-            rMsg.content += '\n\n---\n> AI 已提出工具操作，请在“AI 工具管理中心”确认后执行。'
-          }
           window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
           window.lk.convTouch(requestConvId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
+          void proposeInternalToolActions(actions).then((created) => {
+            if (!created) return
+            rMsg.content += '\n\n---\n> AI 已提出工具操作，请在“AI 工具管理中心”确认后执行。'
+            window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[tool proposal] msgPatch fail', e))
+          }).catch((e) => console.warn('[tool proposal] create fail', e))
         }
       } catch (e) { console.error('[onChunk]', e) }
     })
@@ -444,8 +438,12 @@ function onSelectionAi(text: string, action: string) {
   switchMode('chat')
 }
 
-// ── action parser & executor (PRD v3) ──
+// ── action parser & confirmed internal tool proposals (PRD v3) ──
 interface ParsedAction { type: string; params: string[]; rawBlock: string }
+type InternalToolInput = {
+  action: 'create_note' | 'add_bookmark' | 'create_exercise_set' | 'create_flashcard_from_error'
+  params: Record<string, unknown>
+}
 function parseActions(text: string): ParsedAction[] {
   const out: ParsedAction[] = []
   // Parse <kp>...</kp>
@@ -481,104 +479,46 @@ function parseActions(text: string): ParsedAction[] {
   }
   return out
 }
-async function executeActions(actions: ParsedAction[]): Promise<string> {
-  const results: string[] = []
-  for (const a of actions) {
-    try {
-      if (a.type === 'kp' && a.params.length >= 4) {
-        await window.lk.kpUpsert({
-          title: a.params[0],
-          description: a.params.slice(1).join(' | '),
-          mastery: 'unseen',
-          chapterId: null,
-          sort: Date.now()
-        })
-        results.push(`- Knowledge point saved: **${a.params[0]}**`)
-      } else if (a.type === 'summary') {
-        const sid = await window.lk.notesUpsert({
-          title: 'AI Summary: ' + (a.params[0] || '').slice(0, 50),
-          body: a.params[0] || '',
-          kind: 'note',
-          sort: Date.now()
-        })
-        results.push(`- Summary saved as note (id: ${sid.slice(0, 8)})`)
-      } else if (a.type === 'mindmap') {
-        const mid = await window.lk.mindmapUpsert({ title: 'AI Mindmap', body: a.params[0] || '' })
-        results.push(`- Mindmap created (id: ${mid.slice(0, 8)})`)
-      } else if (a.type === 'drawio') {
-        const xml = a.params[0] || ''
-        // Validate XML
-        if (xml.includes('<mxGraphModel') || xml.includes('<mxfile')) {
-          const id = await window.lk.diagUpsert({ title: 'AI Diagram', xml, format: 'drawio' })
-          results.push(`- Draw.io diagram created (id: ${id.slice(0, 8)})`)
-          // Dispatch to DrawioView if it's listening
-          window.dispatchEvent(new CustomEvent('lk:ai-xml-result', { detail: { xml, id } }))
-        } else {
-          results.push('- Draw.io: AI returned invalid XML, not saved')
-        }
-      } else if (a.type === 'plan') {
-        try {
-          const plan = JSON.parse(a.params[0] || '{}')
-          const pid = await window.lk.planUpsert({ title: plan.goal || 'Study Plan', plan_json: JSON.stringify(plan), template: plan.method || 'custom' })
-          results.push(`- Study plan saved (id: ${pid.slice(0, 8)})`)
-        } catch { results.push('- Plan: invalid JSON, not saved') }
-      } else if (a.type === 'note' && a.params.length >= 2) {
-        await window.lk.notesUpsert({ title: a.params[0], body: a.params[1], kind: 'note', sort: Date.now() })
-        results.push(`- Note created: **${a.params[0]}**`)
-      } else if (a.type === 'card' && a.params.length >= 2) {
-        const decks = await window.lk.deckList()
-        let deckId = decks[0]?.id
-        if (!deckId) { const did = await window.lk.uuid(); await window.lk.deckUpsert({ id: did, title: 'Default', sort: 0 }); deckId = did }
-        await window.lk.cardSave({ deckId, front: a.params[0], back: a.params[1], kind: 'qa' })
-        results.push(`- Flashcard created: **${a.params[0].slice(0, 40)}**`)
-      } else if (a.type === 'mindmap_legacy' && a.params.length >= 2) {
-        await window.lk.mindmapUpsert({ title: a.params[0], body: a.params[1] })
-        results.push(`- Mindmap created: **${a.params[0]}**`)
-      } else if (a.type === 'conversation' && a.params[0] === 'create' && a.params[1]) {
-        const id = await window.lk.uuid()
-        await window.lk.convUpsert({ id, group_id: null, title: a.params[1], sort: Date.now() })
-        await chat.refreshConvs(null)
-        results.push(`- Conversation created: **${a.params[1]}**`)
-      } else if (a.type === 'bookmark' && a.params.length >= 2) {
-        await window.lk.bookmarkAdd({ bookId: a.params[0], page: Number(a.params[1]) || 1, label: a.params[2] || 'AI 书签' })
-        results.push(`- Bookmark added: 第 ${a.params[1] || 1} 页`)
-      }
-    } catch (err: any) {
-      results.push(`- Failed [${a.type}]: ${err?.message || err}`)
-    }
+function internalToolRequest(action: ParsedAction): InternalToolInput | null {
+  switch (action.type) {
+    case 'note': return { action: 'create_note', params: { title: action.params[0] || '未命名笔记', body: action.params[1] || '' } }
+    case 'bookmark': return { action: 'add_bookmark', params: { bookId: action.params[0] || '', page: Number(action.params[1]) || 1, label: action.params[2] || 'AI 书签' } }
+    case 'card': return { action: 'create_flashcard_from_error', params: { question: action.params[0] || '', answer: action.params[1] || '' } }
+    case 'exercise_set': return { action: 'create_exercise_set', params: { title: action.params[0] || 'AI 习题集', source: action.params[1] || '' } }
+    case 'flashcard_from_error': return { action: 'create_flashcard_from_error', params: { questionId: action.params[0] || '', deckId: action.params[1] || '' } }
+    default: return null
   }
-  return results.join('\n')
 }
-async function refreshToolHistory() { toolHistory.value = await window.lk.toolRunList(chat.currentConvId || null) }
-watch(toolCenterOpen, (open) => { if (open) refreshToolHistory().catch(() => {}) })
-async function ignoreToolProposals() {
-  for (const proposal of toolProposals.value) {
-    const id = await window.lk.toolRunCreate({ conversationId: chat.currentConvId, actionType: proposal.type, params: JSON.stringify(proposal.params), preview: `已忽略：${proposal.params.join(' · ').slice(0, 120)}` })
-    await window.lk.toolRunComplete(id, 'ignored')
+async function proposeInternalToolActions(actions: ParsedAction[]): Promise<boolean> {
+  const proposals: AiToolProposal[] = []
+  for (const parsed of actions) {
+    const request = internalToolRequest(parsed)
+    if (!request) continue
+    const result = await window.lk.toolProposeInternal(request)
+    if (!result.operationId) continue
+    proposals.push({ id: result.operationId, operationId: result.operationId, type: request.action, preview: result.preview, affected: result.affected, status: result.status })
   }
-  toolProposals.value = []; toolCenterOpen.value = false
-}
-async function applyToolProposals(proposals: AiToolProposal[]) {
-  const summaries: string[] = []
-  for (const proposal of proposals) {
-    const runId = await window.lk.toolRunCreate({ conversationId: chat.currentConvId, actionType: proposal.type, params: JSON.stringify(proposal.params), preview: proposal.params.join(' · ').replace(/\s+/g, ' ').slice(0, 160) })
-    const itemSummary = await executeActions([{ type: proposal.type, params: proposal.params, rawBlock: proposal.rawBlock }])
-    const status = itemSummary.includes('Failed') ? 'failed' : 'applied'
-    await window.lk.toolRunComplete(runId, status, JSON.stringify({ summary: itemSummary }))
-    summaries.push(itemSummary)
-  }
-  const summary = summaries.join('\n')
-  toolProposals.value = []
-  toolCenterOpen.value = false
+  if (!proposals.length) return false
+  toolProposals.value = [...toolProposals.value, ...proposals]
+  toolCenterOpen.value = true
   await refreshToolHistory()
-  if (summary) {
-    const convId = chat.currentConvId
-    if (convId) {
-      const audit: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: `✅ 已确认执行 AI 工具操作：\n${summary}`, model: 'tool-center', sort: Date.now() }
-      await window.lk.msgSave(audit)
-      chat.activeMessages.push(audit)
-    }
-  }
+  return true
+}
+async function refreshToolHistory() { toolHistory.value = await window.lk.toolOperations({ source: 'internal-ai', limit: 40 }) }
+watch(toolCenterOpen, (open) => { if (open) refreshToolHistory().catch(() => {}) })
+async function rejectToolProposals(operationIds: string[]) {
+  await Promise.all(operationIds.map((operationId) => window.lk.toolReject(operationId)))
+  toolProposals.value = toolProposals.value.filter((proposal) => !operationIds.includes(proposal.operationId))
+  await refreshToolHistory()
+}
+async function applyToolProposals(operationIds: string[]) {
+  await Promise.all(operationIds.map((operationId) => window.lk.toolApprove(operationId)))
+  toolProposals.value = toolProposals.value.filter((proposal) => !operationIds.includes(proposal.operationId))
+  await refreshToolHistory()
+}
+async function undoToolOperation(operationId: string) {
+  await window.lk.toolUndo(operationId)
+  await refreshToolHistory()
 }
 
 let removeBeforeCloseListener: (() => void) | null = null
@@ -592,6 +532,7 @@ async function prepareAppClose() {
 }
 
 onMounted(async () => {
+  window.addEventListener('lk:app-status', onAppStatus as EventListener)
   dumpLog(); clearLog()
   log('app_start')
   window.addEventListener('error', (ev) => { console.error('[global]', ev.error || ev.message); log('global_error', String(ev.error || ev.message).slice(0, 100)) })
@@ -647,6 +588,12 @@ async function onNav(e: Event) {
     const block = await window.lk.blockGet(id)
     if (!block) return
     if (block.source_type === 'note') {
+      // A user may click the same location link repeatedly. Clear the reactive
+      // handoff for one render first, otherwise Vue coalesces the same id and
+      // NotesView never receives a second location request.
+      jumpToNoteId.value = null
+      jumpToBlockId.value = null
+      await nextTick()
       switchMode('notes', { noteId: block.source_id, blockId: id })
       tabStore.openTab({ type: 'note', title: '内容块', data: { noteId: block.source_id, blockId: id } })
       return
@@ -665,7 +612,7 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); removeBeforeCloseListener?.(); activeAbort?.() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">
@@ -674,6 +621,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.rem
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .topbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border); }
 .title-area { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+.breadcrumb { display:flex; align-items:center; gap:6px; color:var(--text-dim); font-size:11px; white-space:nowrap; }.breadcrumb i { font-style:normal; color:var(--border-light); }.breadcrumb strong { color:var(--text-secondary); font-weight:600; }
 .title-input { max-width: 360px; background: transparent; }
 .toolbar { display: flex; gap: 8px; }
 .mode-icon { color: var(--accent); font-size: 18px; }
@@ -684,4 +632,5 @@ onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.rem
   50% { box-shadow: 0 0 12px rgba(81,207,102,0.8), 0 0 20px rgba(81,207,102,0.3); }
 }
 .view-slot { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+@media (max-width: 900px) { .breadcrumb { display:none; } .toolbar { gap:4px; } .toolbar :deep(.el-button) { padding-inline:7px; } }
 </style>

@@ -10,6 +10,8 @@ import { registerSearchIpcs } from './search'
 import { registerPrdV3Ipcs } from './prd-v3'
 import { startDrawioServer, stopDrawioServer } from './drawio-server'
 import { registerSafetyIpcs } from './safety'
+import { registerToolIpcs } from './tool-service'
+import { registerOcrIpcs, terminateOcr } from './ocr'
 
 // UI tests run the real app against an isolated disposable profile. Production
 // launches never set this variable and continue to use Electron's normal path.
@@ -93,6 +95,8 @@ app.whenReady().then(async () => {
   registerSearchIpcs(ipcMain)
   registerPrdV3Ipcs(ipcMain)
   registerSafetyIpcs(ipcMain)
+  registerToolIpcs(ipcMain)
+  registerOcrIpcs(ipcMain)
   ipcMain.handle('app:close-ready', () => {
     if (closeFallback) clearTimeout(closeFallback)
     closeFallback = null
@@ -115,6 +119,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   stopDrawioServer()
+  void terminateOcr()
   if (process.platform !== 'darwin') app.quit()
 })
 

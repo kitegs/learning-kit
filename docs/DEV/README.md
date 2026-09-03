@@ -25,3 +25,9 @@
 | 2026-08-13 | DEV-20260813-01-note-safety-links-and-management.md | 笔记安全、位置链接与管理效率 | in progress |
 | 2026-08-13 | DEV-20260813-02-electron-cdp-ui-tests.md | Electron CDP 笔记锚点 UI 测试方案 | done |
 | 2026-08-14 | DEV-20260814-01-notebook-font-outline-clipboard.md | 纸质笔记字体目录与剪贴板图片实现 | done |
+| 2026-08-18 | DEV-20260818-01-experience-unification.md | 体验统一阶段技术方案 | done |
+| 2026-08-24 | DEV-20260824-01-local-ai-mcp-ocr-exercises.md | 本机 AI 工具、MCP、OCR 与习题集技术方案 | impl |
+| 2026-08-31 | DEV-20260831-01-reader-productivity-ocr.md | 电子书效率与离线 OCR 技术方案 | implemented |
+| 2026-09-01 | DEV-20260901-01-compact-note-navigation.md | 紧凑笔记与章节导航实现 | implemented |
+| 2026-09-01 | DEV-20260901-02-global-notebook-layout.md | 所有笔记共用纸页版式实现 | implemented |
+| 2026-09-03 | DEV-20260903-01-product-convergence.md | 产品收敛版本实施方案 | impl |

@@ -31,7 +31,7 @@
           <Section v-if="show('notes') && r.kps.length" title="知识点" :items="r.kps" :label="(it)=>it.title + ' — ' + it.snippet" :sel="selIdx" :start="start.kp" @run="(it) => $emit('jump', { kind: 'kp', id: it.id })" />
         </div>
         <div v-else-if="!query && history.length" class="history-section">
-          <div class="hist-header"><span>Recent Searches</span><button @click="clearHistory">Clear</button></div>
+          <div class="hist-header"><span>最近搜索</span><button @click="clearHistory">清空</button></div>
           <div v-for="(h, i) in history" :key="i" class="hist-item" @click="query = h; input?.focus()">
             <el-icon><Clock /></el-icon>
             <span>{{ h }}</span>
@@ -39,8 +39,8 @@
           </div>
         </div>
         <div v-else class="empty">
-          <p v-if="!query">Type to search across all data</p>
-          <p v-else>No results</p>
+          <p v-if="!query">输入关键词，跨笔记、对话、图书、划线与卡片查找资料</p>
+          <p v-else>没有找到匹配结果。试试缩短关键词或切换范围。</p>
         </div>
       </div>
     </div>

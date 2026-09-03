@@ -1,38 +1,39 @@
 <template>
   <el-drawer :model-value="modelValue" title="AI 工具管理中心" size="420px" @update:model-value="emit('update:modelValue', $event)">
     <p class="intro">AI 只能提出操作建议；写入笔记、对话、图书和复习数据前，必须由你确认。</p>
-    <div v-if="!proposals.length" class="empty"><strong>暂无待确认操作</strong><span>对话中的 AI 可提出：笔记、闪卡、思维导图、计划、新对话或电子书书签。</span></div>
+    <div v-if="!proposals.length" class="empty"><strong>暂无待确认操作</strong><span>AI 提出的本地写入会先显示预览和影响范围，确认后才会执行。</span></div>
     <div v-else class="proposal-list">
-      <label v-for="proposal in proposals" :key="proposal.id" class="proposal" :class="{ disabled: !selected.includes(proposal.id) }">
-        <el-checkbox :model-value="selected.includes(proposal.id)" @update:model-value="toggle(proposal.id)" />
-        <div><strong>{{ toolLabel(proposal.type) }}</strong><p>{{ summary(proposal) }}</p><small>将写入本地学习数据</small></div>
+      <label v-for="proposal in proposals" :key="proposal.operationId" class="proposal" :class="{ disabled: !selected.includes(proposal.operationId) }">
+        <el-checkbox :model-value="selected.includes(proposal.operationId)" @update:model-value="toggle(proposal.operationId)" />
+        <div><strong>{{ toolLabel(proposal.type) }}</strong><p>预览：{{ proposal.preview || '无预览摘要' }}</p><small>影响范围：{{ proposal.affected.join('、') || '待执行时确定' }}</small></div>
       </label>
     </div>
     <el-divider content-position="left">最近执行</el-divider>
     <div v-if="history.length" class="history-list">
       <div v-for="run in history.slice(0, 8)" :key="run.id" class="history-row">
-        <div><strong>{{ toolLabel(run.action_type) }}</strong><p>{{ run.preview || '无预览摘要' }}</p></div>
-        <span :class="`status ${run.status}`">{{ statusLabel(run.status) }}</span>
+        <div><strong>{{ toolLabel(run.action) }}</strong><p>{{ run.preview || '无预览摘要' }}</p><small>影响范围：{{ affectedSummary(run.affected_json) }}</small></div>
+        <div class="history-actions"><span :class="`status ${run.status}`">{{ statusLabel(run.status) }}</span><el-button v-if="run.status === 'applied'" size="small" text @click="emit('undo', run.id)">撤销</el-button></div>
       </div>
     </div>
     <p v-else class="history-empty">确认后的 AI 写入会保留在这里，便于检查。</p>
-    <template #footer><el-button @click="rejectAll">全部忽略</el-button><el-button type="primary" :disabled="!selected.length" @click="apply">确认执行 {{ selected.length }} 项</el-button></template>
+    <template #footer><el-button :disabled="!selected.length" @click="rejectSelected">拒绝选中</el-button><el-button type="primary" :disabled="!selected.length" @click="apply">确认执行 {{ selected.length }} 项</el-button></template>
   </el-drawer>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-export type AiToolProposal = { id: string; type: string; params: string[]; rawBlock: string }
-const props = defineProps<{ modelValue: boolean; proposals: AiToolProposal[]; history: any[] }>()
-const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void; (e: 'apply', proposals: AiToolProposal[]): void; (e: 'reject'): void }>()
+export type AiToolProposal = { id: string; operationId: string; type: string; preview: string; affected: string[]; status: string }
+type ToolHistoryRow = { id: string; action: string; preview?: string | null; status: string; affected_json?: string | null }
+const props = defineProps<{ modelValue: boolean; proposals: AiToolProposal[]; history: ToolHistoryRow[] }>()
+const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void; (e: 'apply', operationIds: string[]): void; (e: 'reject', operationIds: string[]): void; (e: 'undo', operationId: string): void }>()
 const selected = ref<string[]>([])
-watch(() => props.proposals, (items) => { selected.value = items.map((item) => item.id) }, { immediate: true })
+watch(() => props.proposals, (items) => { selected.value = items.map((item) => item.operationId) }, { immediate: true })
 function toggle(id: string) { selected.value = selected.value.includes(id) ? selected.value.filter((value) => value !== id) : [...selected.value, id] }
-function apply() { emit('apply', props.proposals.filter((item) => selected.value.includes(item.id))) }
-function rejectAll() { emit('reject') }
-function toolLabel(type: string) { return ({ note: '创建笔记', card: '创建闪卡', mindmap: '创建思维导图', drawio: '创建 Draw.io 图表', plan: '保存学习计划', summary: '保存摘要笔记', kp: '保存知识点', conversation: '新建对话', bookmark: '添加电子书书签' } as Record<string, string>)[type] || `AI 操作：${type}` }
-function statusLabel(status: string) { return ({ pending: '待执行', applied: '已完成', failed: '失败', ignored: '已忽略' } as Record<string, string>)[status] || status }
-function summary(proposal: AiToolProposal) { const p = proposal.params; if (proposal.type === 'conversation') return p[1] || '新建一个对话'; if (proposal.type === 'bookmark') return `第 ${p[1] || '?'} 页 · ${p[2] || '未命名书签'}`; return (p[0] || p.join(' · ') || 'AI 提出的操作').replace(/\s+/g, ' ').slice(0, 110) }
+function apply() { emit('apply', selected.value) }
+function rejectSelected() { emit('reject', selected.value) }
+function toolLabel(type: string) { return ({ create_note: '创建笔记', add_bookmark: '添加电子书书签', create_exercise_set: '创建习题集', create_flashcard_from_error: '从错题创建闪卡' } as Record<string, string>)[type] || `AI 操作：${type}` }
+function statusLabel(status: string) { return ({ pending_confirmation: '待确认', applied: '已完成', failed: '失败', rejected: '已拒绝', undone: '已撤销' } as Record<string, string>)[status] || status }
+function affectedSummary(raw?: string | null) { try { const items = JSON.parse(raw || '[]') as string[]; return items.join('、') || '无' } catch { return '无' } }
 </script>
 
 <style scoped lang="scss">

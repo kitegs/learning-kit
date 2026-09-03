@@ -1,29 +1,34 @@
 <template>
-  <section class="notebook-shell">
+  <section class="notebook-shell" @keydown.capture="onKeydown" @keyup.capture="onKeyup" @beforeinput.capture="onBeforeInput" @copy.capture="onNotebookCopy" @cut.capture="onNotebookCut" @pointerdown.capture="onPointerDownCapture">
     <div class="notebook-tools">
-      <el-button size="small" text @click="turn(-1)" :disabled="spread === 0">←</el-button>
-      <span class="page-indicator">第 {{ spread * 2 + 1 }}–{{ spread * 2 + 2 }} 页</span>
-      <el-button size="small" text @click="turn(1)">→</el-button>
+      <div class="page-nav"><el-button size="small" text aria-label="上一双页" @click="turn(-1)" :disabled="spread === 0">←</el-button><span class="page-indicator">第 {{ spread * 2 + 1 }}–{{ spread * 2 + 2 }} 页</span><el-button size="small" text aria-label="下一双页" @click="turn(1)">→</el-button></div>
       <el-button size="small" text data-testid="notebook-outline-toggle" :type="outlineOpen ? 'primary' : 'default'" @click="toggleOutline">目录</el-button>
       <span class="tool-sep"></span>
-      <el-button size="small" :type="tool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
-      <el-button size="small" :type="tool === 'pen' ? 'primary' : 'default'" @click="setTool('pen')">画笔</el-button>
-      <el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button>
-      <el-button size="small" :type="tool === 'eraser' ? 'primary' : 'default'" @click="setTool('eraser')">橡皮</el-button>
-      <el-popover placement="bottom-start" :width="310" trigger="click"><template #reference><el-button size="small">画笔设置</el-button></template><div class="tool-popover pen-popover"><div><b>颜色</b><el-color-picker v-model="inkColor" show-alpha @change="saveInkSettings" /><div class="ink-presets"><button v-for="color in inkPresets" :key="color" :style="{ background: color }" :title="color" @click="inkColor=color; saveInkSettings()"></button></div></div><div><b>粗细</b><el-slider v-model="inkWidth" :min="1" :max="16" :step="1" show-input size="small" @change="saveInkSettings" /></div><div><b>荧光</b><el-slider v-model="highlighterOpacity" :min="0.12" :max="0.65" :step="0.01" :format-tooltip="opacityLabel" show-input size="small" @change="saveInkSettings" /></div><small>颜色和粗细同样用于直线、箭头和图形。</small></div></el-popover>
-      <el-popover placement="bottom-start" :width="330" trigger="click"><template #reference><el-button size="small">字体与版式</el-button></template><div class="tool-popover"><div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字体</span><el-select v-model="layout.fontFamily" size="small" data-testid="notebook-font-family" @change="onLayoutChange"><el-option v-for="font in fontOptions" :key="font.value" :label="font.label" :value="font.value" /></el-select><span>字号</span><el-select v-model="layout.fontSize" size="small" data-testid="notebook-font-size" @change="onLayoutChange"><el-option v-for="size in [12, 14, 16, 18, 20, 22, 24, 28, 32]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="48" size="small" @change="onLayoutChange" /><span>纸张宽</span><el-input-number v-model="layout.pageWidth" :min="420" :max="860" :step="20" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="80" size="small" @change="onLayoutChange" /></div></div></el-popover>
-      <el-button size="small" text @click="undo" :disabled="!undoHistory.length">撤销</el-button>
-      <el-button size="small" text @click="redo" :disabled="!redoHistory.length">重做</el-button>
-      <span class="tool-sep"></span>
-      <span class="zoom-hint">Ctrl + 滚轮 · {{ Math.round(viewScale * 100) }}%</span>
-      <el-dropdown class="notebook-more" @command="handleMore"><el-button size="small" text>···</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="clear">清除本页笔迹</el-dropdown-item><el-dropdown-item command="copy" :disabled="!selectedObject">复制选中对象</el-dropdown-item><el-dropdown-item command="smaller" :disabled="!selectedObject">缩小选中对象</el-dropdown-item><el-dropdown-item command="larger" :disabled="!selectedObject">放大选中对象</el-dropdown-item><el-dropdown-item command="delete" :disabled="!selectedObject" divided>删除选中对象</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+      <el-popover v-model:visible="inkSettingsOpen" placement="bottom-start" :width="380" trigger="click">
+        <template #reference><el-button size="small" data-testid="notebook-ink-settings" :type="drawingEnabled ? 'primary' : 'default'">批注参数</el-button></template>
+        <div class="tool-popover pen-popover">
+          <div><b>工具</b><el-button size="small" :type="tool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button><el-button size="small" :type="tool === 'pen' ? 'primary' : 'default'" @click="setTool('pen')">画笔</el-button><el-button size="small" :type="tool === 'highlighter' ? 'primary' : 'default'" @click="setTool('highlighter')">荧光笔</el-button><el-button size="small" :type="tool === 'eraser' ? 'primary' : 'default'" @click="setTool('eraser')">橡皮</el-button></div>
+          <div><b>图形</b><el-button size="small" @click="setTool('line')">直线</el-button><el-button size="small" @click="setTool('arrow')">箭头</el-button><el-button size="small" @click="setTool('rectangle')">方框</el-button><el-button size="small" @click="setTool('ellipse')">圆形</el-button></div>
+          <div><b>画笔色</b><el-color-picker v-model="inkColor" show-alpha @change="saveInkSettings" /><div class="ink-presets"><button v-for="color in inkPresets" :key="color" :style="{ background: color }" :title="color" @click="inkColor=color; saveInkSettings()"></button></div></div>
+          <div><b>画笔粗细</b><el-slider v-model="inkWidth" :min="1" :max="16" :step="1" show-input size="small" @change="saveInkSettings" /></div>
+          <div><b>荧光色</b><el-color-picker v-model="highlighterColor" @change="saveInkSettings" /><div class="ink-presets"><button v-for="color in highlighterPresets" :key="color" :style="{ background: color }" :title="color" @click="highlighterColor=color; saveInkSettings()"></button></div></div>
+          <div><b>荧光宽度</b><el-slider v-model="highlighterWidth" :min="4" :max="30" :step="1" show-input size="small" @change="saveInkSettings" /></div>
+          <div><b>透明度</b><el-slider v-model="highlighterOpacity" :min="0.08" :max="0.55" :step="0.01" :format-tooltip="opacityLabel" show-input size="small" @change="saveInkSettings" /></div>
+          <small>画笔设置也用于直线、箭头和图形；荧光笔使用独立颜色、宽度与透明度。</small>
+        </div>
+      </el-popover>
+      <el-popover placement="bottom-start" :width="350" trigger="click"><template #reference><el-button size="small">版式</el-button></template><div class="tool-popover"><div class="global-layout-row"><b>应用范围</b><el-switch v-model="globalLayoutEnabled" data-testid="notebook-global-layout" @change="onGlobalLayoutToggle" /><span>所有笔记共用此版式</span></div><small>{{ globalLayoutEnabled ? '已开启：现有笔记和新笔记都会使用这里的版式。' : '已关闭：当前笔记单独保存版式。' }}</small><div><b>纸张</b><el-button size="small" @click="setTool('hand')">移动纸张</el-button><el-button size="small" @click="resetView">居中</el-button></div><div class="layout-grid"><span>字体</span><el-select v-model="layout.fontFamily" size="small" data-testid="notebook-font-family" @change="onLayoutChange"><el-option v-for="font in fontOptions" :key="font.value" :label="font.label" :value="font.value" /></el-select><span>字号</span><el-select v-model="layout.fontSize" size="small" data-testid="notebook-font-size" @change="onLayoutChange"><el-option v-for="size in [12, 14, 16, 18, 20, 22, 24, 28, 32]" :key="size" :label="`${size}px`" :value="size" /></el-select><span>每页行</span><el-input-number v-model="layout.linesPerPage" :min="12" :max="48" size="small" @change="onLayoutChange" /><span>纸张宽</span><el-input-number v-model="layout.pageWidth" :min="420" :max="860" :step="20" size="small" @change="onLayoutChange" /><span>每行字</span><el-input-number v-model="layout.charsPerLine" :min="12" :max="80" size="small" @change="onLayoutChange" /></div></div></el-popover>
+      <el-button size="small" text @click="undo" :disabled="!undoHistory.length">撤销</el-button><el-button size="small" text @click="redo" :disabled="!redoHistory.length">重做</el-button>
+      <span class="tool-sep"></span><span class="zoom-hint">Ctrl + 滚轮 · {{ Math.round(viewScale * 100) }}%</span>
+      <span v-if="wholeNotebookSelected" class="whole-selection-hint" aria-live="polite">已全选整本 · {{ selectedPaperCount }} 页</span>
+      <el-dropdown class="notebook-more" @command="handleMore"><el-button size="small" text>···</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="selectAll">全选整本笔记</el-dropdown-item><el-dropdown-item command="clear">清除本页笔迹</el-dropdown-item><el-dropdown-item command="copy" :disabled="!selectedObject">复制选中对象</el-dropdown-item><el-dropdown-item command="smaller" :disabled="!selectedObject">缩小选中对象</el-dropdown-item><el-dropdown-item command="larger" :disabled="!selectedObject">放大选中对象</el-dropdown-item><el-dropdown-item command="delete" :disabled="!selectedObject" divided>删除选中对象</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
     </div>
     <aside v-if="outlineOpen" class="notebook-outline" data-testid="notebook-outline">
       <header><strong>笔记目录</strong><button title="关闭目录" @click="outlineOpen=false">×</button></header>
       <button v-for="item in outlineItems" :key="item.id" class="outline-entry" :style="{ paddingLeft: `${10 + (item.level - 1) * 16}px` }" @click="goToHeading(item)"><span>{{ item.text }}</span><small>{{ item.spread * 2 + (item.side === 'left' ? 1 : 2) }}</small></button>
       <p v-if="!outlineItems.length">还没有标题。选中文字后使用 H1/H2/H3 即可生成目录。</p>
     </aside>
-    <div class="book-table" :class="{ grabbing: panning }" tabindex="0" @wheel="onWheel" @keydown="onKeydown" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
+    <div class="book-table" :class="{ grabbing: panning, 'hand-tool': tool === 'hand', 'whole-selected': wholeNotebookSelected }" tabindex="0" @wheel="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper" :style="paperStyle">
@@ -52,19 +57,21 @@ import katex from 'katex'
 import { ElMessage } from 'element-plus'
 
 type Point = [number, number, number]
-type InkObject = { id: string; kind: 'stroke' | 'line' | 'arrow' | 'rectangle' | 'ellipse'; color: string; width: number; opacity?: number; points?: Point[]; start?: Point; end?: Point }
+type InkObject = { id: string; kind: 'stroke' | 'line' | 'arrow' | 'rectangle' | 'ellipse'; color: string; width: number; opacity?: number; blendMode?: 'source-over' | 'multiply'; points?: Point[]; start?: Point; end?: Point }
 type Sheet = { left: string; right: string; leftInk: string; rightInk: string; leftObjects: InkObject[]; rightObjects: InkObject[] }
 type FontFamily = 'kaiti' | 'songti' | 'sans' | 'serif' | 'mono'
 type NotebookLayout = { fontSize: number; fontFamily: FontFamily; linesPerPage: number; charsPerLine: number; pageWidth: number }
-type InkSettings = { color: string; width: number; highlighterOpacity: number }
+type InkSettings = { color: string; width: number; highlighterColor: string; highlighterWidth: number; highlighterOpacity: number }
 type NotebookData = { pages: Sheet[]; layout: NotebookLayout; ink: InkSettings }
 const MARKER = '<!-- lk:notebook:v1 -->\n'
 const DEFAULT_LAYOUT: NotebookLayout = { fontSize: 18, fontFamily: 'kaiti', linesPerPage: 18, charsPerLine: 28, pageWidth: 560 }
+const GLOBAL_LAYOUT_ENABLED_KEY = 'lk_notebook_global_layout_enabled_v1'
+const GLOBAL_LAYOUT_KEY = 'lk_notebook_global_layout_v1'
 const fontOptions: Array<{ value: FontFamily; label: string }> = [
   { value: 'kaiti', label: '楷体（手写感）' }, { value: 'songti', label: '宋体（书页）' },
   { value: 'sans', label: '微软雅黑' }, { value: 'serif', label: '衬线体' }, { value: 'mono', label: '等宽字体' }
 ]
-const DEFAULT_INK: InkSettings = { color: '#4d4a42', width: 3, highlighterOpacity: .28 }
+const DEFAULT_INK: InkSettings = { color: '#4d4a42', width: 3, highlighterColor: '#ffe066', highlighterWidth: 12, highlighterOpacity: .22 }
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -72,6 +79,7 @@ const emit = defineEmits<{
   (e: 'open-ai', value: { context: string; label: string; action?: string }): void
   (e: 'create-location-link', value: { spread: number; anchorId: string; quote: string }): void
   (e: 'link-selection', value: { label: string }): void
+  (e: 'outline-change', value: OutlineItem[]): void
 }>()
 const menu = useContextMenu()
 const leftText = ref<HTMLElement | null>(null)
@@ -80,18 +88,25 @@ const leftCanvas = ref<HTMLCanvasElement | null>(null)
 const rightCanvas = ref<HTMLCanvasElement | null>(null)
 const pages = ref<Sheet[]>([])
 const layout = ref<NotebookLayout>({ ...DEFAULT_LAYOUT })
+const globalLayoutEnabled = ref(localStorage.getItem(GLOBAL_LAYOUT_ENABLED_KEY) === 'true')
 const spread = ref(0)
 const activeSide = ref<'left' | 'right'>('left')
+const wholeNotebookSelected = ref(false)
+const selectedPaperCount = computed(() => Math.max(1, pages.value.length * 2))
 const outlineOpen = ref(false)
-type OutlineItem = { id: string; text: string; level: number; spread: number; side: 'left' | 'right' }
+type OutlineItem = { id: string; text: string; level: number; spread: number; side: 'left' | 'right'; page: number }
 const outlineItems = ref<OutlineItem[]>([])
 let savedTextRange: Range | null = null
 type Tool = 'text' | 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
 const tool = ref<Tool>('text')
+const inkSettingsOpen = ref(false)
 const inkColor = ref(DEFAULT_INK.color)
 const inkWidth = ref(DEFAULT_INK.width)
+const highlighterColor = ref(DEFAULT_INK.highlighterColor)
+const highlighterWidth = ref(DEFAULT_INK.highlighterWidth)
 const highlighterOpacity = ref(DEFAULT_INK.highlighterOpacity)
 const inkPresets = ['#4d4a42', '#315b8a', '#b44b45', '#3d8a64', '#d58b22', '#7049a6']
+const highlighterPresets = ['#ffe066', '#ffb3c1', '#a7f3d0', '#a5d8ff', '#d8b4fe', '#ffd8a8']
 const viewScale = ref(1)
 const panX = ref(0)
 const panY = ref(0)
@@ -103,7 +118,8 @@ let startPoint: Point | null = null
 let currentObject: InkObject | null = null
 let dragLast: Point | null = null
 const selectedObject = ref<{ side: 'left' | 'right'; id: string } | null>(null)
-let panning = false
+const panning = ref(false)
+let spacePanHeld = false
 let panStart = { x: 0, y: 0, left: 0, top: 0 }
 let lastSerialized = ''
 const undoHistory = ref<string[]>([])
@@ -111,11 +127,78 @@ const redoHistory = ref<string[]>([])
 const MAX_HISTORY = 80
 
 function blank(): Sheet { return { left: '', right: '', leftInk: '', rightInk: '', leftObjects: [], rightObjects: [] } }
+function looksLikeFormulaSource(value: string) {
+  return /\\(?:frac|left|right|lim|int|iint|sum|prod|begin|end|mathrm|text|cdot|partial|quad)|[_^]\s*(?:\{|[A-Za-z0-9])/m.test(value)
+}
+function restoreBracketMathDelimiters(value: string) {
+  const lines = value.replace(/\r\n?/g, '\n').split('\n')
+  let changed = false
+  for (let start = 0; start < lines.length; start += 1) {
+    if (lines[start].trim() !== '[') continue
+    const endOffset = lines.slice(start + 1).findIndex((line) => line.trim() === ']')
+    if (endOffset < 0) continue
+    const end = start + endOffset + 1
+    const source = lines.slice(start + 1, end).join('\n')
+    if (!looksLikeFormulaSource(source)) continue
+    lines[start] = '\\['
+    lines[end] = '\\]'
+    changed = true
+    start = end
+  }
+  return changed ? lines.join('\n') : value
+}
+function repairLegacyFormulaBlocks(html: string) {
+  if (!html || !html.includes('[') || !html.includes(']')) return html
+  const holder = document.createElement('div')
+  holder.innerHTML = html
+  let changed = false
+  for (let guard = 0; guard < 100; guard += 1) {
+    const blocks = Array.from(holder.children)
+    const start = blocks.findIndex((block) => block.textContent?.trim() === '[' && !block.hasAttribute('data-lk-bracket-scanned'))
+    if (start < 0) break
+    const endOffset = blocks.slice(start + 1).findIndex((block) => block.textContent?.trim() === ']')
+    if (endOffset < 0) break
+    const end = start + endOffset + 1
+    const source = blocks.slice(start + 1, end).map((block) => block.textContent || '').join('\n').trim()
+    if (!looksLikeFormulaSource(source)) {
+      blocks[start].setAttribute('data-lk-bracket-scanned', 'true')
+      continue
+    }
+    const replacement = document.createElement('div')
+    replacement.innerHTML = formulaMarkup(source, true)
+    const formula = replacement.firstElementChild
+    if (!formula) break
+    blocks[start].replaceWith(formula)
+    for (const block of blocks.slice(start + 1, end + 1)) block.remove()
+    changed = true
+  }
+  holder.querySelectorAll('[data-lk-bracket-scanned]').forEach((block) => block.removeAttribute('data-lk-bracket-scanned'))
+  return changed ? holder.innerHTML : html
+}
 function normaliseSheet(value: Partial<Sheet>): Sheet {
-  return { ...blank(), ...value, leftObjects: Array.isArray(value.leftObjects) ? value.leftObjects : [], rightObjects: Array.isArray(value.rightObjects) ? value.rightObjects : [] }
+  return { ...blank(), ...value, left: repairLegacyFormulaBlocks(value.left || ''), right: repairLegacyFormulaBlocks(value.right || ''), leftObjects: Array.isArray(value.leftObjects) ? value.leftObjects : [], rightObjects: Array.isArray(value.rightObjects) ? value.rightObjects : [] }
 }
 function validPages(value: unknown): Sheet[] {
   return Array.isArray(value) && value.length ? value.map((page) => normaliseSheet(page || {})) : [blank()]
+}
+function normaliseLayout(value: Partial<NotebookLayout> | null | undefined): NotebookLayout {
+  const fontFamily = fontOptions.some((font) => font.value === value?.fontFamily) ? value!.fontFamily! : DEFAULT_LAYOUT.fontFamily
+  return {
+    fontFamily,
+    fontSize: Math.max(12, Math.min(32, Number(value?.fontSize) || DEFAULT_LAYOUT.fontSize)),
+    linesPerPage: Math.max(12, Math.min(48, Number(value?.linesPerPage) || DEFAULT_LAYOUT.linesPerPage)),
+    charsPerLine: Math.max(12, Math.min(80, Number(value?.charsPerLine) || DEFAULT_LAYOUT.charsPerLine)),
+    pageWidth: Math.max(420, Math.min(860, Number(value?.pageWidth) || DEFAULT_LAYOUT.pageWidth))
+  }
+}
+function readGlobalLayout() {
+  try {
+    const value = JSON.parse(localStorage.getItem(GLOBAL_LAYOUT_KEY) || 'null')
+    return value && typeof value === 'object' ? normaliseLayout(value) : null
+  } catch { return null }
+}
+function saveGlobalLayout() {
+  localStorage.setItem(GLOBAL_LAYOUT_KEY, JSON.stringify(normaliseLayout(layout.value)))
 }
 function parse(value: string): NotebookData {
   if (value.startsWith(MARKER)) {
@@ -124,7 +207,7 @@ function parse(value: string): NotebookData {
       if (Array.isArray(data.pages) && data.pages.length) {
         return {
           pages: validPages(data.pages),
-          layout: { ...DEFAULT_LAYOUT, ...(data.layout || {}) },
+          layout: normaliseLayout(data.layout),
           ink: { ...DEFAULT_INK, ...(data.ink || {}) }
         }
       }
@@ -134,7 +217,7 @@ function parse(value: string): NotebookData {
 }
 function serialize() {
   if (!pages.value.length) pages.value = [blank()]
-  return MARKER + JSON.stringify({ pages: validPages(pages.value), layout: layout.value, ink: { color: inkColor.value, width: inkWidth.value, highlighterOpacity: highlighterOpacity.value } })
+  return MARKER + JSON.stringify({ pages: validPages(pages.value), layout: layout.value, ink: { color: inkColor.value, width: inkWidth.value, highlighterColor: highlighterColor.value, highlighterWidth: highlighterWidth.value, highlighterOpacity: highlighterOpacity.value } })
 }
 const lineHeight = computed(() => Math.max(30, Math.round(layout.value.fontSize * 1.85)))
 const paperStyle = computed(() => ({ '--notebook-line-height': `${lineHeight.value}px`, '--notebook-paper-height': `${Math.max(520, lineHeight.value * layout.value.linesPerPage + 88)}px`, '--notebook-page-width': `${Math.max(420, Math.min(860, layout.value.pageWidth))}px` }))
@@ -149,10 +232,10 @@ function syncPage() {
   paint(leftCanvas.value, page.leftInk, page.leftObjects, selectedObject.value?.side === 'left' ? selectedObject.value.id : null)
   paint(rightCanvas.value, page.rightInk, page.rightObjects, selectedObject.value?.side === 'right' ? selectedObject.value.id : null)
 }
-function syncOut() {
+function syncOut(recordHistory = true) {
   const next = serialize()
   if (next === lastSerialized) return
-  if (lastSerialized) {
+  if (recordHistory && lastSerialized) {
     undoHistory.value.push(lastSerialized)
     if (undoHistory.value.length > MAX_HISTORY) undoHistory.value.shift()
     redoHistory.value = []
@@ -162,6 +245,7 @@ function syncOut() {
   emit('dirty')
 }
 function turn(direction: number) {
+  wholeNotebookSelected.value = false
   const next = spread.value + direction
   if (next < 0) return
   if (next >= pages.value.length) pages.value.push(blank())
@@ -169,13 +253,14 @@ function turn(direction: number) {
   nextTick(syncPage)
 }
 function onText(side: 'left' | 'right', event: Event) {
+  wholeNotebookSelected.value = false
   while (pages.value.length <= spread.value) pages.value.push(blank())
   const page = pages.value[spread.value]
   page[side] = (event.currentTarget as HTMLElement).innerHTML
   syncOut()
   nextTick(() => {
     reflowFrom(spread.value, side)
-    if (outlineOpen.value) refreshOutline()
+    refreshOutline()
   })
 }
 
@@ -196,12 +281,13 @@ function refreshOutline() {
         }
         seen.add(id)
         const text = (heading.textContent || '').trim() || '未命名标题'
-        items.push({ id, text, level: Number(heading.tagName.slice(1)), spread: pageIndex, side })
+        items.push({ id, text, level: Number(heading.tagName.slice(1)), spread: pageIndex, side, page: pageIndex * 2 + (side === 'left' ? 1 : 2) })
       })
       if (changed && page[side] !== holder.innerHTML) page[side] = holder.innerHTML
     }
   })
   outlineItems.value = items
+  emit('outline-change', items.map((item) => ({ ...item })))
   if (changed) {
     syncOut()
     nextTick(syncPage)
@@ -227,6 +313,10 @@ function goToHeading(item: OutlineItem) {
     window.setTimeout(() => heading.classList.remove('heading-revealed'), 1600)
   }
   nextTick(() => window.requestAnimationFrame(locate))
+}
+function goToHeadingId(id: string) {
+  const item = outlineItems.value.find((heading) => heading.id === id)
+  if (item) goToHeading(item)
 }
 function applyHeading(level: 1 | 2 | 3) {
   const element = anchorElement()
@@ -277,14 +367,54 @@ function tableFromText(rows: string[]) {
   const body = rows.map((row) => `<tr>${row.split('\t').map((cell) => `<td>${escapeHtml(cell.trim())}</td>`).join('')}</tr>`).join('')
   return `<table class="lk-paste-table"><tbody>${body}</tbody></table>`
 }
+const appLinkPattern = /app:\/\/(?:note|block|book|conv|kp)\/[A-Za-z0-9._~-]+(?:\?[^\s<>()\[\]]*)?/g
+function linkifyAppLinks(value: string) {
+  let output = ''
+  let cursor = 0
+  for (const match of value.matchAll(appLinkPattern)) {
+    const index = match.index ?? 0
+    const href = match[0]
+    output += escapeHtml(value.slice(cursor, index))
+    output += `<a class="lk-app-link" href="${escapeHtml(href)}" title="点击跳转到引用位置">${escapeHtml(href)}</a>`
+    cursor = index + href.length
+  }
+  return output + escapeHtml(value.slice(cursor))
+}
+function linkifyInlineAppMarkdown(value: string) {
+  const pattern = /\[([^\]\n]+)\]\((app:\/\/(?:note|block|book|conv|kp)\/[A-Za-z0-9._~-]+(?:\?[^\s<>()\[\]]*)?)\)/g
+  let output = ''
+  let cursor = 0
+  for (const match of value.matchAll(pattern)) {
+    const index = match.index ?? 0
+    output += linkifyAppLinks(value.slice(cursor, index))
+    output += `<a class="lk-app-link" href="${escapeHtml(match[2])}" title="点击跳转到引用位置">${escapeHtml(match[1])}</a>`
+    cursor = index + match[0].length
+  }
+  return output + linkifyAppLinks(value.slice(cursor))
+}
 function plainPasteMarkup(value: string) {
-  const rows = value.replace(/\r\n?/g, '\n').split('\n')
+  const rows = restoreBracketMathDelimiters(value).replace(/\r\n?/g, '\n').split('\n')
   if (rows.length > 1 && rows.every((row) => row.includes('\t'))) return tableFromText(rows)
   return rows.map((line) => {
     const formula = getFormula(line)
     if (formula) return `<p>${formulaMarkup(formula.source, formula.display)}</p>`
-    return line ? `<p>${escapeHtml(line)}</p>` : '<p><br></p>'
+    return line ? `<p>${linkifyInlineAppMarkdown(line)}</p>` : '<p><br></p>'
   }).join('')
+}
+function looksLikeMarkdownPaste(value: string) {
+  return restoreBracketMathDelimiters(value) !== value || /(^|\n)\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+[.)]\s+|```|~~~|\|[^\n]+\|)|\*\*[^\n*]+\*\*|__[^\n_]+__|\$\$[\s\S]+?\$\$|\$[^$\n]+\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)/m.test(value)
+}
+function markdownPasteMarkup(value: string) {
+  const holder = document.createElement('div')
+  holder.innerHTML = renderMarkdown(restoreBracketMathDelimiters(value))
+  holder.querySelectorAll<HTMLElement>('.katex-block').forEach((element) => {
+    element.classList.add('lk-formula-block')
+    element.contentEditable = 'false'
+  })
+  holder.querySelectorAll<HTMLElement>('.katex').forEach((element) => { element.contentEditable = 'false' })
+  holder.querySelectorAll('table').forEach((table) => table.classList.add('lk-paste-table'))
+  holder.querySelectorAll<HTMLAnchorElement>('a[href^="app://"]').forEach((anchor) => anchor.classList.add('lk-app-link'))
+  return holder.innerHTML
 }
 function structuredPasteMarkup(value: string) {
   const clean = DOMPurify.sanitize(value, {
@@ -299,6 +429,7 @@ function structuredPasteMarkup(value: string) {
 function onPaste(side: 'left' | 'right', event: ClipboardEvent) {
   const clipboard = event.clipboardData
   if (!clipboard) return
+  const replaceWholeNotebook = wholeNotebookSelected.value
   const imageItem = Array.from(clipboard.items || []).find((item) => item.kind === 'file' && item.type.startsWith('image/'))
   const imageFile = imageItem?.getAsFile() || Array.from(clipboard.files || []).find((file) => file.type.startsWith('image/'))
   if (imageFile) {
@@ -309,6 +440,12 @@ function onPaste(side: 'left' | 'right', event: ClipboardEvent) {
     const savedRange = selection?.rangeCount && target.contains(selection.getRangeAt(0).commonAncestorContainer) ? selection.getRangeAt(0).cloneRange() : null
     const reader = new FileReader()
     reader.onload = () => {
+      const src = String(reader.result || '')
+      if (replaceWholeNotebook) {
+        replaceWholeNotebookWith(`<p><img src="${src}" alt="${escapeHtml(imageFile.name || '剪贴板截图')}" /></p>`)
+        ElMessage.success('截图已替换整本笔记内容')
+        return
+      }
       if (!target.isConnected) { ElMessage.warning('笔记已切换，已取消粘贴截图'); return }
       target.focus()
       if (savedRange) {
@@ -316,7 +453,6 @@ function onPaste(side: 'left' | 'right', event: ClipboardEvent) {
         currentSelection?.removeAllRanges()
         currentSelection?.addRange(savedRange)
       }
-      const src = String(reader.result || '')
       document.execCommand('insertHTML', false, `<img src="${src}" alt="${escapeHtml(imageFile.name || '剪贴板截图')}" />`)
       while (pages.value.length <= targetSpread) pages.value.push(blank())
       pages.value[targetSpread][side] = target.innerHTML
@@ -331,8 +467,17 @@ function onPaste(side: 'left' | 'right', event: ClipboardEvent) {
   event.preventDefault()
   const html = clipboard.getData('text/html')
   const text = clipboard.getData('text/plain')
-  const structured = /<(?:table|ul|ol|img|pre|h[1-4])\b/i.test(html)
-  const markup = structured ? structuredPasteMarkup(html) : plainPasteMarkup(text || html.replace(/<[^>]*>/g, ' '))
+  const structured = /<(?:table|ul|ol|img|pre|a|h[1-4])\b/i.test(html)
+  // Clipboard HTML from AI/web pages is often a rendered companion of the
+  // original Markdown. Prefer the plain Markdown source so multiline math,
+  // headings, lists, blockquotes and tables go through one complete parser.
+  const markup = text && looksLikeMarkdownPaste(text)
+    ? markdownPasteMarkup(text)
+    : structured ? structuredPasteMarkup(html) : plainPasteMarkup(text || html.replace(/<[^>]*>/g, ' '))
+  if (replaceWholeNotebook) {
+    replaceWholeNotebookWith(markup)
+    return
+  }
   const target = event.currentTarget as HTMLElement
   target.focus()
   document.execCommand('insertHTML', false, markup)
@@ -406,6 +551,32 @@ function splitRenderedHtml(html: string, probe: HTMLElement): [string, string] {
         return [head.innerHTML, tail.innerHTML]
       }
       break
+    }
+  }
+  // A list/blockquote can be the only top-level block and still exceed one
+  // page. Split it at child boundaries before falling back to character-level
+  // Range extraction, which can otherwise leave empty list markers behind.
+  if (holder.childElementCount === 1) {
+    const container = holder.firstElementChild as HTMLElement
+    if (['OL', 'UL', 'BLOCKQUOTE'].includes(container.tagName) && container.children.length > 1) {
+      const head = container.cloneNode(false) as HTMLElement
+      const tail = container.cloneNode(false) as HTMLElement
+      const children = Array.from(container.children)
+      for (let index = 0; index < children.length; index += 1) {
+        head.appendChild(children[index].cloneNode(true))
+        probe.innerHTML = head.outerHTML
+        if (!hasVisualOverflow(probe)) continue
+        head.lastElementChild?.remove()
+        if (head.children.length) {
+          for (const child of children.slice(index)) tail.appendChild(child.cloneNode(true))
+          if (container.tagName === 'OL') {
+            const start = Number(container.getAttribute('start') || 1)
+            tail.setAttribute('start', String(start + head.children.length))
+          }
+          return [head.outerHTML, tail.outerHTML]
+        }
+        break
+      }
     }
   }
   const length = htmlTextLength(html)
@@ -498,7 +669,9 @@ function reflowFrom(startIndex: number, startSide: 'left' | 'right') {
   const flowedForward = paginateOverflow(startIndex, startSide)
   const flowedBackward = refillAvailableSpace(startIndex, startSide)
   if (!flowedForward && !flowedBackward) return
-  syncOut()
+  // Reflow is the layout result of the preceding edit, not a separate user action.
+  // Keep Ctrl+Z at one press per edit instead of first restoring an overflowing page.
+  syncOut(false)
   nextTick(syncPage)
 }
 function paginateAll() {
@@ -508,7 +681,7 @@ function paginateAll() {
     changed = paginateOverflow(index, 'right') || changed
   }
   changed = refillAvailableSpace(0, 'left') || changed
-  if (changed) syncOut()
+  if (changed) syncOut(false)
   nextTick(syncPage)
 }
 function onLayoutChange() {
@@ -517,8 +690,20 @@ function onLayoutChange() {
   layout.value.linesPerPage = Number(layout.value.linesPerPage)
   layout.value.charsPerLine = Number(layout.value.charsPerLine)
   layout.value.pageWidth = Math.max(420, Math.min(860, Number(layout.value.pageWidth) || DEFAULT_LAYOUT.pageWidth))
+  if (globalLayoutEnabled.value) saveGlobalLayout()
   syncOut()
   nextTick(paginateAll)
+}
+function onGlobalLayoutToggle(enabled: boolean | string | number) {
+  globalLayoutEnabled.value = Boolean(enabled)
+  localStorage.setItem(GLOBAL_LAYOUT_ENABLED_KEY, String(globalLayoutEnabled.value))
+  if (globalLayoutEnabled.value) {
+    saveGlobalLayout()
+    syncOut()
+    ElMessage.success('已将当前版式设为所有笔记的共用版式')
+  } else {
+    ElMessage.info('已关闭共用版式；之后每篇笔记可单独调整')
+  }
 }
 function currentCanvas(side: 'left' | 'right') { return side === 'left' ? leftCanvas.value : rightCanvas.value }
 function point(canvas: HTMLCanvasElement, event: PointerEvent): Point { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height, Math.max(.1, event.pressure || .5)] }
@@ -547,6 +732,7 @@ function offsetObject(object: InkObject, dx: number, dy: number) {
 }
 function startInk(side: 'left' | 'right', event: PointerEvent) {
   const canvas = currentCanvas(side); if (!canvas) return
+  canvas.closest<HTMLElement>('.book-table')?.focus({ preventScroll: true })
   const p = point(canvas, event)
   if (tool.value === 'select') {
     const hit = findObject(side, p)
@@ -567,7 +753,14 @@ function startInk(side: 'left' | 'right', event: PointerEvent) {
   if (!drawingEnabled.value) return
   drawing = true; drawingSide = side; canvas.setPointerCapture(event.pointerId); startPoint = p
   currentObject = (tool.value === 'pen' || tool.value === 'highlighter')
-    ? { id: newObjectId(), kind: 'stroke', color: inkColor.value, width: inkWidth.value * 3, opacity: tool.value === 'highlighter' ? highlighterOpacity.value : 1, points: [p] }
+    ? {
+        id: newObjectId(), kind: 'stroke',
+        color: tool.value === 'highlighter' ? highlighterColor.value : inkColor.value,
+        width: (tool.value === 'highlighter' ? highlighterWidth.value : inkWidth.value) * 3,
+        opacity: tool.value === 'highlighter' ? highlighterOpacity.value : 1,
+        blendMode: tool.value === 'highlighter' ? 'multiply' : 'source-over',
+        points: [p]
+      }
     : null
   if (currentObject) pages.value[spread.value][objectKey(side)].push(currentObject)
 }
@@ -593,7 +786,9 @@ function endInk(event: PointerEvent) {
 }
 function clearInk() { const page = pages.value[spread.value]; if (activeSide.value === 'left') { page.leftInk = ''; page.leftObjects = [] } else { page.rightInk = ''; page.rightObjects = [] }; selectedObject.value = null; syncPage(); syncOut() }
 function restore(serialized: string) {
-  const data = parse(serialized); pages.value = data.pages; layout.value = data.layout; inkColor.value = data.ink.color; inkWidth.value = data.ink.width; highlighterOpacity.value = data.ink.highlighterOpacity; spread.value = 0; lastSerialized = serialized
+  wholeNotebookSelected.value = false
+  const currentSpread = spread.value
+  const data = parse(serialized); pages.value = data.pages; layout.value = data.layout; inkColor.value = data.ink.color; inkWidth.value = data.ink.width; highlighterColor.value = data.ink.highlighterColor; highlighterWidth.value = data.ink.highlighterWidth; highlighterOpacity.value = data.ink.highlighterOpacity; spread.value = Math.min(currentSpread, Math.max(0, pages.value.length - 1)); lastSerialized = serialized
   nextTick(syncPage)
   emit('update:modelValue', serialized); emit('dirty')
 }
@@ -605,12 +800,124 @@ function redo() {
   const next = redoHistory.value.pop(); if (!next) return
   undoHistory.value.push(lastSerialized); restore(next)
 }
+function notebookPages() {
+  return pages.value.flatMap((sheet, index) => [
+    { page: index * 2 + 1, html: sheet.left },
+    { page: index * 2 + 2, html: sheet.right }
+  ])
+}
+function pagePlainText(html: string) {
+  const holder = document.createElement('div')
+  holder.innerHTML = html
+  holder.querySelectorAll('br').forEach((breakElement) => breakElement.replaceWith('\n'))
+  holder.querySelectorAll('th,td').forEach((cell) => cell.append('\t'))
+  holder.querySelectorAll('p,div,li,blockquote,h1,h2,h3,h4,tr,pre').forEach((block) => block.append('\n'))
+  return (holder.textContent || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+function notebookClipboardPayload() {
+  const entries = notebookPages()
+  return {
+    plain: entries.map(({ page, html }) => `—— 第 ${page} 页 ——\n${pagePlainText(html)}`).join('\n\n').trim(),
+    html: `<div data-lk-notebook-selection="true">${entries.map(({ page, html }) => `<div data-lk-page="${page}"><p><strong>第 ${page} 页</strong></p>${html}</div>`).join('')}</div>`
+  }
+}
+function selectWholeNotebook() {
+  wholeNotebookSelected.value = true
+  savedTextRange = null
+  selectedObject.value = null
+  window.getSelection()?.removeAllRanges()
+}
+function replaceWholeNotebookWith(markup: string) {
+  pages.value = [{ ...blank(), left: markup }]
+  spread.value = 0
+  wholeNotebookSelected.value = false
+  savedTextRange = null
+  selectedObject.value = null
+  window.getSelection()?.removeAllRanges()
+  syncOut()
+  nextTick(() => {
+    syncPage()
+    leftText.value?.focus()
+    reflowFrom(0, 'left')
+  })
+}
+function clearWholeNotebook() {
+  replaceWholeNotebookWith('')
+  ElMessage.success('已清空整本笔记，可用 Ctrl+Z 撤销')
+}
+function writeNotebookClipboard(event: ClipboardEvent) {
+  const payload = notebookClipboardPayload()
+  event.preventDefault()
+  event.stopPropagation()
+  event.clipboardData?.setData('text/plain', payload.plain)
+  event.clipboardData?.setData('text/html', payload.html)
+}
+function onNotebookCopy(event: ClipboardEvent) {
+  if (!wholeNotebookSelected.value) return
+  writeNotebookClipboard(event)
+  ElMessage.success(`已复制整本笔记（${selectedPaperCount.value} 页）`)
+}
+function onNotebookCut(event: ClipboardEvent) {
+  if (!wholeNotebookSelected.value) return
+  writeNotebookClipboard(event)
+  clearWholeNotebook()
+}
+function onBeforeInput(event: InputEvent) {
+  if (!wholeNotebookSelected.value) return
+  if (event.inputType.startsWith('delete')) {
+    event.preventDefault()
+    clearWholeNotebook()
+    return
+  }
+  if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
+    event.preventDefault()
+    replaceWholeNotebookWith('<p><br></p>')
+    return
+  }
+  if (event.inputType.startsWith('insert') && event.data != null) {
+    event.preventDefault()
+    replaceWholeNotebookWith(`<p>${escapeHtml(event.data)}</p>`)
+  }
+}
+function onPointerDownCapture(event: PointerEvent) {
+  if (event.button === 0 && wholeNotebookSelected.value) wholeNotebookSelected.value = false
+}
 function onKeydown(event: KeyboardEvent) {
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
-  event.preventDefault(); if (event.shiftKey) redo(); else undo()
+  const key = event.key.toLowerCase()
+  if (event.code === 'Space' && !(event.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')) {
+    spacePanHeld = true
+    event.preventDefault()
+    return
+  }
+  if (wholeNotebookSelected.value && (key === 'escape' || key === 'esc')) {
+    event.preventDefault()
+    event.stopPropagation()
+    wholeNotebookSelected.value = false
+    return
+  }
+  if (wholeNotebookSelected.value && (key === 'delete' || key === 'backspace')) {
+    event.preventDefault()
+    event.stopPropagation()
+    clearWholeNotebook()
+    return
+  }
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (key === 'a') {
+    event.preventDefault()
+    event.stopPropagation()
+    selectWholeNotebook()
+    return
+  }
+  if (key !== 'z' && key !== 'y') return
+  event.preventDefault()
+  event.stopPropagation()
+  if (key === 'y' || event.shiftKey) redo(); else undo()
+}
+function onKeyup(event: KeyboardEvent) {
+  if (event.code === 'Space') spacePanHeld = false
 }
 function drawObject(context: CanvasRenderingContext2D, object: InkObject) {
-  context.save(); context.strokeStyle = object.color; context.fillStyle = object.color; context.lineWidth = object.width; context.globalAlpha = object.opacity ?? 1; context.lineCap = 'round'; context.lineJoin = 'round'
+  context.save(); context.strokeStyle = object.color; context.fillStyle = object.color; context.lineWidth = object.width; context.globalAlpha = object.opacity ?? 1; context.globalCompositeOperation = object.blendMode || ((object.opacity ?? 1) < 1 ? 'multiply' : 'source-over'); context.lineCap = 'round'; context.lineJoin = 'round'
   if (object.kind === 'stroke' && object.points?.length) {
     const outline = getStroke(object.points, { size: object.width, thinning: .55, smoothing: .55, streamline: .45, simulatePressure: false })
     if (outline.length) { context.beginPath(); context.moveTo(outline[0][0], outline[0][1]); for (const point of outline.slice(1)) context.lineTo(point[0], point[1]); context.closePath(); context.fill() }
@@ -667,9 +974,10 @@ function scaleSelected(factor: number) {
   object.width = Math.max(1, object.width * factor)
   syncPage(); syncOut()
 }
-function setTool(next: Tool) { tool.value = tool.value === next ? 'text' : next }
-function handleMore(command: string) { if (command === 'clear') clearInk(); if (command === 'copy') duplicateSelected(); if (command === 'smaller') scaleSelected(.85); if (command === 'larger') scaleSelected(1.15); if (command === 'delete') deleteSelected() }
+function setTool(next: Tool) { wholeNotebookSelected.value = false; tool.value = tool.value === next ? 'text' : next }
+function handleMore(command: string) { if (command === 'selectAll') selectWholeNotebook(); if (command === 'clear') clearInk(); if (command === 'copy') duplicateSelected(); if (command === 'smaller') scaleSelected(.85); if (command === 'larger') scaleSelected(1.15); if (command === 'delete') deleteSelected() }
 function togglePen() { setTool('pen') }
+function openInkSettings() { inkSettingsOpen.value = true }
 function saveInkSettings() { syncOut() }
 function opacityLabel(value: number) { return `${Math.round(value * 100)}%` }
 function zoomBy(delta: number) { viewScale.value = Math.max(.45, Math.min(2.5, Number((viewScale.value + delta).toFixed(2)))) }
@@ -679,9 +987,24 @@ function onWheel(event: WheelEvent) {
   event.preventDefault()
   zoomBy(event.deltaY > 0 ? -.08 : .08)
 }
-function startPan(event: PointerEvent) { if (tool.value !== 'hand') return; panning = true; panStart = { x: event.clientX, y: event.clientY, left: panX.value, top: panY.value }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) }
-function movePan(event: PointerEvent) { if (!panning) return; panX.value = panStart.left + event.clientX - panStart.x; panY.value = panStart.top + event.clientY - panStart.y }
-function endPan() { panning = false }
+function startPan(event: PointerEvent) {
+  if (event.button !== 0 && event.button !== 1) return
+  const target = event.target as HTMLElement
+  const container = event.currentTarget as HTMLElement
+  const blankWorkspace = target === container || Boolean(target.closest('.book-cover-shadow,.spine'))
+  if (tool.value !== 'hand' && !blankWorkspace && event.button !== 1 && !spacePanHeld) return
+  event.preventDefault()
+  panning.value = true
+  panStart = { x: event.clientX, y: event.clientY, left: panX.value, top: panY.value }
+  container.setPointerCapture(event.pointerId)
+}
+function movePan(event: PointerEvent) {
+  if (!panning.value) return
+  event.preventDefault()
+  panX.value = panStart.left + event.clientX - panStart.x
+  panY.value = panStart.top + event.clientY - panStart.y
+}
+function endPan() { panning.value = false }
 function onContextMenu(event: MouseEvent) {
   const clickedText = (event.target as HTMLElement).closest('.paper-text')
   if (clickedText === leftText.value) activeSide.value = 'left'
@@ -693,6 +1016,7 @@ function onContextMenu(event: MouseEvent) {
   const selected = savedTextRange?.toString().trim() || ''
   const context = selected || getText()
   const common = [
+    { label: '全选整本笔记', icon: 'Select' as any, action: selectWholeNotebook },
     { label: '在笔记内打开 AI 小窗口', icon: 'ChatDotRound' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字' : '当前双页' }) },
     { label: 'AI 解释', icon: 'Reading' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 解释' : '当前双页 · 解释', action: '请解释这段笔记。' }) },
     { label: 'AI 润色', icon: 'EditPen' as any, action: () => emit('open-ai', { context, label: selected ? '已选文字 · 润色' : '当前双页 · 润色', action: '请润色这段笔记。' }) },
@@ -703,6 +1027,7 @@ function onContextMenu(event: MouseEvent) {
     { label: '链接到笔记位置…', icon: 'Connection' as any, action: () => emit('link-selection', { label: selected }) },
   ]
   const draw = [
+    { label: '批注参数…', icon: 'Setting' as any, action: openInkSettings },
     { label: '选择对象', icon: 'Pointer' as any, action: () => setTool('select') },
     { label: '画笔', icon: 'EditPen' as any, action: () => setTool('pen') },
     { label: '荧光笔', icon: 'Brush' as any, action: () => setTool('highlighter') },
@@ -717,6 +1042,7 @@ function onContextMenu(event: MouseEvent) {
   menu.open(event, [...common, { separator: true }, ...links, { separator: true }, { label: '画笔工具', icon: 'Brush' as any, children: draw }, ...objectActions, { label: '撤销', icon: 'RefreshLeft' as any, action: undo }, { label: '重做', icon: 'RefreshRight' as any, action: redo }, { label: '重置纸张视图', icon: 'Aim' as any, action: resetView }, { label: '清除当前页笔迹', icon: 'Delete' as any, danger: true, action: clearInk }])
 }
 function onPaperClick(event: MouseEvent) {
+  wholeNotebookSelected.value = false
   const anchor = (event.target as HTMLElement).closest('a')
   const href = anchor?.getAttribute('href') || ''
   if (!href.startsWith('app://')) return
@@ -798,29 +1124,57 @@ function revealAnchor(target: number, anchorId: string) {
   }
   nextTick(() => window.requestAnimationFrame(revealWhenReady))
 }
-defineExpose({ insertHtml, insertImage, insertFormula, togglePen, toggleOutline, applyHeading, undo, redo, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, wrapSelectionWithLink, revealAnchor })
+defineExpose({ insertHtml, insertImage, insertFormula, togglePen, openInkSettings, toggleOutline, applyHeading, undo, redo, selectWholeNotebook, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, goToHeadingId, wrapSelectionWithLink, revealAnchor })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
   const data = parse(value || '')
+  const sharedLayout = globalLayoutEnabled.value ? readGlobalLayout() : null
   pages.value = data.pages
-  layout.value = data.layout
+  layout.value = sharedLayout || data.layout
+  if (globalLayoutEnabled.value && !sharedLayout) saveGlobalLayout()
   inkColor.value = data.ink.color
   inkWidth.value = data.ink.width
+  highlighterColor.value = data.ink.highlighterColor
+  highlighterWidth.value = data.ink.highlighterWidth
   highlighterOpacity.value = data.ink.highlighterOpacity
   spread.value = 0
-  lastSerialized = value?.startsWith(MARKER) ? value : serialize()
+  const normalisedValue = serialize()
+  const repairedLegacyFormula = Boolean(value?.startsWith(MARKER) && normalisedValue !== value)
+  lastSerialized = value?.startsWith(MARKER) ? value : normalisedValue
   undoHistory.value = []; redoHistory.value = []
-  nextTick(() => { syncPage(); paginateAll() })
+  nextTick(() => {
+    syncPage()
+    paginateAll()
+    refreshOutline()
+    if (repairedLegacyFormula) syncOut(false)
+  })
 }, { immediate: true })
 </script>
 
 <style scoped lang="scss">
+.page-nav { display:flex; align-items:center; gap:1px; flex:none; }
+.whole-selection-hint { padding:3px 8px; white-space:nowrap; color:#1f3b2d; background:#d8f3df; border:1px solid rgba(55,121,80,.45); border-radius:999px; font-weight:700; }
+.global-layout-row>span { color:var(--text); font-size:12px; }
 .notebook-shell { position:relative; flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:linear-gradient(135deg,#91806c,#c4b59d 45%,#74604e); }.notebook-tools { display:flex; align-items:center; gap:5px; min-height:34px; padding:4px 12px; color:#f4eee5; background:rgba(45,31,22,.68); font-size:12px; flex-wrap:nowrap; overflow-x:auto; }.page-indicator,.zoom-hint { white-space:nowrap; }.zoom-hint { color:#ede3d3; font-size:11px; }.tool-sep { height:18px; width:1px; margin:0 3px; background:rgba(255,255,255,.3); flex:none; }.tool-popover { display:grid; gap:10px; color:var(--text); }.tool-popover>div { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }.tool-popover b { min-width:34px; color:var(--text-dim); font-size:11px; }.tool-popover small { color:var(--text-dim); font-size:11px; }.pen-popover :deep(.el-slider) { flex:1; min-width:180px; }.ink-presets { display:flex; gap:5px; }.ink-presets button { width:19px; height:19px; border:2px solid #fff; outline:1px solid var(--border); border-radius:50%; cursor:pointer; }.layout-grid { display:grid !important; grid-template-columns:42px 1fr; align-items:center; }.notebook-more { margin-left:auto; }.notebook-outline { position:absolute; z-index:8; left:10px; top:48px; bottom:12px; width:240px; overflow:auto; color:var(--text); background:color-mix(in srgb,var(--bg-elev) 94%,transparent); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); backdrop-filter:blur(10px); }.notebook-outline header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:var(--bg-elev); border-bottom:1px solid var(--border); }.notebook-outline header button { border:0; background:transparent; color:var(--text); cursor:pointer; font-size:18px; }.notebook-outline .outline-entry { display:flex; justify-content:space-between; gap:8px; width:100%; padding-block:8px; padding-right:10px; border:0; border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent); background:transparent; color:var(--text); text-align:left; cursor:pointer; }.notebook-outline .outline-entry:hover { background:var(--bg-hover); color:var(--accent-text); }.notebook-outline .outline-entry span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.notebook-outline .outline-entry small,.notebook-outline>p { color:var(--text-dim); }.notebook-outline>p { padding:12px; font-size:12px; line-height:1.6; }.book-table { position:relative; display:flex; flex:1; min-height:0; align-items:flex-start; justify-content:center; padding:22px max(22px, 6vw) 30px; overflow:auto; }.book-table.grabbing { cursor:grabbing; }.book-spread { position:relative; display:flex; align-items:stretch; transform-origin:center center; transition:transform .12s ease-out; margin:auto; }.book-cover-shadow { position:absolute; left:12%; right:12%; bottom:18px; height:28px; border-radius:50%; background:rgba(37,24,14,.46); filter:blur(13px); }.paper { position:relative; z-index:1; flex:0 1 620px; width:min(43vw,620px); min-width:320px; height:var(--notebook-paper-height); min-height:520px; overflow:hidden; background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--notebook-line-height) - 2px), rgba(87,151,184,.27) calc(var(--notebook-line-height) - 1px), transparent var(--notebook-line-height)), linear-gradient(90deg, transparent 0, transparent 55px, rgba(216,88,88,.55) 56px, transparent 58px), radial-gradient(circle at 20% 10%, rgba(118,96,58,.11) 0 1px, transparent 1.5px), #fffdf5; background-size:auto var(--notebook-line-height),auto,17px 19px,auto; border:1px solid #d7c6a7; box-shadow:inset 0 0 36px rgba(121,92,45,.12), 0 14px 25px rgba(38,26,16,.3); }.left-paper { border-radius:7px 2px 2px 14px; }.right-paper { border-radius:2px 7px 14px 2px; }.spine { z-index:2; width:18px; margin:0 -4px; background:linear-gradient(90deg,rgba(48,31,20,.42),rgba(247,235,205,.85) 42%,rgba(56,38,25,.46)); box-shadow:0 0 12px rgba(25,17,10,.52); }.page-number { position:absolute; right:23px; bottom:18px; z-index:3; color:#84775e; font:12px Georgia,serif; }.paper-text { position:relative; z-index:1; height:100%; padding:28px 38px 44px 76px; box-sizing:border-box; outline:none; color:#3b352a; overflow:hidden; overflow-wrap:anywhere; caret-color:#315b8a; }.paper-text:empty::before { content:attr(data-placeholder); color:#aaa08c; pointer-events:none; }.paper-text :deep(p) { margin:0; min-height:var(--notebook-line-height); }.paper-text :deep(img) { max-width:100%; max-height:280px; vertical-align:middle; }.paper-text :deep(.lk-formula) { display:inline-block; max-width:100%; padding:0 6px; border-bottom:1px dashed #7289a3; color:#315b8a; font-family:Georgia,serif; vertical-align:middle; }.paper-text :deep(.lk-formula-block) { display:block; margin:8px 0; overflow-x:auto; text-align:center; }.paper-text :deep(table) { width:100%; max-width:100%; margin:7px 0; border-collapse:collapse; table-layout:auto; font-size:.88em; }.paper-text :deep(th),.paper-text :deep(td) { min-width:42px; padding:4px 6px; border:1px solid rgba(108,91,61,.42); vertical-align:top; overflow-wrap:anywhere; }.paper-text :deep(th) { background:rgba(131,109,72,.12); font-weight:700; }.paper-text :deep(.lk-paste-table) { display:table; }.ink { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; touch-action:none; }.ink.active { pointer-events:auto; cursor:crosshair; }.paper:has(.ink.active) .paper-text { user-select:none; }
 .layout-grid { grid-template-columns:58px 1fr; }
+.book-table { cursor:grab; }
+.book-table.hand-tool .paper-text { cursor:grab; user-select:none; }
+.book-table.grabbing,.book-table.grabbing .paper-text { cursor:grabbing; }
+.book-table.whole-selected { box-shadow:inset 0 0 0 4px rgba(71,142,97,.78),inset 0 0 0 9999px rgba(90,160,112,.08); }
+.book-table.whole-selected::after { content:'整本笔记已选中 · Ctrl+C 复制 · Delete 删除 · Esc 取消'; position:sticky; z-index:7; left:50%; top:12px; align-self:flex-start; transform:translateX(-50%); padding:7px 12px; color:#173d28; background:rgba(226,248,232,.96); border:1px solid rgba(57,126,80,.62); border-radius:9px; box-shadow:0 8px 24px rgba(24,65,39,.2); font-size:12px; font-weight:700; pointer-events:none; }
+.pen-popover b { min-width:58px; }
+.ink { mix-blend-mode:multiply; }
 .book-spread { flex:none; max-width:none; }
 .paper { flex:0 0 var(--notebook-page-width); width:var(--notebook-page-width); max-width:none; }
 .paper-text :deep(table) { table-layout:fixed; }
+.paper-text :deep(h1),.paper-text :deep(h2),.paper-text :deep(h3),.paper-text :deep(h4) { margin:8px 0 5px; line-height:1.35; color:#332f27; }
+.paper-text :deep(h1) { font-size:1.45em; }.paper-text :deep(h2) { font-size:1.3em; }.paper-text :deep(h3) { font-size:1.16em; }.paper-text :deep(h4) { font-size:1.05em; }
+.paper-text :deep(ol),.paper-text :deep(ul) { margin:4px 0 7px; padding-left:1.65em; }.paper-text :deep(li) { min-height:var(--notebook-line-height); padding-left:2px; }.paper-text :deep(li>p) { margin:0; }
+.paper-text :deep(blockquote) { margin:6px 0; padding:3px 10px; border-left:3px solid rgba(74,112,148,.55); background:rgba(102,139,172,.08); }.paper-text :deep(blockquote>p) { margin:0; }
+.paper-text :deep(hr) { margin:10px 0; border:0; border-top:1px solid rgba(108,91,61,.35); }
+.paper-text :deep(.katex-block) { max-width:100%; margin:7px 0; padding:3px 0; overflow-x:auto; overflow-y:hidden; text-align:center; }
+.paper-text :deep(a[href^="app://"]) { color:#315b8a; font-weight:600; text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; cursor:pointer; }
 .paper-text :deep(th),.paper-text :deep(td) { min-width:0; }
 .paper-text :deep(pre) { max-width:100%; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 .paper-text :deep(.lk-note-anchor) { display:inline-block; width:2px; height:1.1em; margin-left:-2px; vertical-align:middle; border-radius:2px; }

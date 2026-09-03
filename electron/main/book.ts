@@ -53,6 +53,7 @@ export function registerBookIpcs(ipc: typeof ipcMain): void {
     const sets: string[] = []; const vals: any[] = []
     if (patch.title !== undefined) { sets.push('title=?'); vals.push(patch.title) }
     if (patch.author !== undefined) { sets.push('author=?'); vals.push(patch.author) }
+    if (patch.cover !== undefined) { sets.push('cover=?'); vals.push(patch.cover) }
     if (patch.total_pages !== undefined) { sets.push('total_pages=?'); vals.push(patch.total_pages) }
     if (patch.last_page !== undefined) { sets.push('last_page=?'); vals.push(patch.last_page) }
     if (!sets.length) return false

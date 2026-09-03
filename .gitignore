@@ -8,3 +8,22 @@ dev.out.log
 dev.err.log
 dev.log
 install.log
+.superpowers/
+docs/superpowers/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+
+# Local user data and test artifacts
+data/
+userData/
+backups/
+coverage/
+test-results/
+playwright-report/

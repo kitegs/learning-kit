@@ -36,7 +36,7 @@
           @blur="onKeyBlur"
           @change="onKeyBlur"
         />
-        <span v-if="s.apiKeys[s.provider]" class="key-saved">saved</span>
+        <span v-if="s.apiKeys[s.provider]" class="key-saved">已保存</span>
       </el-form-item>
 
       <el-form-item label="Base URL" v-if="s.provider === 'custom'">
@@ -45,10 +45,10 @@
 
       <el-form-item label="连接测试">
         <el-button size="small" :loading="testing" @click="testConnection">
-          {{ testing ? 'Testing...' : 'Test Connection' }}
+          {{ testing ? '正在测试…' : '测试连接' }}
         </el-button>
         <span v-if="testResult" :class="testResult.ok ? 'test-ok' : 'test-fail'">
-          {{ testResult.ok ? 'OK: ' + (testResult.reply || '').slice(0, 60) : 'FAIL: ' + testResult.error }}
+          {{ testResult.ok ? '连接成功：' + (testResult.reply || '').slice(0, 60) : '连接失败：' + testResult.error }}
         </span>
       </el-form-item>
 
@@ -89,7 +89,7 @@
       <div class="shortcuts">
         <div v-for="(_, key) in s.shortcuts" :key="key" class="shortcut-row">
           <span class="sc-label">{{ shortcutLabels[key] || key }}</span>
-          <el-input v-model="s.shortcuts[key]" size="small" style="width:180px" placeholder="eg Ctrl+Shift+N" />
+          <el-input v-model="s.shortcuts[key]" size="small" style="width:180px" placeholder="例如 Ctrl+Shift+N" />
         </div>
         <el-button size="small" @click="resetShortcuts" style="margin-top:6px">重置为默认</el-button>
       </div>

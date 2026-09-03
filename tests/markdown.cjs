@@ -3,6 +3,7 @@
 
 const { JSDOM } = require('jsdom')
 const createDOMPurify = require('dompurify')
+const { readFileSync } = require('fs')
 
 // Provide a minimal DOM for DOMPurify
 const dom = new JSDOM('<!DOCTYPE html>')
@@ -17,9 +18,17 @@ const katex = require('katex')
 marked.setOptions({ breaks: true, gfm: true })
 
 function renderKatex(text) {
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, formula) => {
+    try { return '<div class="katex-block">' + katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false }) + '</div>' }
+    catch { return '<pre>' + formula + '</pre>' }
+  })
   text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, formula) => {
     try { return '<div class="katex-block">' + katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false }) + '</div>' }
     catch { return '<pre>' + formula + '</pre>' }
+  })
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, formula) => {
+    try { return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false }) }
+    catch { return '\\(' + formula + '\\)' }
   })
   text = text.replace(/\$(.*?)\$/g, (_, formula) => {
     try { return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false }) }
@@ -134,6 +143,19 @@ t('mixed content', () => {
   includes(r, '<strong>')
   includes(r, '<em>')
   includes(r, '<code>')
+})
+
+t('notebook paste fixture keeps multiline math, list items and table', () => {
+  const source = readFileSync('tests/fixtures/notebook-paste-math.md', 'utf8')
+  const r = renderMarkdown(source)
+  includes(r, 'katex-block')
+  includes(r, '<ol>')
+  includes(r, '观察')
+  includes(r, '触发词')
+  includes(r, '操作')
+  includes(r, '<table>')
+  assert(!r.includes('$$'), 'display-math delimiters should not remain visible')
+  assert(!r.includes('\\['), 'LaTeX display delimiters should not remain visible')
 })
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n')

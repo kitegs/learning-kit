@@ -12,3 +12,10 @@
 | 2026-08-13 | BUG-20260813-01-note-id-and-empty-page-overwrite.md | 新建笔记报错与空页覆盖 | fixed |
 | 2026-08-13 | BUG-20260813-02-anchor-navigation-runtime-races.md | 锚点创建与跨笔记定位运行时竞态 | fixed |
 | 2026-08-14 | BUG-20260814-01-clipboard-screenshot-paste.md | 纸质笔记无法粘贴剪贴板截图 | fixed |
+| 2026-08-31 | BUG-20260831-01-shortcut-sticky-page-race.md | 快捷键冲突与便签跨页竞态 | fixed |
+| 2026-09-01 | BUG-20260901-01-notebook-ink-undo-settings.md | 纸质笔记荧光笔、撤销与批注参数入口失效 | fixed |
+| 2026-09-01 | BUG-20260901-02-pdf-annotation-opacity.md | 电子书手绘荧光笔透明度累积与参数入口缺失 | fixed |
+| 2026-09-01 | BUG-20260901-03-pdf-zoom-reading-anchor.md | 电子书缩放后返回当前页顶部 | fixed |
+| 2026-09-01 | BUG-20260901-04-notebook-markdown-paste-loss.md | 纸质笔记粘贴 Markdown 时公式、列表和表格异常 | fixed |
+| 2026-09-01 | BUG-20260901-05-notebook-whole-select.md | Ctrl+A 只能选择当前纸页 | fixed |
+| 2026-09-01 | BUG-20260901-06-notebook-blank-pan.md | 笔记工作区空白处无法拖动纸张 | fixed |

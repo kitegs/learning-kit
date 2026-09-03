@@ -319,6 +319,117 @@ CREATE TABLE IF NOT EXISTS entity_attributes (
   UNIQUE(entity_type, entity_id, attr_key)
 );
 CREATE INDEX IF NOT EXISTS idx_attributes_entity ON entity_attributes(entity_type, entity_id);
+
+-- Durable learning-operation, exercise and OCR records.
+CREATE TABLE IF NOT EXISTS exercise_sets (
+  id            TEXT PRIMARY KEY,
+  title         TEXT NOT NULL,
+  source_json   TEXT NOT NULL,
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS exercise_questions (
+  id           TEXT PRIMARY KEY,
+  set_id       TEXT NOT NULL,
+  type         TEXT NOT NULL,
+  prompt       TEXT NOT NULL,
+  answer_json  TEXT NOT NULL,
+  explanation  TEXT,
+  difficulty   TEXT,
+  tags_json    TEXT NOT NULL DEFAULT '[]',
+  source_json  TEXT NOT NULL DEFAULT '[]',
+  sort         INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_exercise_questions_set ON exercise_questions(set_id, sort);
+
+CREATE TABLE IF NOT EXISTS exercise_attempts (
+  id            TEXT PRIMARY KEY,
+  question_id   TEXT NOT NULL,
+  answer_json   TEXT NOT NULL DEFAULT 'null',
+  correct       INTEGER,
+  self_rating   TEXT,
+  feedback      TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_exercise_attempts_question ON exercise_attempts(question_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ocr_jobs (
+  id           TEXT PRIMARY KEY,
+  book_id      TEXT NOT NULL,
+  pages_json   TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'draft',
+  result_json  TEXT,
+  error        TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  confirmed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_book ON ocr_jobs(book_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ocr_blocks (
+  id           TEXT PRIMARY KEY,
+  job_id       TEXT NOT NULL,
+  book_id      TEXT NOT NULL,
+  page         INTEGER NOT NULL,
+  text         TEXT NOT NULL DEFAULT '',
+  x            REAL,
+  y            REAL,
+  w            REAL,
+  h            REAL,
+  status       TEXT NOT NULL DEFAULT 'draft',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  sort         INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ocr_blocks_book_page ON ocr_blocks(book_id, page, status, sort);
+CREATE INDEX IF NOT EXISTS idx_ocr_blocks_job ON ocr_blocks(job_id, sort);
+
+CREATE TABLE IF NOT EXISTS book_outline_overrides (
+  id           TEXT PRIMARY KEY,
+  book_id      TEXT NOT NULL,
+  parent_id    TEXT,
+  title        TEXT NOT NULL,
+  page         INTEGER,
+  anchor       TEXT,
+  sort         INTEGER NOT NULL DEFAULT 0,
+  source_json  TEXT NOT NULL DEFAULT '{}',
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_outline_overrides_book ON book_outline_overrides(book_id, parent_id, sort);
+
+CREATE TABLE IF NOT EXISTS tool_operations (
+  id             TEXT PRIMARY KEY,
+  source         TEXT NOT NULL,
+  action         TEXT NOT NULL,
+  params_json    TEXT NOT NULL,
+  preview        TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  affected_json  TEXT NOT NULL DEFAULT '[]',
+  snapshots_json TEXT NOT NULL DEFAULT '[]',
+  result_json    TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tool_operations_created ON tool_operations(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_operations_status ON tool_operations(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_pending_requests (
+  id            TEXT PRIMARY KEY,
+  operation_id  TEXT NOT NULL,
+  request_json  TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',
+  result_json   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_pending_status ON mcp_pending_requests(status, created_at);
 `
 
 function migrate(d: Database): void {
@@ -329,7 +440,7 @@ function migrate(d: Database): void {
   }
 
   // Soft delete: add deleted_at to tables that need it
-  for (const table of ['conversations', 'messages', 'notes', 'books', 'mindmaps', 'groups']) {
+  for (const table of ['conversations', 'messages', 'notes', 'books', 'mindmaps', 'groups', 'chapters', 'knowledge_points']) {
     const cols = tableCols(table)
     if (!cols.includes('deleted_at')) { try { d.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at INTEGER`) } catch {} }
   }
@@ -380,6 +491,10 @@ function migrate(d: Database): void {
     if (!blockCols.includes(col)) { try { d.exec(`ALTER TABLE content_blocks ADD COLUMN ${col} ${type}`) } catch {} }
   }
   d.exec('CREATE INDEX IF NOT EXISTS idx_blocks_anchor ON content_blocks(source_type, source_id, anchor_key)')
+
+  // PRD v3 compatibility: older databases created sections before content_hash was introduced.
+  const sectionCols = tableCols('sections')
+  if (!sectionCols.includes('content_hash')) { try { d.exec('ALTER TABLE sections ADD COLUMN content_hash TEXT') } catch {} }
 }
 
 export async function initDb(): Promise<Database> {

@@ -3,7 +3,10 @@
 // Tests use sql.js directly — no Electron window needed.
 
 const initSqlJs = require('sql.js')
+const assert = require('assert')
+const { readFileSync } = require('fs')
 const { performance } = require('perf_hooks')
+const ts = require('typescript')
 
 let db
 let pass = 0
@@ -34,6 +37,23 @@ function schema() {
     CREATE TABLE IF NOT EXISTS mindmaps (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',drawing TEXT,annotations TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS links (id TEXT PRIMARY KEY,source_type TEXT NOT NULL,source_id TEXT NOT NULL,target_type TEXT NOT NULL,target_id TEXT NOT NULL,relation TEXT NOT NULL DEFAULT 'related',created_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS code_snippets (id TEXT PRIMARY KEY,language TEXT NOT NULL,code TEXT NOT NULL,description TEXT,source TEXT,tags TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS exercise_sets (id TEXT PRIMARY KEY,title TEXT NOT NULL,source_json TEXT NOT NULL,settings_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS exercise_questions (id TEXT PRIMARY KEY,set_id TEXT NOT NULL,type TEXT NOT NULL,prompt TEXT NOT NULL,answer_json TEXT NOT NULL,explanation TEXT,difficulty TEXT,tags_json TEXT NOT NULL DEFAULT '[]',source_json TEXT NOT NULL DEFAULT '[]',sort INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS idx_exercise_questions_set ON exercise_questions(set_id, sort);
+    CREATE TABLE IF NOT EXISTS exercise_attempts (id TEXT PRIMARY KEY,question_id TEXT NOT NULL,answer_json TEXT NOT NULL DEFAULT 'null',correct INTEGER,self_rating TEXT,feedback TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS idx_exercise_attempts_question ON exercise_attempts(question_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS ocr_jobs (id TEXT PRIMARY KEY,book_id TEXT NOT NULL,pages_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',result_json TEXT,error TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')),confirmed_at TEXT);
+    CREATE INDEX IF NOT EXISTS idx_ocr_jobs_book ON ocr_jobs(book_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS ocr_blocks (id TEXT PRIMARY KEY,job_id TEXT NOT NULL,book_id TEXT NOT NULL,page INTEGER NOT NULL,text TEXT NOT NULL DEFAULT '',x REAL,y REAL,w REAL,h REAL,status TEXT NOT NULL DEFAULT 'draft',metadata_json TEXT NOT NULL DEFAULT '{}',sort INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS idx_ocr_blocks_book_page ON ocr_blocks(book_id, page, status, sort);
+    CREATE INDEX IF NOT EXISTS idx_ocr_blocks_job ON ocr_blocks(job_id, sort);
+    CREATE TABLE IF NOT EXISTS book_outline_overrides (id TEXT PRIMARY KEY,book_id TEXT NOT NULL,parent_id TEXT,title TEXT NOT NULL,page INTEGER,anchor TEXT,sort INTEGER NOT NULL DEFAULT 0,source_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS idx_outline_overrides_book ON book_outline_overrides(book_id, parent_id, sort);
+    CREATE TABLE IF NOT EXISTS tool_operations (id TEXT PRIMARY KEY,source TEXT NOT NULL,action TEXT NOT NULL,params_json TEXT NOT NULL,preview TEXT,status TEXT NOT NULL DEFAULT 'pending',affected_json TEXT NOT NULL DEFAULT '[]',snapshots_json TEXT NOT NULL DEFAULT '[]',result_json TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')),completed_at TEXT);
+    CREATE INDEX IF NOT EXISTS idx_tool_operations_created ON tool_operations(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_tool_operations_status ON tool_operations(status, created_at DESC);
+    CREATE TABLE IF NOT EXISTS mcp_pending_requests (id TEXT PRIMARY KEY,operation_id TEXT NOT NULL,request_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',result_json TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')),resolved_at TEXT);
+    CREATE INDEX IF NOT EXISTS idx_mcp_pending_status ON mcp_pending_requests(status, created_at);
   `)
 }
 
@@ -46,6 +66,77 @@ function test(name, fn) {
 
 async function testAsync(name, fn) {
   try { await fn(); ok(name) } catch (e) { fail_(name, e) }
+}
+
+// --- Test: durable learning-operation schema declarations ---
+function testLearningOperationSchemaDeclarations() {
+  const dbSource = readFileSync('electron/main/db.ts', 'utf8')
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS exercise_sets/)
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS ocr_blocks/)
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS tool_operations/)
+}
+
+// --- Test: PDF cover previews can be persisted through the existing book update IPC ---
+function testBookCoverUpdateSupport() {
+  const bookSource = readFileSync('electron/main/book.ts', 'utf8')
+  assert.match(bookSource, /patch\.cover !== undefined/)
+}
+
+// --- Test: confirmed internal AI tool proposal flow ---
+function testConfirmedInternalAiToolFlow() {
+  const appSource = readFileSync('src/App.vue', 'utf8')
+  const centerSource = readFileSync('src/components/AiToolCenter.vue', 'utf8')
+  const promptSource = readFileSync('resources/promt/system.txt', 'utf8')
+  assert.match(appSource, /toolProposeInternal/)
+  assert.match(appSource, /toolApprove/)
+  assert.match(appSource, /toolReject/)
+  assert.match(appSource, /toolOperations/)
+  assert.match(appSource, /toolUndo/)
+  assert.doesNotMatch(appSource, /executeActions/)
+  assert.match(centerSource, /预览/)
+  assert.match(centerSource, /影响范围/)
+  assert.match(centerSource, /撤销/)
+  assert.match(promptSource, /exercise_set/)
+  assert.match(promptSource, /flashcard_from_error/)
+}
+
+// --- Test: durable learning-operation schema runtime contract ---
+function testLearningOperationSchemaRuntime() {
+  const tables = new Set(db.exec("SELECT name FROM sqlite_master WHERE type='table'")[0].values.map(row => row[0]))
+  for (const table of [
+    'exercise_sets', 'exercise_questions', 'exercise_attempts', 'ocr_jobs',
+    'ocr_blocks', 'book_outline_overrides', 'tool_operations', 'mcp_pending_requests'
+  ]) {
+    if (!tables.has(table)) throw new Error(`missing durable table: ${table}`)
+  }
+
+  const indexes = new Set(db.exec("SELECT name FROM sqlite_master WHERE type='index'")[0].values.map(row => row[0]))
+  for (const index of [
+    'idx_exercise_questions_set', 'idx_exercise_attempts_question', 'idx_ocr_jobs_book',
+    'idx_ocr_blocks_book_page', 'idx_ocr_blocks_job', 'idx_outline_overrides_book',
+    'idx_tool_operations_created', 'idx_tool_operations_status', 'idx_mcp_pending_status'
+  ]) {
+    if (!indexes.has(index)) throw new Error(`missing durable index: ${index}`)
+  }
+
+  const setId = uuid(), questionId = uuid(), attemptId = uuid()
+  db.run('INSERT INTO exercise_sets(id,title,source_json) VALUES(?,?,?)', [setId, 'schema exercise set', '["app://block/source-1"]'])
+  db.run('INSERT INTO exercise_questions(id,set_id,type,prompt,answer_json) VALUES(?,?,?,?,?)', [questionId, setId, 'single', 'schema question', '["A"]'])
+  db.run('INSERT INTO exercise_attempts(id,question_id,answer_json,correct) VALUES(?,?,?,?)', [attemptId, questionId, '["A"]', 1])
+  const attempt = db.exec('SELECT correct FROM exercise_attempts WHERE id=?', [attemptId])
+  if (attempt[0].values[0][0] !== 1) throw new Error('exercise attempt was not persisted')
+
+  const jobId = uuid(), blockId = uuid()
+  db.run('INSERT INTO ocr_jobs(id,book_id,pages_json) VALUES(?,?,?)', [jobId, 'book-1', '[3]'])
+  db.run('INSERT INTO ocr_blocks(id,job_id,book_id,page,text) VALUES(?,?,?,?,?)', [blockId, jobId, 'book-1', 3, '识别文字'])
+  const block = db.exec('SELECT text FROM ocr_blocks WHERE id=?', [blockId])
+  if (block[0].values[0][0] !== '识别文字') throw new Error('OCR block was not persisted')
+
+  const operationId = uuid(), pendingId = uuid()
+  db.run('INSERT INTO tool_operations(id,source,action,params_json) VALUES(?,?,?,?)', [operationId, 'mcp', 'append_note', '{"noteId":"note-1"}'])
+  db.run('INSERT INTO mcp_pending_requests(id,operation_id,request_json) VALUES(?,?,?)', [pendingId, operationId, '{"action":"append_note"}'])
+  const pending = db.exec('SELECT operation_id FROM mcp_pending_requests WHERE id=?', [pendingId])
+  if (pending[0].values[0][0] !== operationId) throw new Error('MCP pending request was not persisted')
 }
 
 // --- Test: Conversation CRUD ---
@@ -429,6 +520,104 @@ function testEmptyDataStates() {
   if (nested[0].children[0].children.length !== 1) throw new Error('child should have 1 conv')
   if (nested[0].children[0].children[0].title !== 'deep-conv') throw new Error('deep conv title mismatch')
 }
+function testReaderProductivityRegression() {
+  const shortcuts = readFileSync('src/helpers/shortcuts.ts', 'utf8')
+  const app = readFileSync('src/App.vue', 'utf8')
+  const reader = readFileSync('src/views/PdfReaderView.vue', 'utf8')
+  const ocr = readFileSync('electron/main/ocr.ts', 'utf8')
+  const prd = readFileSync('electron/main/prd-v3.ts', 'utf8')
+  const preload = readFileSync('electron/preload/index.ts', 'utf8')
+  const env = readFileSync('src/env.d.ts', 'utf8')
+  assert(shortcuts.includes('hasCtrl !== needsCtrl'), 'shortcut matching must reject extra Ctrl/Cmd modifiers')
+  assert(shortcuts.includes('event.shiftKey !== needsShift'), 'shortcut matching must reject extra Shift modifiers')
+  assert(app.includes("from './helpers/shortcuts'"), 'App must use the shared exact shortcut matcher')
+  assert(reader.includes('const targetPage = page.value') && reader.includes('epoch !== renderEpoch'), 'PDF rendering must pin its page and reject stale async renders')
+  assert(reader.includes("coord: 'normalized'"), 'new sticky notes must persist page-relative coordinates')
+  assert(reader.includes('page: targetPage') && reader.includes('div.dataset.page'), 'sticky annotations must retain their owning page')
+  assert(reader.includes('ocrRecognize') && reader.includes('buildOutlineFromPages'), 'reader must expose local OCR page-range outline generation')
+  assert(reader.includes("linkRelate('book'"), 'ebook-created notes must persist an explicit book-note relation')
+  assert(reader.includes('pageInput') && reader.includes('jumpToPage'), 'reader must provide a direct page-number jump control')
+  assert(reader.includes('第 {{ page }} / {{ totalPages'), 'reader must always render an explicit current-page label')
+  assert(reader.includes('openTextOutlineImport') && reader.includes('saveTextOutline'), 'reader must provide previewed text-to-outline import')
+  assert(reader.includes('@contextmenu.prevent.stop="openTocItemMenu($event, i)"'), 'each outline item must expose its edit menu')
+  assert(reader.includes('renameTocItem') && reader.includes('changeTocPage') && reader.includes('addTocItem') && reader.includes('deleteTocItem'), 'outline edit menu must support rename, repoint, add and delete')
+  assert(reader.includes('shiftTocLevel') && reader.includes('persistCustomOutline'), 'outline hierarchy edits must persist as a custom local outline')
+  assert(reader.includes("{ label: '批注参数…'") && reader.includes('data-testid="pdf-annotation-settings"'), 'PDF annotation settings must be available from right-click and the visible toolbar')
+  assert(reader.includes("if (e.button !== 0 || !annMode.value || !annCanvas) return"), 'right-clicking annotation mode must not create an accidental stroke')
+  assert(reader.includes('lk_pdf_annotation_preferences_v1') && reader.includes('highlighterOpacity'), 'PDF pen and highlighter parameters must persist locally')
+  assert(reader.includes('const previous = annPts[annPts.length - 1]') && reader.includes('annCtx.moveTo(previous[0], previous[1])'), 'live highlighter drawing must render only the newest segment to prevent alpha accumulation')
+  assert(reader.includes('d.opacity ?? DEFAULT_ANN_PREFS.highlighterOpacity') && reader.includes('mix-blend-mode:multiply'), 'saved PDF highlighter opacity must render with text-preserving blend mode')
+  assert(reader.includes('captureViewportAnchor') && reader.includes('restoreViewportAnchor') && reader.includes('pendingViewportAnchor'), 'PDF redraws must preserve a stable reading anchor across rapid zoom events')
+  assert(reader.includes('renderPage({ preserveViewport: false })') && reader.includes('pageRect.height * anchor.relativeY'), 'page navigation must reset while zoom restores the same relative page position')
+  assert(reader.includes("wrap.value?.scrollTo({ top: 0, left: 0 })"), 'page navigation must reset the viewport to the new page top')
+  assert(reader.includes("ta.addEventListener('input', saveStickyText)"), 'sticky-note edits must autosave without requiring blur')
+  assert(ocr.includes("createWorker('chi_sim'") && ocr.includes("ipc.handle('ocr:recognize'"), 'OCR must use the bundled offline simplified-Chinese worker')
+  assert(ocr.includes('PSM.SINGLE_BLOCK') && ocr.includes('preserve_interword_spaces'), 'OCR must use directory-friendly page segmentation')
+  assert(prd.includes('section_anchor=excluded.section_anchor,deleted_at=NULL'), 'rebuilding a soft-deleted outline must restore its rows')
+  assert(preload.includes('ocrRecognize:') && env.includes('ocrRecognize:'), 'OCR IPC must be synchronized through preload and renderer types')
+}
+
+function testTextOutlineImport() {
+  const source = readFileSync('src/helpers/outline-import.ts', 'utf8')
+  const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const module = { exports: {} }
+  new Function('module', 'exports', 'require', output)(module, module.exports, require)
+  const input = `**基础过关 1 阶**
+**高等数学**
+填空题: 5
+选择题: 43
+**线性代数**
+填空题: 98
+选择题: 120
+**概率论与数理统计**
+填空题: 151
+选择题: 171
+**基础过关 2 阶**
+**高等数学**
+填空题: 203
+选择题: 216`
+  const entries = module.exports.parseImportedOutline(input, 0, 235)
+  assert.strictEqual(entries.length, 14, 'all headings and page entries should be imported')
+  assert.deepStrictEqual(entries.slice(0, 4), [
+    { title: '基础过关 1 阶', page: 5, depth: 0 },
+    { title: '高等数学', page: 5, depth: 1 },
+    { title: '填空题', page: 5, depth: 2 },
+    { title: '选择题', page: 43, depth: 2 },
+  ])
+  assert.deepStrictEqual(entries.slice(-4), [
+    { title: '基础过关 2 阶', page: 203, depth: 0 },
+    { title: '高等数学', page: 203, depth: 1 },
+    { title: '填空题', page: 203, depth: 2 },
+    { title: '选择题', page: 216, depth: 2 },
+  ])
+  const shifted = module.exports.parseImportedOutline('## 章节\n条目：5', 7, 235)
+  assert.strictEqual(shifted[0].page, 12, 'page offset should be applied to generated jumps')
+}
+
+function testNotebookInkAndUndoRegression() {
+  const notebook = readFileSync('src/components/OpenNotebookEditor.vue', 'utf8')
+  const notes = readFileSync('src/views/NotesView.vue', 'utf8')
+  assert(notebook.includes('data-testid="notebook-ink-settings"') && notebook.includes('批注参数'), 'paper notebook must expose a discoverable annotation settings entry')
+  assert(notebook.includes("highlighterColor: '#ffe066'") && notebook.includes('highlighterWidth: 12'), 'highlighter must use its own visible translucent defaults')
+  assert(notebook.includes("blendMode: tool.value === 'highlighter' ? 'multiply' : 'source-over'"), 'new highlighter strokes must persist their blend mode')
+  assert(notebook.includes('mix-blend-mode:multiply'), 'ink canvas must blend with paper text instead of visually covering it')
+  assert(notebook.includes('@keydown.capture="onKeydown"') && notebook.includes('event.stopPropagation()'), 'notebook undo must capture Ctrl+Z across paper and annotation toolbar focus')
+  assert(notebook.includes('canvas.closest<HTMLElement>(\'.book-table\')?.focus'), 'drawing must focus the notebook so immediate Ctrl+Z reaches its history')
+  assert(notebook.includes('syncOut(false)') && notebook.includes('Reflow is the layout result'), 'automatic reflow must not create a fake extra undo step')
+  assert(notes.includes('openNotebookInkSettings') && notes.includes('批注参数'), 'Word-style draw ribbon must also expose annotation parameters')
+  assert(notebook.includes('looksLikeMarkdownPaste') && notebook.includes('markdownPasteMarkup(text)'), 'paper notebook must route Markdown clipboard text through the complete Markdown/KaTeX renderer')
+  assert(notebook.includes('wholeNotebookSelected') && notebook.includes("if (key === 'a')") && notebook.includes('notebookClipboardPayload'), 'Ctrl+A must select and serialize the complete logical notebook instead of one mounted paper page')
+  assert(notebook.includes('@copy.capture="onNotebookCopy"') && notebook.includes('@cut.capture="onNotebookCut"') && notebook.includes('clearWholeNotebook'), 'whole-notebook selection must support cross-page copy, cut and deletion')
+  assert(notebook.includes('restoreBracketMathDelimiters') && notebook.includes('repairLegacyFormulaBlocks') && notebook.includes('repairedLegacyFormula'), 'missing LaTeX bracket escapes must be repaired during paste and persisted-note loading')
+  assert(notebook.includes('const blankWorkspace = target === container') && notebook.includes("event.button !== 1") && notebook.includes('spacePanHeld'), 'notebook panning must work from blank workspace, middle mouse and Space drag without forcing the hand tool')
+  assert(notebook.includes('const panning = ref(false)') && notebook.includes("'hand-tool': tool === 'hand'"), 'panning feedback must remain reactive and expose the active hand cursor')
+  assert(notes.includes('lk_notes_nav_open') && notes.includes('note-nav-toggle') && notes.includes("navTab === 'outline'"), 'note library navigation must collapse to a compact persistent rail and switch between notes and chapters')
+  assert(notes.includes('@outline-change="noteOutlineItems=$event"') && notebook.includes("(e: 'outline-change'") && notebook.includes('goToHeadingId'), 'paper headings must feed the shared chapter navigator and remain directly locatable')
+  assert(notebook.includes('notebook-global-layout') && notebook.includes('GLOBAL_LAYOUT_ENABLED_KEY') && notebook.includes('saveGlobalLayout'), 'layout popover must expose a persistent all-notes layout option')
+  assert(notebook.includes('const sharedLayout = globalLayoutEnabled.value ? readGlobalLayout() : null') && notebook.includes('layout.value = sharedLayout || data.layout'), 'shared layout must override embedded layout whenever an existing or new note opens')
+  assert(notebook.includes("['OL', 'UL', 'BLOCKQUOTE'].includes(container.tagName)") && notebook.includes("tail.setAttribute('start'"), 'pagination must split long lists at item boundaries and preserve ordered numbering')
+}
+
 ;(async () => {
   console.log('\nLearning Kit — 集成测试\n')
   console.log(`用时: ${new Date().toISOString()}`)
@@ -453,6 +642,13 @@ function testEmptyDataStates() {
   freshDb(); test('消息链 (insert + list + patch)', testMessageChain); db.close()
   freshDb(); test('电子书 + 高亮链', testEbookChain); db.close()
   freshDb(); test('笔记文件夹树 (parent/child hierarchy)', testFolderTree); db.close()
+  test('学习操作持久化 schema 声明', testLearningOperationSchemaDeclarations)
+  test('电子书封面预览可持久化', testBookCoverUpdateSupport)
+  test('电子书快捷键、便签、关联笔记、OCR 与跳页回归', testReaderProductivityRegression)
+  test('文本目录导入与页码偏移', testTextOutlineImport)
+  test('纸质笔记荧光笔、批注参数与撤销回归', testNotebookInkAndUndoRegression)
+  test('内部 AI 工具提案、审批与撤销链路', testConfirmedInternalAiToolFlow)
+  freshDb(); test('学习操作持久化 schema 运行时契约', testLearningOperationSchemaRuntime); db.close()
   test('IPC 错误包装 (result/unwrap 契约)', testResultWrapper)
   test('侧栏树构建 - 空/部分/完整三种状态', testEmptyDataStates)
   freshDb(); test('侧栏树构建 - 模拟时序竞态 (groups先加载,convs后加载)', testSidebarTreeRace); db.close()

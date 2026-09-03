@@ -10,10 +10,20 @@ marked.setOptions({
 
 // KaTeX renderer for inline $...$ and block $$...$$
 function renderKatex(text: string): string {
+  // Standard LaTeX display delimiters: \[ ... \]
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_: string, formula: string) => {
+    try { return `<div class="katex-block">${katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>` }
+    catch { return `<pre>${formula}</pre>` }
+  })
   // Block math: $$...$$
   text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_: string, formula: string) => {
     try { return `<div class="katex-block">${katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>` }
     catch { return `<pre>${formula}</pre>` }
+  })
+  // Standard LaTeX inline delimiters: \( ... \)
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_: string, formula: string) => {
+    try { return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false }) }
+    catch { return `\\(${formula}\\)` }
   })
   // Inline math: $...$
   text = text.replace(/\$(.*?)\$/g, (_: string, formula: string) => {

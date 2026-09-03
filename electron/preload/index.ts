@@ -21,6 +21,7 @@ const api = {
   getSetting: (key: string) => ipcRenderer.invoke('db:settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('db:settings:set', key, value),
   allSettings: () => ipcRenderer.invoke('db:settings:all'),
+  ocrRecognize: (imageDataUrl: string) => ipcRenderer.invoke('ocr:recognize', imageDataUrl).then(u),
 
   // groups
   groupsTree: () => ipcRenderer.invoke('db:groups:tree'),
@@ -110,6 +111,19 @@ const api = {
   toolRunCreate: (run: { conversationId?: string | null; actionType: string; params?: string; preview?: string; rollback?: string }) => ipcRenderer.invoke('ai:tool-run:create', run).then(u),
   toolRunComplete: (id: string, status: 'applied' | 'failed' | 'ignored', result?: string) => ipcRenderer.invoke('ai:tool-run:complete', id, status, result).then(u),
   toolRunList: (conversationId?: string | null) => ipcRenderer.invoke('ai:tool-run:list', conversationId),
+
+  // Confirmed local tool service
+  toolPreview: (request: { action: string; params: Record<string, unknown> }) =>
+    ipcRenderer.invoke('tool:preview', request).then(u),
+  toolExecute: (request: { action: string; params: Record<string, unknown> }) =>
+    ipcRenderer.invoke('tool:execute', request).then(u),
+  toolProposeInternal: (request: { action: string; params: Record<string, unknown> }) =>
+    ipcRenderer.invoke('tool:propose-internal', request).then(u),
+  toolApprove: (operationId: string) => ipcRenderer.invoke('tool:approve', operationId).then(u),
+  toolReject: (operationId: string) => ipcRenderer.invoke('tool:reject', operationId).then(u),
+  toolUndo: (operationId: string) => ipcRenderer.invoke('tool:undo', operationId).then(u),
+  toolOperations: (filter?: { source?: 'internal-ai' | 'mcp' | 'renderer'; status?: string; limit?: number }) =>
+    ipcRenderer.invoke('tool:operations', filter).then(u),
 
   backupCreate: () => ipcRenderer.invoke('safety:backup:create'),
   backupRestore: () => ipcRenderer.invoke('safety:backup:restore'),

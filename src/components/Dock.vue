@@ -9,13 +9,13 @@
       </div>
       <div class="dock-spacer"></div>
       <div class="dock-group">
-        <button class="dock-btn" :class="{active: leftPanel==='outline'}" @click="toggleLeft('outline')" title="Outline">
+        <button class="dock-btn" :class="{active: leftPanel==='outline'}" @click="toggleLeft('outline')" title="大纲">
           <el-icon><List /></el-icon>
         </button>
-        <button class="dock-btn" :class="{active: leftPanel==='tags'}" @click="toggleLeft('tags')" title="Tags">
+        <button class="dock-btn" :class="{active: leftPanel==='tags'}" @click="toggleLeft('tags')" title="标签">
           <el-icon><PriceTag /></el-icon>
         </button>
-        <button class="dock-btn" :class="{active: leftPanel==='bookmarks'}" @click="toggleLeft('bookmarks')" title="Bookmarks">
+        <button class="dock-btn" :class="{active: leftPanel==='bookmarks'}" @click="toggleLeft('bookmarks')" title="书签">
           <el-icon><Star /></el-icon>
         </button>
       </div>
@@ -36,15 +36,15 @@
       <div class="panel-body">
         <div v-if="leftPanel==='outline'">
           <div v-for="(h, i) in outlineItems" :key="i" class="outline-item" :style="{paddingLeft: h.level*12+'px'}" @click="$emit('outline-click', h.line)">{{ h.text }}</div>
-          <div v-if="!outlineItems.length" class="panel-empty">No headings</div>
+          <div v-if="!outlineItems.length" class="panel-empty">当前内容还没有标题。使用 H1 / H2 / H3 可建立大纲。</div>
         </div>
         <div v-if="leftPanel==='tags'">
           <span v-for="t in tagItems" :key="t" class="tag-chip">#{{ t }}</span>
-          <div v-if="!tagItems.length" class="panel-empty">No tags</div>
+          <div v-if="!tagItems.length" class="panel-empty">还没有标签。可在笔记标题旁或内容中添加 #标签。</div>
         </div>
         <div v-if="leftPanel==='bookmarks'">
           <div v-for="b in bookmarkItems" :key="b.id" class="bm-item" @click="$emit('bookmark-click', b)">{{ b.label || 'Page '+b.page }}</div>
-          <div v-if="!bookmarkItems.length" class="panel-empty">No bookmarks</div>
+          <div v-if="!bookmarkItems.length" class="panel-empty">还没有书签。阅读电子书时可用 Ctrl + D 添加。</div>
         </div>
         <div v-if="leftPanel==='themes'" class="theme-grid">
           <button v-for="item in themeOptions" :key="item.id" class="theme-card" :class="{active: theme===item.id}" @click="selectTheme(item.id)">
@@ -64,10 +64,10 @@
     <!-- right dock bar -->
     <nav class="dock-right">
       <div class="dock-group">
-        <button class="dock-btn" :class="{active: rightPanel==='ai'}" @click="toggleRight('ai')" title="AI">
+        <button class="dock-btn" :class="{active: rightPanel==='ai'}" @click="toggleRight('ai')" title="AI 助手">
           <el-icon><ChatDotRound /></el-icon>
         </button>
-        <button class="dock-btn" :class="{active: rightPanel==='backlinks'}" @click="toggleRight('backlinks')" title="Links">
+        <button class="dock-btn" :class="{active: rightPanel==='backlinks'}" @click="toggleRight('backlinks')" title="反向链接">
           <el-icon><Link /></el-icon>
         </button>
       </div>
@@ -77,30 +77,30 @@
     <div v-if="rightPanel" class="dock-panel-right" :style="{width: rightW+'px'}">
       <div class="resize-handle-l" @mousedown="startRightResize"></div>
       <div class="panel-header">
-        <span>{{ rightPanel === 'ai' ? 'AI' : 'Links' }}</span>
+        <span>{{ rightPanel === 'ai' ? 'AI 助手' : '反向链接' }}</span>
         <button @click="rightPanel=null">&times;</button>
       </div>
       <div class="panel-body">
-        <div class="panel-empty">{{ rightPanel === 'ai' ? 'Use main chat' : 'No backlinks' }}</div>
+        <div class="panel-empty">{{ rightPanel === 'ai' ? '可在对话底部发送问题，或在笔记纸页右键打开 AI 小窗口。' : '当前内容还没有反向链接；引用笔记、图书或对话后会显示在这里。' }}</div>
       </div>
     </div>
 
     <!-- bottom bar -->
     <div class="dock-bottom">
-      <button class="dock-btn-h" :class="{active: bottomPanel==='search'}" @click="toggleBottom('search')">Search</button>
-      <button class="dock-btn-h" :class="{active: bottomPanel==='console'}" @click="toggleBottom('console')">Console</button>
-      <span class="dock-status">{{ statusText }}</span>
+      <button class="dock-btn-h" :class="{active: bottomPanel==='search'}" @click="toggleBottom('search')">搜索</button>
+      <button class="dock-btn-h" :class="{active: bottomPanel==='console'}" @click="toggleBottom('console')">操作记录</button>
+      <span class="dock-status" :title="statusText">{{ statusText }}</span>
     </div>
 
     <!-- bottom panel overlay -->
     <div v-if="bottomPanel" class="dock-panel-bottom" :style="{height: bottomH+'px'}">
       <div class="resize-handle-t" @mousedown="startBottomResize"></div>
       <div class="panel-header">
-        <span>{{ bottomPanel === 'search' ? 'Search' : 'Console' }}</span>
+        <span>{{ bottomPanel === 'search' ? '搜索' : '操作记录' }}</span>
         <button @click="bottomPanel=null">&times;</button>
       </div>
       <div class="panel-body">
-        <div class="panel-empty">{{ bottomPanel === 'search' ? 'Ctrl+K to search' : 'No output' }}</div>
+        <div class="panel-empty">{{ bottomPanel === 'search' ? '按 Ctrl + K 打开全局搜索，按类型或标签缩小范围。' : '当前没有需要显示的操作记录。' }}</div>
       </div>
     </div>
   </div>
@@ -112,7 +112,7 @@ import { ChatDotRound, Reading, Edit, Share, DataLine, Collection, Brush, List, 
 import { useSettingsStore, type ThemeId } from '../stores/chat'
 
 type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge' | 'attributes'
-defineProps<{ mode: Mode; outlineItems: {level:number;text:string;line:number}[]; tagItems: string[]; bookmarkItems: any[] }>()
+const props = withDefaults(defineProps<{ mode: Mode; outlineItems: {level:number;text:string;line:number}[]; tagItems: string[]; bookmarkItems: any[]; statusText?: string }>(), { statusText: '已就绪' })
 defineEmits<{ (e:'switch',m:Mode):void; (e:'outline-click',line:number):void; (e:'bookmark-click',b:any):void }>()
 
 const settings = useSettingsStore()
@@ -127,13 +127,13 @@ const themeOptions: { id: ThemeId; label: string; desc: string }[] = [
 function selectTheme(id: ThemeId) { settings.setTheme(id) }
 
 const modes = [
-  { key: 'chat' as Mode, label: 'Chat', icon: ChatDotRound },
-  { key: 'library' as Mode, label: 'Library', icon: Reading },
-  { key: 'notes' as Mode, label: 'Notes', icon: Edit },
-  { key: 'knowledge' as Mode, label: 'Knowledge', icon: Collection },
+  { key: 'chat' as Mode, label: '对话', icon: ChatDotRound },
+  { key: 'library' as Mode, label: '图书馆', icon: Reading },
+  { key: 'notes' as Mode, label: '笔记', icon: Edit },
+  { key: 'knowledge' as Mode, label: '知识库', icon: Collection },
   { key: 'attributes' as Mode, label: '属性视图', icon: List },
-  { key: 'mindmap' as Mode, label: 'Mindmap', icon: Share },
-  { key: 'review' as Mode, label: 'Review', icon: DataLine },
+  { key: 'mindmap' as Mode, label: '思维导图', icon: Share },
+  { key: 'review' as Mode, label: '复习', icon: DataLine },
 ]
 
 const leftPanel = ref<string|null>(null)
@@ -142,9 +142,9 @@ const bottomPanel = ref<string|null>(null)
 const leftW = ref(220)
 const rightW = ref(260)
 const bottomH = ref(180)
-const statusText = ref('Ready')
+const statusText = computed(() => props.statusText)
 
-const leftPanelTitle = computed(() => ({ outline: 'Outline', tags: 'Tags', bookmarks: 'Bookmarks', themes: '主题与护眼模式' } as Record<string,string>)[leftPanel.value || ''] || '')
+const leftPanelTitle = computed(() => ({ outline: '大纲', tags: '标签', bookmarks: '书签', themes: '主题与护眼模式' } as Record<string,string>)[leftPanel.value || ''] || '')
 
 function toggleLeft(p: string) { leftPanel.value = leftPanel.value === p ? null : p }
 function toggleRight(p: string) { rightPanel.value = rightPanel.value === p ? null : p }

@@ -1,13 +1,23 @@
 <template>
   <div class="notes-root">
-    <aside class="side" :style="{ width: sideW + 'px' }">
-      <div class="head">
+    <aside class="side" :class="{ collapsed: !sideOpen }" :style="{ width: (sideOpen ? sideW : 42) + 'px' }">
+      <div v-if="!sideOpen" class="side-rail">
+        <button data-testid="note-nav-toggle" title="展开导航" @click="toggleSide(true)">☰</button>
+        <button title="笔记库" @click="openNavTab('notes')">▤</button>
+        <button title="本篇章节" @click="openNavTab('outline')">§</button>
+        <button data-testid="new-note" title="新建笔记" @click="newNote(); openNavTab('notes')">＋</button>
+      </div>
+      <template v-else>
+      <div class="nav-title"><button data-testid="note-nav-toggle" title="收起导航" @click="toggleSide(false)">☰</button><strong>{{ navTab === 'notes' ? '笔记导航' : '本篇章节' }}</strong></div>
+      <div class="nav-tabs"><button :class="{ active: navTab === 'notes' }" @click="navTab='notes'">笔记库</button><button :class="{ active: navTab === 'outline' }" @click="navTab='outline'">本篇章节</button></div>
+      <div v-if="navTab === 'notes'" class="head">
         <el-button size="small" type="primary" plain @click="newFolder">+目录</el-button>
         <el-button size="small" data-testid="new-note" @click="newNote()">+笔记</el-button>
         <el-button size="small" text @click="expandAll">展开</el-button>
         <el-button size="small" text @click="collapseAll">折叠</el-button>
       </div>
-      <div class="tree-scroll">
+      <div v-if="navTab === 'notes'" class="nav-search"><el-input v-model="noteFilter" size="small" clearable placeholder="搜索笔记或目录…" /></div>
+      <div v-if="navTab === 'notes'" class="tree-scroll">
         <el-tree
           ref="treeRef"
           :data="treeData"
@@ -20,6 +30,7 @@
           @node-collapse="onCollapse"
           draggable
           :allow-drop="allowDrop"
+          :filter-node-method="filterNoteNode"
           @node-drop="onDrop"
         >
           <template #default="{ data }">
@@ -31,27 +42,34 @@
           </template>
         </el-tree>
       </div>
+      <div v-else class="chapter-scroll" data-testid="note-chapter-nav">
+        <button v-for="item in noteOutlineItems" :key="item.id" class="chapter-item" :class="`level-${item.level}`" @click="openChapter(item)"><span>{{ item.text }}</span><small>{{ item.page }}</small></button>
+        <div v-if="!current" class="chapter-empty">先选择一篇笔记。</div>
+        <div v-else-if="!noteOutlineItems.length" class="chapter-empty">还没有章节。选中文字后点击工具栏的 H1、H2 或 H3，即可自动生成导航。</div>
+      </div>
+      </template>
     </aside>
-    <div class="resizer" @mousedown="startResize"></div>
+    <div v-if="sideOpen" class="resizer" @mousedown="startResize"></div>
     <main class="main" @contextmenu="onEditorCtx">
-      <div v-if="!current" class="empty"><p>选择或新建一份笔记。</p></div>
+      <div v-if="!current" class="empty"><div><p>选择一份笔记，或从这里开始记录。</p><el-button size="small" type="primary" @click="newNote()">新建笔记</el-button></div></div>
       <div v-else class="editor-wrap">
         <div class="toolbar word-toolbar">
           <el-input ref="titleInputRef" v-model="current.title" placeholder="标题" class="title-in" data-testid="note-title" @change="markDirty" size="small" />
           <el-input v-model="tagStr" placeholder="#tags" class="tag-in" @change="updateTags" size="small" />
+          <span class="save-state" :class="saveState.kind" :title="saveState.tip"><i></i>{{ saveState.text }}</span>
           <el-button size="small" @click="undoNote">撤销</el-button>
           <el-button size="small" @click="redoNote">重做</el-button>
           <span class="spacer"></span>
-          <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸质笔记本' : '打开笔记本' }}</el-button>
+          <el-button size="small" :type="paperMode ? 'primary' : 'default'" @click="paperMode=!paperMode">{{ paperMode ? '纸页模式' : '返回纸页' }}</el-button>
           <el-button size="small" @click="askAiAboutNote">AI 辅助</el-button>
-          <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">保存</el-button>
-          <el-button size="small" text @click="ribbonOpen=!ribbonOpen">{{ ribbonOpen ? '收起功能区' : '功能区' }}</el-button>
+          <el-button size="small" type="primary" @click="saveCurrent" :disabled="!dirty">{{ saveState.kind === 'saving' ? '保存中…' : '保存' }}</el-button>
+          <el-button size="small" text @click="ribbonOpen=!ribbonOpen">{{ ribbonOpen ? '收起工具' : '更多工具' }}</el-button>
         </div>
         <div class="ribbon-tabs"><button v-for="tab in ribbonTabs" :key="tab.id" :class="{ active: ribbonTab === tab.id }" @click="ribbonTab = tab.id; ribbonOpen = true">{{ tab.label }}</button></div>
         <div v-show="ribbonOpen" class="ribbon-panel">
           <template v-if="ribbonTab === 'home'"><el-button size="small" @click="applyNoteHeading(1)">H1</el-button><el-button size="small" @click="applyNoteHeading(2)">H2</el-button><el-button size="small" @click="applyNoteHeading(3)">H3</el-button><el-button size="small" @click="toggleNoteOutline">目录</el-button><el-button size="small" @click="insertCmd('- ','')">列表</el-button><el-button size="small" @click="insertCmd('> ','')">引用</el-button><el-button size="small" @click="insertCmd('**','**')"><b>B</b></el-button><el-button size="small" @click="insertCmd('*','*')"><i>I</i></el-button><el-button size="small" @click="insertCmd('~~','~~')">删除线</el-button><el-button size="small" @click="useBlockEditor=!useBlockEditor">{{ useBlockEditor ? '纯文本模式' : '富文本模式' }}</el-button></template>
           <template v-else-if="ribbonTab === 'insert'"><el-button size="small" @click="imagePicker?.click()">图片/截图</el-button><el-button size="small" @click="insertFormula">数学公式</el-button><el-button size="small" @click="nextNotebookSpread">新双页</el-button><el-button size="small" @click="citeBook">引用电子书</el-button><el-button size="small" @click="citeConversation">引用对话</el-button><el-button size="small" @click="referenceContentBlock">引用内容块</el-button></template>
-          <template v-else-if="ribbonTab === 'draw'"><el-button size="small" type="primary" @click="toggleNotebookPen">画笔</el-button><el-button size="small" @click="sketchOpen=true">草图 / 图表</el-button><span class="ribbon-hint">更多画笔、图形和纸张移动工具可在纸页右键中使用。</span></template>
+          <template v-else-if="ribbonTab === 'draw'"><el-button size="small" type="primary" @click="toggleNotebookPen">画笔</el-button><el-button size="small" @click="openNotebookInkSettings">批注参数</el-button><el-button size="small" @click="sketchOpen=true">草图 / 图表</el-button><span class="ribbon-hint">可分别调整画笔与荧光笔的颜色、宽度和透明度。</span></template>
           <template v-else-if="ribbonTab === 'links'"><el-button size="small" @click="createContentBlock">创建内容块</el-button><el-button size="small" @click="saveSticky">复用便签</el-button><el-button size="small" @click="openBacklinks">关联 {{ backlinks.length }}</el-button><el-button size="small" @click="openAttributes">属性</el-button></template>
           <template v-else><el-button size="small" @click="askAiAboutNote">AI 辅助</el-button><el-button size="small" @click="makeCard">生成闪卡</el-button><el-button size="small" @click="openVersions">历史版本</el-button><el-button size="small" @click="exportMd">导出</el-button></template>
         </div>
@@ -63,17 +81,17 @@
                 <span class="gutter-handle" title="Block actions">&#x2630;</span>
               </div>
             </div>
-            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck(); updateCursorLine()" @click="updateCursorLine" @keyup="updateCursorLine" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" @keydown.ctrl.z.prevent="doUndo" @keydown.ctrl.shift.z.prevent="doRedo" @keydown.ctrl.s.prevent="saveCurrent" placeholder="Markdown ... / slash commands"></textarea>
+            <textarea ref="ta" v-model="current.body" class="ta" spellcheck="false" @input="markDirty(); onInputCheck(); updateCursorLine()" @click="updateCursorLine" @keyup="updateCursorLine" @keydown.tab.prevent="onTab" @keydown.escape="slashVisible=false" @keydown.ctrl.z.prevent="doUndo" @keydown.ctrl.shift.z.prevent="doRedo" @keydown.ctrl.s.prevent="saveCurrent" placeholder="文本 / Markdown 源码模式；输入 / 使用命令"></textarea>
             <div v-if="slashVisible" class="slash-menu" :style="{ top: slashY+'px', left: slashX+'px' }">
               <div v-for="c in filteredSlash" :key="c.label" class="slash-item" @click="applySlash(c)">
                 <span class="lbl">{{ c.label }}</span><span class="hint">{{ c.hint }}</span>
               </div>
-              <div v-if="!filteredSlash.length" class="slash-item" style="opacity:.5;cursor:default"><span class="lbl">No match</span></div>
+              <div v-if="!filteredSlash.length" class="slash-item" style="opacity:.5;cursor:default"><span class="lbl">没有匹配命令</span></div>
             </div>
           </div>
           <div class="preview markdown-body" v-html="html" @click="onPreviewClick"></div>
         </div>
-        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" @create-location-link="createNotebookLocationLink" @link-selection="linkNotebookSelection" />
+        <OpenNotebookEditor v-else-if="!useBlockEditor" ref="notebookRef" v-model="current.body" @dirty="markDirty" @open-ai="openNotebookAi" @create-location-link="createNotebookLocationLink" @link-selection="linkNotebookSelection" @outline-change="noteOutlineItems=$event" />
         <BlockEditor v-else v-model="current.body" :show-toolbar="true" @update:model-value="markDirty" />
         <NotebookAiPanel v-model="notebookAi.open" :context="notebookAi.context" :context-label="notebookAi.label" :suggested-prompt="notebookAi.action" @insert="insertAiAnswer" @append="appendAiAnswer" />
         <el-dialog v-model="backlinksOpen" title="本笔记的关联与回链" width="520px">
@@ -117,10 +135,17 @@ const props = defineProps<{ jumpNoteId?: string | null; jumpBlockId?: string | n
 
 const menu = useContextMenu()
 const settings = useSettingsStore()
-const sideW = ref(260)
+const savedSideWidth = Number(localStorage.getItem('lk_notes_nav_width') || 260)
+const sideW = ref(Math.max(200, Math.min(460, savedSideWidth || 260)))
+const sideOpen = ref(localStorage.getItem('lk_notes_nav_open') !== 'false')
+const navTab = ref<'notes' | 'outline'>('notes')
+const noteFilter = ref('')
+type NoteOutlineItem = { id: string; text: string; level: number; spread: number; side: 'left' | 'right'; page: number }
+const noteOutlineItems = ref<NoteOutlineItem[]>([])
 const current = ref<any>(null)
 const currentId = ref<string | null>(null)
 const dirty = ref(false)
+const saveState = ref<{ kind: 'saved' | 'dirty' | 'saving' | 'error'; text: string; tip: string }>({ kind: 'saved', text: '已保存', tip: '本地内容已保存' })
 const tagStr = ref('')
 const ta = ref<HTMLTextAreaElement | null>(null)
 const titleInputRef = ref<any>(null)
@@ -152,7 +177,7 @@ const attributesOpen = ref(false)
 const attributeRows = ref<Array<{ key: string; value: string }>>([])
 const imagePicker = ref<HTMLInputElement | null>(null)
 const sketchOpen = ref(false)
-const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; toggleOutline: () => void; applyHeading: (level: 1 | 2 | 3) => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void; wrapSelectionWithLink: (href: string, label: string) => void; revealAnchor: (spread: number, anchorId: string) => void } | null>(null)
+const notebookRef = ref<{ insertHtml: (html: string) => void; insertImage: (dataUrl: string, alt?: string) => void; insertFormula: () => void; togglePen: () => void; openInkSettings: () => void; toggleOutline: () => void; applyHeading: (level: 1 | 2 | 3) => void; undo: () => void; redo: () => void; nextSpread: () => void; getText: () => string; getSpread: () => number; goToSpread: (spread: number) => void; goToHeadingId: (id: string) => void; wrapSelectionWithLink: (href: string, label: string) => void; revealAnchor: (spread: number, anchorId: string) => void } | null>(null)
 const notebookAi = ref({ open: false, context: '', label: '当前双页', action: '' })
 const PAGE_BREAK = '<!-- lk:page-break -->'
 const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
@@ -204,6 +229,22 @@ const filteredSlash = computed(() => {
 })
 const treeData = computed(() => buildTree(rawTree.value))
 
+function toggleSide(force?: boolean) {
+  sideOpen.value = typeof force === 'boolean' ? force : !sideOpen.value
+  localStorage.setItem('lk_notes_nav_open', String(sideOpen.value))
+}
+function openNavTab(tab: 'notes' | 'outline') {
+  navTab.value = tab
+  toggleSide(true)
+}
+function filterNoteNode(value: string, data: { title?: string }) {
+  return !value.trim() || String(data.title || '').toLocaleLowerCase().includes(value.trim().toLocaleLowerCase())
+}
+function openChapter(item: NoteOutlineItem) {
+  if (!paperMode.value) paperMode.value = true
+  nextTick(() => notebookRef.value?.goToHeadingId(item.id))
+}
+
 function buildTree(rows: any[]) {
   const map = new Map<string, any>()
   rows.forEach((r) => map.set(r.id, { id: r.id, title: r.title, parent_id: r.parent_id, sort: r.sort, kind: r.kind || 'note', children: [] }))
@@ -214,7 +255,7 @@ function buildTree(rows: any[]) {
 
 async function loadTree() {
   try { rawTree.value = await window.lk.notesList() }
-  catch (e: any) { ElMessage.error('Failed to load notes: ' + (e?.message || e)); rawTree.value = [] }
+  catch (e: any) { ElMessage.error('加载笔记失败：' + (e?.message || e)); rawTree.value = [] }
 }
 function onClick(d: any) {
   if (!d || !d.id) return
@@ -251,14 +292,14 @@ async function open(id: string) {
         }
       }
       editRevision += 1
-      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); await loadBacklinks()
+      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); updateSaveState('saved'); await loadBacklinks()
       undoStack.value = []; redoStack.value = []
       if (props.jumpBlockId) nextTick(() => revealBlock(props.jumpBlockId!))
     } else {
-      ElMessage.warning('Note not found')
+      ElMessage.warning('未找到这份笔记')
     }
   } catch (e: any) {
-    ElMessage.error('Failed to open: ' + (e?.message || e))
+    ElMessage.error('打开笔记失败：' + (e?.message || e))
   }
 }
 async function newNote(parentId: string | null = null) {
@@ -270,10 +311,10 @@ async function newNote(parentId: string | null = null) {
     }
     const id = await window.lk.notesUpsert({ title: '未命名笔记', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
     await loadTree(); await open(id)
-  } catch (e: any) { ElMessage.error('Failed to create note: ' + (e?.message || e)) }
+  } catch (e: any) { ElMessage.error('创建笔记失败：' + (e?.message || e)) }
 }
 async function newFolder() {
-  const v = await ElMessageBox.prompt('Folder name', 'New Folder', { inputValue: 'Folder' })
+  const v = await ElMessageBox.prompt('输入目录名称', '新建目录', { inputValue: '新目录' })
   if (!v.value) return
   await window.lk.notesUpsert({ title: v.value, body: '', kind: 'folder', parent_id: null, sort: Date.now() })
   await loadTree()
@@ -281,11 +322,23 @@ async function newFolder() {
 function markDirty() {
   editRevision += 1
   dirty.value = true
+  updateSaveState('dirty')
   if (autosaveTimer) clearTimeout(autosaveTimer)
   autosaveTimer = setTimeout(() => { if (dirty.value && !unmounted) void saveCurrentSilently() }, settings.noteAutosaveMs)
 }
 function saveCurrent() { return persistCurrent(false) }
 function saveCurrentSilently() { return persistCurrent(true) }
+function updateSaveState(kind: 'saved' | 'dirty' | 'saving' | 'error') {
+  const states = {
+    saved: { text: '已保存', tip: '本地内容已保存' },
+    dirty: { text: '未保存', tip: '内容已改变，将按自动保存设置写入本地' },
+    saving: { text: '保存中', tip: '正在写入本地资料库' },
+    error: { text: '保存失败', tip: '请检查磁盘或本地资料库后重试' }
+  }
+  const state = states[kind]
+  saveState.value = { kind, ...state }
+  window.dispatchEvent(new CustomEvent('lk:app-status', { detail: { text: state.text } }))
+}
 function isInvalidNotebookBody(body: string) {
   if (!body.includes('lk:notebook:v1') && !body.trim().startsWith('{')) return false
   try {
@@ -300,22 +353,23 @@ function persistCurrent(silent: boolean) {
   if (ta.value) note.body = ta.value.value
   const snapshot = { id: String(note.id), title: String(note.title || '未命名笔记'), body: String(note.body || ''), tags: tagStr.value, revision: editRevision }
   saveChain = saveChain.then(async () => {
+    updateSaveState('saving')
     if (isInvalidNotebookBody(snapshot.body)) {
       const stored = await window.lk.notesGet(snapshot.id)
       if (stored?.body && !isInvalidNotebookBody(String(stored.body))) throw new Error('检测到无效空页状态，已阻止覆盖原笔记')
     }
     await window.lk.notesPatch(snapshot.id, { title: snapshot.title, body: snapshot.body, tags: snapshot.tags })
-    if (current.value?.id === snapshot.id && editRevision === snapshot.revision) dirty.value = false
+    if (current.value?.id === snapshot.id && editRevision === snapshot.revision) { dirty.value = false; updateSaveState('saved') }
     await loadTree()
     if (!silent && current.value?.id === snapshot.id) ElMessage.success('已保存')
-  }).catch((e: any) => { ElMessage.error('保存失败：' + (e?.message || e)) })
+  }).catch((e: any) => { updateSaveState('error'); ElMessage.error('保存失败：' + (e?.message || e)) })
   return saveChain
 }
 function updateTags() { markDirty() }
 function startResize(e: MouseEvent) {
   const startX = e.clientX; const startW = sideW.value
   const move = (ev: MouseEvent) => { sideW.value = Math.max(200, Math.min(460, startW + ev.clientX - startX)) }
-  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  const up = () => { localStorage.setItem('lk_notes_nav_width', String(sideW.value)); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
   window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
 }
 function pushUndo() {
@@ -639,6 +693,7 @@ function appendAiAnswer(text: string) { notebookRef.value?.insertHtml(`<hr>${ren
 function insertFormula() { if (paperMode.value) notebookRef.value?.insertFormula(); else insertCmd('$', '$') }
 function nextNotebookSpread() { if (paperMode.value) notebookRef.value?.nextSpread(); else insertPage() }
 function toggleNotebookPen() { if (paperMode.value) notebookRef.value?.togglePen(); else sketchOpen.value = true }
+function openNotebookInkSettings() { if (paperMode.value) notebookRef.value?.openInkSettings(); else sketchOpen.value = true }
 function insertPage() {
   insertCmd(`\n\n${PAGE_BREAK}\n\n`, '')
   paperIndex.value = notePages.value.length - 1
@@ -794,7 +849,8 @@ function renameCurrentNote() {
 }
 function toggleNoteOutline() {
   if (!paperMode.value) paperMode.value = true
-  nextTick(() => notebookRef.value?.toggleOutline())
+  if (sideOpen.value && navTab.value === 'outline') toggleSide(false)
+  else openNavTab('outline')
 }
 function applyNoteHeading(level: 1 | 2 | 3) {
   if (paperMode.value) notebookRef.value?.applyHeading(level)
@@ -870,6 +926,7 @@ watch([() => props.jumpNoteId, () => props.jumpBlockId], async ([noteId, blockId
   }
 })
 watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.value = Math.max(0, pages.length - 1) })
+watch(noteFilter, (value) => treeRef.value?.filter?.(value))
 onBeforeUnmount(async () => {
   unmounted = true
   if (autosaveTimer) clearTimeout(autosaveTimer)
@@ -927,16 +984,35 @@ function getAllIds(nodes: any[]): string[] {
 
 <style scoped lang="scss">
 .notes-root { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+.side { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; transition:width .16s ease; }
+.side.collapsed { background:var(--bg-elev); }
+.side-rail { display:flex; flex:1; flex-direction:column; align-items:center; gap:5px; padding:7px 4px; }
+.side-rail button,.nav-title button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:0; border-radius:7px; color:var(--text-secondary); background:transparent; cursor:pointer; font-size:16px; }
+.side-rail button:hover,.nav-title button:hover { color:var(--accent-text); background:var(--bg-hover); }
+.side-rail button:last-child { margin-top:auto; color:var(--accent-text); background:var(--accent-dim); }
+.nav-title { display:flex; height:40px; flex:none; align-items:center; gap:8px; padding:0 8px; border-bottom:1px solid var(--border); }
+.nav-title strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:13px; }
+.nav-tabs { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:6px 8px 0; }
+.nav-tabs button { height:28px; border:0; border-radius:6px; color:var(--text-dim); background:transparent; cursor:pointer; font-size:12px; }
+.nav-tabs button:hover,.nav-tabs button.active { color:var(--accent-text); background:var(--accent-dim); font-weight:600; }
+.nav-search { padding:7px 8px 2px; }
 .head { padding: 8px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tree-scroll { flex: 1; overflow: auto; padding: 8px; }
+.chapter-scroll { flex:1; min-height:0; overflow:auto; padding:8px; }
+.chapter-item { display:flex; width:100%; align-items:center; gap:8px; min-height:34px; padding:6px 8px; border:0; border-bottom:1px solid color-mix(in srgb,var(--border) 58%,transparent); border-radius:5px; color:var(--text-secondary); background:transparent; text-align:left; cursor:pointer; }
+.chapter-item:hover { color:var(--accent-text); background:var(--bg-hover); }
+.chapter-item span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chapter-item small { color:var(--text-dim); font-size:10px; }
+.chapter-item.level-1 { color:var(--text); font-weight:700; }.chapter-item.level-2 { padding-left:22px; }.chapter-item.level-3 { padding-left:38px; font-size:12px; }
+.chapter-empty { padding:18px 10px; color:var(--text-dim); font-size:12px; line-height:1.7; }
 .resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-.empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); }
+.empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); text-align:center; }.empty p { margin:0 0 12px; }
 .editor-wrap { position:relative; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .toolbar { display: flex; gap: 4px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); flex-shrink: 0; min-height: 34px; }.word-toolbar :deep(.el-button) { padding-inline:8px; }
 .ribbon-tabs { display:flex; gap:2px; height:28px; padding:0 10px; align-items:end; border-bottom:1px solid var(--border); background:var(--bg-elev); }.ribbon-tabs button { height:27px; padding:0 11px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--text-dim); cursor:pointer; font-size:12px; }.ribbon-tabs button:hover,.ribbon-tabs button.active { color:var(--accent-text); border-bottom-color:var(--accent); }.ribbon-panel { display:flex; align-items:center; gap:5px; min-height:42px; padding:5px 10px; border-bottom:1px solid var(--border); background:var(--bg-elev); flex-wrap:wrap; }.ribbon-hint { margin-left:6px; color:var(--text-dim); font-size:11px; }
 .title-in { width: 180px; flex-shrink: 0; } .tag-in { width: 150px; flex-shrink: 0; }
+.save-state { display:inline-flex; align-items:center; gap:5px; min-width:54px; color:var(--text-dim); font-size:11px; white-space:nowrap; }.save-state i { width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb,var(--success) 14%,transparent); }.save-state.dirty i { background:var(--warning); box-shadow:0 0 0 3px color-mix(in srgb,var(--warning) 14%,transparent); }.save-state.saving { color:var(--accent-text); }.save-state.saving i { background:var(--accent); animation:save-pulse 1s ease-in-out infinite; }.save-state.error { color:var(--danger); }.save-state.error i { background:var(--danger); box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 14%,transparent); } @keyframes save-pulse { 50% { opacity:.38; transform:scale(.75); } }
 .backlink-empty { color:var(--text-dim); padding:18px 4px; font-size:13px; }.backlink-row { display:flex; align-items:center; gap:9px; padding:10px 4px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }.backlink-row:hover { color:var(--accent-text); background:var(--bg-hover); }.backlink-type { border-radius:10px; padding:2px 7px; background:var(--accent-dim); color:var(--accent-text); font-size:11px; }.backlink-arrow { margin-left:auto; color:var(--text-dim); }
 .version-layout { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:360px; border:1px solid var(--border); }.version-list { overflow:auto; border-right:1px solid var(--border); }.version-list button { display:grid; gap:4px; width:100%; padding:10px; text-align:left; color:var(--text); background:transparent; border:0; border-bottom:1px solid var(--border); cursor:pointer; }.version-list button.active,.version-list button:hover { background:var(--accent-dim); }.version-list small,.attrs-hint { color:var(--text-dim); font-size:11px; }.version-list p,.version-preview>p { padding:14px; color:var(--text-dim); font-size:12px; }.version-preview { min-width:0; padding:14px; overflow:auto; }.version-preview h4 { margin:0 0 10px; }.version-preview pre { min-height:230px; max-height:370px; overflow:auto; white-space:pre-wrap; color:var(--text-secondary); background:var(--bg-soft); padding:10px; border-radius:7px; font-size:12px; }.attr-row { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin:8px 0; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex-shrink: 0; } .spacer { flex: 1; }
@@ -960,4 +1036,5 @@ function getAllIds(nodes: any[]): string[] {
 .slash-item:hover .hint { color: rgba(255,255,255,0.7); }
 .active { color: var(--accent); font-weight: 600; }
 :deep(.el-tree) { background: transparent; color: var(--text); }
+@media (max-width: 940px) { .tag-in { display:none; } .ribbon-hint { display:none; } }
 </style>
