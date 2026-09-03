@@ -16,6 +16,11 @@ const api = {
     return () => ipcRenderer.removeListener('app:before-close', listener)
   },
   appCloseReady: () => ipcRenderer.invoke('app:close-ready'),
+  onDatabaseStatus: (cb: (status: { state: 'idle' | 'saving' | 'saved' | 'error'; message?: string; savedAt?: number }) => void) => {
+    const listener = (_event: IpcRendererEvent, status: { state: 'idle' | 'saving' | 'saved' | 'error'; message?: string; savedAt?: number }) => cb(status)
+    ipcRenderer.on('db:persist-status', listener)
+    return () => ipcRenderer.removeListener('db:persist-status', listener)
+  },
 
   // settings
   getSetting: (key: string) => ipcRenderer.invoke('db:settings:get', key),
@@ -127,6 +132,8 @@ const api = {
 
   backupCreate: () => ipcRenderer.invoke('safety:backup:create'),
   backupRestore: () => ipcRenderer.invoke('safety:backup:restore'),
+  databaseStatus: () => ipcRenderer.invoke('safety:status'),
+  databaseRetrySave: () => ipcRenderer.invoke('safety:retry-save'),
 
   mindmapList: () => ipcRenderer.invoke('mindmap:list'),
   mindmapGet: (id: string) => ipcRenderer.invoke('mindmap:get', id),

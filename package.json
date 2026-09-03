@@ -26,7 +26,8 @@
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs",
-    "test:ui:notebook-anchor": "npm run build && node tests/notebook-anchor.e2e.cjs"
+    "test:ui:notebook-anchor": "npm run build && node tests/notebook-anchor.e2e.cjs",
+    "test:ui:database-recovery": "npm run build && node tests/notebook-anchor.e2e.cjs --database-recovery"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",

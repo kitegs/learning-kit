@@ -112,6 +112,12 @@ function onAppStatus(event: Event) {
   if (detail?.text) appStatus.value = detail.text
 }
 
+function onDatabaseStatus(status: DatabasePersistenceStatus) {
+  if (status.state === 'saving') appStatus.value = '正在安全保存…'
+  else if (status.state === 'saved') appStatus.value = '数据已安全保存'
+  else if (status.state === 'error') appStatus.value = `保存失败：${status.message || '请检查磁盘空间或权限'}`
+}
+
 let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; noteId?: string; blockId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
   const seq = ++switchSeq
@@ -522,17 +528,21 @@ async function undoToolOperation(operationId: string) {
 }
 
 let removeBeforeCloseListener: (() => void) | null = null
+let removeDatabaseStatusListener: (() => void) | null = null
 async function prepareAppClose() {
   const pending: Promise<unknown>[] = []
   window.dispatchEvent(new CustomEvent('lk:before-close', {
     detail: { waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)) }
   }))
   await Promise.allSettled(pending)
-  await window.lk.appCloseReady()
+  const closed = await window.lk.appCloseReady()
+  if (!closed) appStatus.value = '保存失败，应用未关闭；请检查磁盘空间或权限后重试'
 }
 
 onMounted(async () => {
   window.addEventListener('lk:app-status', onAppStatus as EventListener)
+  removeDatabaseStatusListener = window.lk.onDatabaseStatus(onDatabaseStatus)
+  onDatabaseStatus(await window.lk.databaseStatus())
   dumpLog(); clearLog()
   log('app_start')
   window.addEventListener('error', (ev) => { console.error('[global]', ev.error || ev.message); log('global_error', String(ev.error || ev.message).slice(0, 100)) })
@@ -612,7 +622,7 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); activeAbort?.() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); removeDatabaseStatusListener?.(); activeAbort?.() })
 </script>
 
 <style scoped lang="scss">

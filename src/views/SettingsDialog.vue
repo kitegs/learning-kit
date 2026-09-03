@@ -83,6 +83,10 @@
         <el-button size="small" type="warning" plain @click="restoreBackup">恢复备份</el-button>
         <span class="muted">恢复后会立即重载本地资料，恢复前自动保留一份安全副本</span>
       </el-form-item>
+      <el-form-item label="保存状态">
+        <el-tag size="small" :type="persistenceStatus.state === 'error' ? 'danger' : persistenceStatus.state === 'saving' ? 'warning' : 'success'">{{ persistenceStatusText }}</el-tag>
+        <el-button size="small" :loading="retryingSave" @click="retryDatabaseSave">重试保存</el-button>
+      </el-form-item>
       <el-form-item label="密钥保护"><span class="muted key-protection">API Key 使用系统安全存储加密，不以明文写入学习数据库。</span></el-form-item>
 
       <el-divider content-position="left">快捷键</el-divider>
@@ -114,9 +118,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingsStore, type ThemeId } from '../stores/chat'
+
+const persistenceStatus = ref<DatabasePersistenceStatus>({ state: 'idle' })
+const retryingSave = ref(false)
+const persistenceStatusText = computed(() => {
+  if (persistenceStatus.value.state === 'saving') return '正在安全保存…'
+  if (persistenceStatus.value.state === 'error') return `保存失败：${persistenceStatus.value.message || '请检查磁盘空间或权限'}`
+  if (persistenceStatus.value.state === 'saved') return '数据已安全保存'
+  return '等待首次保存'
+})
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -198,6 +211,28 @@ async function restoreBackup() {
     window.location.reload()
   }
 }
+
+async function refreshPersistenceStatus() {
+  persistenceStatus.value = await window.lk.databaseStatus()
+}
+
+async function retryDatabaseSave() {
+  retryingSave.value = true
+  try {
+    const saved = await window.lk.databaseRetrySave()
+    await refreshPersistenceStatus()
+    if (saved) ElMessage.success('本地资料已安全保存')
+    else ElMessage.error(persistenceStatus.value.message || '保存失败，请检查磁盘空间或权限')
+  } finally {
+    retryingSave.value = false
+  }
+}
+
+watch(() => props.modelValue, (open) => {
+  if (open) refreshPersistenceStatus().catch((error: unknown) => {
+    persistenceStatus.value = { state: 'error', message: error instanceof Error ? error.message : String(error) }
+  })
+}, { immediate: true })
 
 function onClose() {
   emit('update:modelValue', false)

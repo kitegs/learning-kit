@@ -4,7 +4,9 @@
 
 const initSqlJs = require('sql.js')
 const assert = require('assert')
-const { readFileSync } = require('fs')
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('fs')
+const { tmpdir } = require('os')
+const { join } = require('path')
 const { performance } = require('perf_hooks')
 const ts = require('typescript')
 
@@ -74,6 +76,45 @@ function testLearningOperationSchemaDeclarations() {
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS exercise_sets/)
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS ocr_blocks/)
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS tool_operations/)
+}
+
+function testAtomicDatabasePersistence() {
+  const source = readFileSync('electron/main/durable-file.ts', 'utf8')
+  const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const module = { exports: {} }
+  new Function('module', 'exports', 'require', output)(module, module.exports, require)
+  const { atomicReplaceFile, firstValidFile } = module.exports
+  const dir = mkdtempSync(join(tmpdir(), 'learning-kit-persist-'))
+  const target = join(dir, 'learning-kit.db')
+  const validate = (data) => {
+    if (!Buffer.from(data).toString('utf8').startsWith('valid:')) throw new Error('invalid fixture')
+  }
+
+  try {
+    atomicReplaceFile(target, Buffer.from('valid:v1'), validate)
+    atomicReplaceFile(target, Buffer.from('valid:v2'), validate)
+    assert.strictEqual(readFileSync(target, 'utf8'), 'valid:v2')
+    assert.strictEqual(readFileSync(`${target}.last-good.bak`, 'utf8'), 'valid:v1')
+    atomicReplaceFile(target, Buffer.from('valid:v3'), validate)
+    assert.strictEqual(readFileSync(target, 'utf8'), 'valid:v3')
+    assert.strictEqual(readFileSync(`${target}.last-good.bak`, 'utf8'), 'valid:v2', 'existing last-good backups must be replaced safely')
+
+    assert.throws(() => atomicReplaceFile(target, Buffer.from('broken'), validate))
+    assert.strictEqual(readFileSync(target, 'utf8'), 'valid:v3', 'failed writes must not replace the primary file')
+
+    writeFileSync(target, 'broken-primary')
+    const recovered = firstValidFile([target, `${target}.tmp`, `${target}.last-good.bak`], validate)
+    assert(recovered, 'a valid previous database must remain recoverable')
+    assert.strictEqual(recovered.path, `${target}.last-good.bak`)
+    assert.strictEqual(Buffer.from(recovered.data).toString('utf8'), 'valid:v2')
+
+    const dbSource = readFileSync('electron/main/db.ts', 'utf8')
+    assert.match(dbSource, /atomicReplaceFile\(dbPath, db\.export\(\), validateDatabaseBytes\)/)
+    assert.match(dbSource, /firstValidFile\(\[/)
+    assert.doesNotMatch(dbSource, /writeFileSync\(dbPath/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 // --- Test: PDF cover previews can be persisted through the existing book update IPC ---
@@ -643,6 +684,7 @@ function testNotebookInkAndUndoRegression() {
   freshDb(); test('电子书 + 高亮链', testEbookChain); db.close()
   freshDb(); test('笔记文件夹树 (parent/child hierarchy)', testFolderTree); db.close()
   test('学习操作持久化 schema 声明', testLearningOperationSchemaDeclarations)
+  test('数据库原子保存与最近有效副本恢复', testAtomicDatabasePersistence)
   test('电子书封面预览可持久化', testBookCoverUpdateSupport)
   test('电子书快捷键、便签、关联笔记、OCR 与跳页回归', testReaderProductivityRegression)
   test('文本目录导入与页码偏移', testTextOutlineImport)

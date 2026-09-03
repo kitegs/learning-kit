@@ -98,6 +98,9 @@ interface LkApi {
 
   backupCreate: () => Promise<{ path: string; bytes: number } | null>
   backupRestore: () => Promise<boolean>
+  databaseStatus: () => Promise<DatabasePersistenceStatus>
+  databaseRetrySave: () => Promise<boolean>
+  onDatabaseStatus: (cb: (status: DatabasePersistenceStatus) => void) => () => void
 
   mindmapList: () => Promise<any[]>
   mindmapGet: (id: string) => Promise<any>
@@ -193,6 +196,12 @@ interface RawRow {
 }
 
 declare global {
+  interface DatabasePersistenceStatus {
+    state: 'idle' | 'saving' | 'saved' | 'error'
+    message?: string
+    savedAt?: number
+  }
+
   interface Window {
     lk: LkApi
   }

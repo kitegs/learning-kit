@@ -2,7 +2,7 @@
 // Uses Electron's built-in Chromium DevTools Protocol; no browser-test package.
 
 const { spawn } = require('child_process')
-const { mkdtempSync, readFileSync, rmSync } = require('fs')
+const { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('fs')
 const { tmpdir } = require('os')
 const { join, resolve } = require('path')
 
@@ -513,8 +513,36 @@ async function secondRun(blockId) {
   await closeApp(activeApp)
 }
 
+async function databaseRecoveryRun() {
+  const sentinel = `database-recovery-${Date.now()}`
+  let app = await launchApp()
+  await app.cdp.evaluate(`window.lk.setSetting('e2e:database-recovery', ${JSON.stringify(sentinel)})`)
+  const saved = await app.cdp.evaluate(`window.lk.databaseRetrySave()`)
+  if (!saved) throw new Error('Database retry save did not succeed before corruption test')
+  await closeApp(app)
+
+  const dataDir = join(PROFILE, 'data')
+  const databasePath = join(dataDir, 'learning-kit-v3.db')
+  const backupPath = `${databasePath}.last-good.bak`
+  if (!existsSync(backupPath)) throw new Error('Automatic last-good database backup was not created')
+  writeFileSync(databasePath, 'intentionally-corrupted-database')
+
+  app = await launchApp()
+  await waitFor(() => app.cdp.evaluate(`window.lk.getSetting('e2e:database-recovery').then((value) => value === ${JSON.stringify(sentinel)})`), 'Saved data was not recovered from the last-good database')
+  const corruptCopies = readdirSync(dataDir).filter((name) => name.startsWith('learning-kit-v3.db.corrupt-'))
+  if (!corruptCopies.length) throw new Error('Corrupted primary database was not preserved for diagnosis')
+  await closeApp(app)
+}
+
 async function main() {
   try {
+    if (process.argv.includes('--database-recovery')) {
+      console.log('Learning Kit — 数据库恢复 UI 测试')
+      await databaseRecoveryRun()
+      console.log('  ✓ 主数据库损坏后从最近有效副本恢复并保留异常文件')
+      console.log('\n━━━ 结果: 1 通过, 0 失败 ━━━')
+      return
+    }
     console.log('Learning Kit — 笔记锚点 UI 测试')
     const blockId = await firstRun()
     console.log('  ✓ 可折叠笔记/章节导航、全局版式继承、空白区拖动、F2、截图、Markdown/公式粘贴、整本全选、荧光笔参数、撤销及跨笔记定位')

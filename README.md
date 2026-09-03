@@ -54,6 +54,7 @@ npm run build
 
 ```powershell
 npm run test:ui:notebook-anchor
+npm run test:ui:database-recovery
 ```
 
 ## 本地数据与隐私

@@ -1,11 +1,43 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'fs'
 import initSqlJs, { type Database } from 'sql.js'
+import { atomicReplaceFile, firstValidFile } from './durable-file'
 
 let db: Database | null = null
 let dbPath = ''
 let sql: Awaited<ReturnType<typeof initSqlJs>> | null = null
+
+export interface PersistenceStatus {
+  state: 'idle' | 'saving' | 'saved' | 'error'
+  message?: string
+  savedAt?: number
+}
+
+export interface StartupRecoveryNotice {
+  recoveredFrom: string
+  corruptPath?: string
+}
+
+let persistenceStatus: PersistenceStatus = { state: 'idle' }
+let startupRecoveryNotice: StartupRecoveryNotice | null = null
+
+function updatePersistenceStatus(status: PersistenceStatus): void {
+  persistenceStatus = status
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send('db:persist-status', status)
+  }
+}
+
+export function getPersistenceStatus(): PersistenceStatus {
+  return { ...persistenceStatus }
+}
+
+export function consumeStartupRecoveryNotice(): StartupRecoveryNotice | null {
+  const notice = startupRecoveryNotice
+  startupRecoveryNotice = null
+  return notice
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -504,19 +536,36 @@ export async function initDb(): Promise<Database> {
   dbPath = join(dataDir, 'learning-kit-v3.db')
 
   sql = await initSqlJs()
-  if (existsSync(dbPath)) {
-    const buf = readFileSync(dbPath)
-    try {
-      db = new sql.Database(buf)
-    } catch {
-      db = new sql.Database()
+  const validate = validateDatabaseBytes
+  const recovery = firstValidFile([
+    dbPath,
+    `${dbPath}.tmp`,
+    `${dbPath}.last-good.bak`,
+    `${dbPath}.pre-restore.bak`
+  ], validate)
+  const hasExistingFiles = [dbPath, `${dbPath}.tmp`, `${dbPath}.last-good.bak`, `${dbPath}.pre-restore.bak`].some(existsSync)
+
+  if (!recovery && hasExistingFiles) {
+    throw new Error(`本地资料库及安全副本均无法读取。文件仍保留在：${dataDir}`)
+  }
+
+  if (recovery) {
+    if (recovery.path !== dbPath) {
+      let corruptPath: string | undefined
+      if (existsSync(dbPath)) {
+        corruptPath = `${dbPath}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
+        renameSync(dbPath, corruptPath)
+      }
+      atomicReplaceFile(dbPath, recovery.data, validate)
+      startupRecoveryNotice = { recoveredFrom: recovery.path, corruptPath }
     }
+    db = new sql.Database(recovery.data)
   } else {
     db = new sql.Database()
   }
   db.exec(SCHEMA)
   migrate(db)
-  persist()
+  if (!persist()) throw new Error(persistenceStatus.message || '无法保存本地资料库')
   return db
 }
 
@@ -526,25 +575,41 @@ export function getDb(): Database {
 }
 
 let persistTimer: NodeJS.Timeout | null = null
-export function persist(): void {
-  if (!db) return
+function validateDatabaseBytes(data: Uint8Array): void {
+  if (!sql) throw new Error('数据库引擎尚未初始化')
+  const candidate = new sql.Database(data)
   try {
-    const data = db.export()
-    writeFileSync(dbPath, Buffer.from(data))
-  } catch (e: any) {
-    console.error('[db] persist failed:', e?.message || e)
+    const check = candidate.exec('PRAGMA integrity_check')
+    if (check[0]?.values?.[0]?.[0] !== 'ok') throw new Error('数据库完整性校验失败')
+  } finally {
+    candidate.close()
+  }
+}
+
+export function persist(): boolean {
+  if (!db || !dbPath) return true
+  updatePersistenceStatus({ state: 'saving' })
+  try {
+    atomicReplaceFile(dbPath, db.export(), validateDatabaseBytes)
+    updatePersistenceStatus({ state: 'saved', savedAt: Date.now() })
+    return true
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    updatePersistenceStatus({ state: 'error', message })
+    console.error('[db] persist failed:', message)
+    return false
   }
 }
 export function schedulePersist(): void {
   if (persistTimer) clearTimeout(persistTimer)
   persistTimer = setTimeout(() => {
-    try { persist() } catch (e: any) { console.error('[db] schedulePersist error:', e?.message || e) }
+    persist()
     persistTimer = null
   }, 250)
 }
 
 export function backupDatabase(targetPath: string): { path: string; bytes: number } {
-  persist()
+  if (!persist()) throw new Error(persistenceStatus.message || '当前数据保存失败，无法创建可靠备份')
   copyFileSync(dbPath, targetPath)
   return { path: targetPath, bytes: readFileSync(targetPath).byteLength }
 }
@@ -562,10 +627,11 @@ export function restoreDatabase(sourcePath: string): void {
     const beforeRestore = `${dbPath}.pre-restore.bak`
     if (existsSync(dbPath)) copyFileSync(dbPath, beforeRestore)
     const restored = candidate.export()
-    writeFileSync(dbPath, Buffer.from(restored))
+    atomicReplaceFile(dbPath, restored, validateDatabaseBytes)
     const previous = db
     db = candidate
     previous?.close()
+    updatePersistenceStatus({ state: 'saved', savedAt: Date.now() })
   } catch (error) {
     if (db !== candidate) candidate.close()
     throw error

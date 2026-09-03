@@ -1,7 +1,10 @@
 import { dialog, ipcMain } from 'electron'
-import { backupDatabase, restoreDatabase } from './db'
+import { backupDatabase, getPersistenceStatus, persist, restoreDatabase } from './db'
 
 export function registerSafetyIpcs(ipc: typeof ipcMain): void {
+  ipc.handle('safety:status', () => getPersistenceStatus())
+  ipc.handle('safety:retry-save', () => persist())
+
   ipc.handle('safety:backup:create', async () => {
     const choice = await dialog.showSaveDialog({
       title: '备份 Learning Kit 数据',

@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, shell, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, protocol } from 'electron'
 import { join } from 'path'
-import { initDb, persist } from './db'
+import { consumeStartupRecoveryNotice, getPersistenceStatus, initDb, persist } from './db'
 import { registerAiIpcs } from './ai'
 import { registerDbIpcs } from './ipc-db'
 import { registerBookIpcs, registerBookProtocol } from './book'
@@ -26,6 +26,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 let allowWindowClose = false
 let closeFallback: NodeJS.Timeout | null = null
+let databaseReady = false
 
 function createWindow(): void {
   allowWindowClose = false
@@ -59,7 +60,11 @@ function createWindow(): void {
     mainWindow?.webContents.send('app:before-close')
     if (closeFallback) clearTimeout(closeFallback)
     closeFallback = setTimeout(() => {
-      persist()
+      closeFallback = null
+      if (!persist()) {
+        dialog.showErrorBox('数据尚未保存', `无法安全关闭 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
+        return
+      }
       allowWindowClose = true
       mainWindow?.destroy()
     }, 2500)
@@ -86,6 +91,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   await initDb()
+  databaseReady = true
   registerBookProtocol()
   registerDbIpcs(ipcMain)
   registerAiIpcs(ipcMain)
@@ -100,7 +106,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:close-ready', () => {
     if (closeFallback) clearTimeout(closeFallback)
     closeFallback = null
-    persist()
+    if (!persist()) {
+      dialog.showErrorBox('数据尚未保存', `无法安全关闭 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
+      return false
+    }
     allowWindowClose = true
     mainWindow?.close()
     return true
@@ -112,9 +121,26 @@ app.whenReady().then(async () => {
 
   createWindow()
 
+  const recovery = consumeStartupRecoveryNotice()
+  if (recovery && !isolatedUserData) {
+    const options = {
+      type: 'warning',
+      title: '已恢复本地资料库',
+      message: 'Learning Kit 检测到主资料库异常，已从最近有效副本恢复。',
+      detail: recovery.corruptPath
+        ? `异常文件已保留在：${recovery.corruptPath}\n恢复来源：${recovery.recoveredFrom}`
+        : `恢复来源：${recovery.recoveredFrom}`
+    } as const
+    void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options))
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  dialog.showErrorBox('无法打开本地资料库', `${message}\n\nLearning Kit 未创建空资料库，也没有覆盖原文件。`)
+  app.quit()
 })
 
 app.on('window-all-closed', () => {
@@ -123,4 +149,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', persist)
+app.on('before-quit', (event) => {
+  if (!databaseReady) return
+  if (!persist()) {
+    event.preventDefault()
+    dialog.showErrorBox('数据尚未保存', `无法退出 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
+  }
+})
