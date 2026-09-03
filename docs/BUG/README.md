@@ -20,4 +20,4 @@
 | 2026-09-01 | BUG-20260901-05-notebook-whole-select.md | Ctrl+A 只能选择当前纸页 | fixed |
 | 2026-09-01 | BUG-20260901-06-notebook-blank-pan.md | 笔记工作区空白处无法拖动纸张 | fixed |
 | 2026-09-03 | BUG-20260903-01-database-durability.md | 数据库直接覆盖与损坏后静默空库 | fixed |
-| 2026-09-03 | BUG-20260903-02-notebook-ui-test-flake.md | 笔记锚点 UI 测试存在章节定位时序波动 | open |
+| 2026-09-03 | BUG-20260903-02-notebook-ui-test-flake.md | 笔记锚点 UI 测试存在章节定位时序波动 | fixed |

@@ -391,7 +391,14 @@ async function testNotebookWorkspacePan(cdp) {
 
 async function selectNoteByTitle(cdp, title) {
   const selector = `[data-note-title=${JSON.stringify(title)}]`
-  await waitFor(() => cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}) ? true : false`), `Note tree item not found: ${title}`)
+  await waitFor(() => cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}) ? true : false`), `Note tree item not found: ${title}`).catch(async (error) => {
+    const state = await cdp.evaluate(`(async () => ({
+      currentTitle: document.querySelector('.title-in input')?.value || '',
+      treeTitles: [...document.querySelectorAll('[data-note-title]')].map((item) => item.getAttribute('data-note-title')),
+      notes: await window.lk.notesList()
+    }))()`)
+    throw new Error(`${error.message}; state=${JSON.stringify(state)}`)
+  })
   await click(cdp, selector)
   await waitFor(() => cdp.evaluate(`document.querySelector('.title-in input')?.value === ${JSON.stringify(title)}`), `Note did not become active: ${title}`)
 }
@@ -402,6 +409,8 @@ async function assertNavigation(cdp, blockId) {
       title: document.querySelector('.title-in input')?.value || '',
       hrefs: [...document.querySelectorAll('[data-testid="notebook-page-left"] a')].map((item) => item.getAttribute('href')),
       block: await window.lk.blockGet(${JSON.stringify(blockId)}),
+      targetNote: await window.lk.blockGet(${JSON.stringify(blockId)}).then((block) => block ? window.lk.notesGet(block.source_id) : null),
+      activeTreeItem: document.querySelector('[data-note-title].active')?.getAttribute('data-note-title') || '',
       messages: [...document.querySelectorAll('.el-message')].map((item) => item.textContent),
       log: localStorage.getItem('lk_action_log')
     }))()`)

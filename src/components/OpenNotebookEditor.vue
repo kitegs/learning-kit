@@ -28,7 +28,7 @@
       <button v-for="item in outlineItems" :key="item.id" class="outline-entry" :style="{ paddingLeft: `${10 + (item.level - 1) * 16}px` }" @click="goToHeading(item)"><span>{{ item.text }}</span><small>{{ item.spread * 2 + (item.side === 'left' ? 1 : 2) }}</small></button>
       <p v-if="!outlineItems.length">还没有标题。选中文字后使用 H1/H2/H3 即可生成目录。</p>
     </aside>
-    <div class="book-table" :class="{ grabbing: panning, 'hand-tool': tool === 'hand', 'whole-selected': wholeNotebookSelected }" tabindex="0" @wheel="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @pointerleave="endPan" @contextmenu.stop.prevent="onContextMenu">
+    <div class="book-table" :class="{ grabbing: panning, 'hand-tool': tool === 'hand', 'whole-selected': wholeNotebookSelected }" tabindex="0" @wheel="onWheel" @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @contextmenu.stop.prevent="onContextMenu">
       <div class="book-spread" :style="{ transform: `translate(${panX}px, ${panY}px) scale(${viewScale})` }">
       <div class="book-cover-shadow"></div>
       <article class="paper left-paper" :style="paperStyle">
@@ -96,6 +96,9 @@ const selectedPaperCount = computed(() => Math.max(1, pages.value.length * 2))
 const outlineOpen = ref(false)
 type OutlineItem = { id: string; text: string; level: number; spread: number; side: 'left' | 'right'; page: number }
 const outlineItems = ref<OutlineItem[]>([])
+type RevealTarget = { id: string; spread: number; side?: 'left' | 'right'; className: 'heading-revealed' | 'revealed' }
+let pendingReveal: RevealTarget | null = null
+let revealRequest = 0
 let savedTextRange: Range | null = null
 type Tool = 'text' | 'select' | 'hand' | 'pen' | 'highlighter' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'eraser'
 const tool = ref<Tool>('text')
@@ -231,6 +234,7 @@ function syncPage() {
   if (rightText.value) rightText.value.innerHTML = page.right
   paint(leftCanvas.value, page.leftInk, page.leftObjects, selectedObject.value?.side === 'left' ? selectedObject.value.id : null)
   paint(rightCanvas.value, page.rightInk, page.rightObjects, selectedObject.value?.side === 'right' ? selectedObject.value.id : null)
+  if (pendingReveal?.spread === spread.value) window.requestAnimationFrame(applyPendingReveal)
 }
 function syncOut(recordHistory = true) {
   const next = serialize()
@@ -245,6 +249,7 @@ function syncOut(recordHistory = true) {
   emit('dirty')
 }
 function turn(direction: number) {
+  clearReveal()
   wholeNotebookSelected.value = false
   const next = spread.value + direction
   if (next < 0) return
@@ -253,6 +258,7 @@ function turn(direction: number) {
   nextTick(syncPage)
 }
 function onText(side: 'left' | 'right', event: Event) {
+  clearReveal()
   wholeNotebookSelected.value = false
   while (pages.value.length <= spread.value) pages.value.push(blank())
   const page = pages.value[spread.value]
@@ -298,21 +304,7 @@ function toggleOutline() {
   if (outlineOpen.value) refreshOutline()
 }
 function goToHeading(item: OutlineItem) {
-  goToSpread(item.spread)
-  let attempts = 0
-  const locate = () => {
-    const heading = document.getElementById(item.id)
-    if (!heading) {
-      attempts += 1
-      if (attempts < 20) window.requestAnimationFrame(locate)
-      return
-    }
-    activeSide.value = item.side
-    heading.scrollIntoView({ block: 'center', inline: 'nearest' })
-    heading.classList.add('heading-revealed')
-    window.setTimeout(() => heading.classList.remove('heading-revealed'), 1600)
-  }
-  nextTick(() => window.requestAnimationFrame(locate))
+  revealOnPage({ id: item.id, spread: item.spread, side: item.side, className: 'heading-revealed' })
 }
 function goToHeadingId(id: string) {
   const item = outlineItems.value.find((heading) => heading.id === id)
@@ -991,7 +983,7 @@ function startPan(event: PointerEvent) {
   if (event.button !== 0 && event.button !== 1) return
   const target = event.target as HTMLElement
   const container = event.currentTarget as HTMLElement
-  const blankWorkspace = target === container || Boolean(target.closest('.book-cover-shadow,.spine'))
+  const blankWorkspace = target === container || target.classList.contains('book-spread') || Boolean(target.closest('.book-cover-shadow,.spine'))
   if (tool.value !== 'hand' && !blankWorkspace && event.button !== 1 && !spacePanHeld) return
   event.preventDefault()
   panning.value = true
@@ -1101,33 +1093,52 @@ function insertHtml(html: string) {
 function insertImage(dataUrl: string, alt = '图片') { insertHtml(`<p><img src="${dataUrl}" alt="${alt}" /></p>`) }
 function insertFormula() { insertHtml('<span class="lk-formula">公式： </span>') }
 function getText() { const page = pages.value[spread.value]; return `${page?.left || ''}\n${page?.right || ''}`.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }
-function goToSpread(target: number) {
+function clearReveal() {
+  revealRequest += 1
+  pendingReveal = null
+  leftText.value?.querySelectorAll('.heading-revealed,.revealed').forEach((element) => element.classList.remove('heading-revealed', 'revealed'))
+  rightText.value?.querySelectorAll('.heading-revealed,.revealed').forEach((element) => element.classList.remove('heading-revealed', 'revealed'))
+}
+function applyPendingReveal() {
+  const target = pendingReveal
+  if (!target || target.spread !== spread.value) return false
+  const element = document.getElementById(target.id)
+  if (!element || (!leftText.value?.contains(element) && !rightText.value?.contains(element))) return false
+  leftText.value?.querySelectorAll('.heading-revealed,.revealed').forEach((item) => item.classList.remove('heading-revealed', 'revealed'))
+  rightText.value?.querySelectorAll('.heading-revealed,.revealed').forEach((item) => item.classList.remove('heading-revealed', 'revealed'))
+  activeSide.value = target.side || (rightText.value?.contains(element) ? 'right' : 'left')
+  element.classList.add(target.className)
+  element.scrollIntoView({ block: 'center', inline: 'nearest' })
+  return true
+}
+function revealOnPage(target: RevealTarget) {
+  clearReveal()
+  pendingReveal = target
+  const request = revealRequest
+  goToSpread(target.spread, true)
+  let attempts = 0
+  const locate = () => {
+    if (request !== revealRequest || applyPendingReveal()) return
+    attempts += 1
+    if (attempts < 20) window.requestAnimationFrame(locate)
+  }
+  nextTick(() => window.requestAnimationFrame(locate))
+}
+function goToSpread(target: number, preserveReveal = false) {
   if (!Number.isFinite(target) || target < 0) return
+  if (!preserveReveal) clearReveal()
   while (pages.value.length <= target) pages.value.push(blank())
   spread.value = target
   nextTick(syncPage)
 }
 function revealAnchor(target: number, anchorId: string) {
-  goToSpread(target)
-  let attempts = 0
-  const revealWhenReady = () => {
-    const element = document.getElementById(anchorId)
-    if (!element) {
-      attempts += 1
-      if (attempts < 20) window.requestAnimationFrame(revealWhenReady)
-      return
-    }
-    activeSide.value = rightText.value?.contains(element) ? 'right' : 'left'
-    element.scrollIntoView({ block: 'center', inline: 'center' })
-    element.classList.add('revealed')
-    window.setTimeout(() => element.classList.remove('revealed'), 1800)
-  }
-  nextTick(() => window.requestAnimationFrame(revealWhenReady))
+  revealOnPage({ id: anchorId, spread: target, className: 'revealed' })
 }
 defineExpose({ insertHtml, insertImage, insertFormula, togglePen, openInkSettings, toggleOutline, applyHeading, undo, redo, selectWholeNotebook, nextSpread: () => turn(1), getText, getSpread: () => spread.value, goToSpread, goToHeadingId, wrapSelectionWithLink, revealAnchor })
 
 watch(() => props.modelValue, (value) => {
   if (value === lastSerialized) return
+  clearReveal()
   const data = parse(value || '')
   const sharedLayout = globalLayoutEnabled.value ? readGlobalLayout() : null
   pages.value = data.pages

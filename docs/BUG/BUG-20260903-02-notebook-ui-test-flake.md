@@ -2,7 +2,7 @@
 type: BUG
 title: 笔记锚点 UI 测试存在章节定位时序波动
 created: 2026-09-03
-status: open
+status: fixed
 relates: [REQ-20260903-01-product-convergence, DEV-20260903-01-product-convergence]
 ---
 

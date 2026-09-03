@@ -184,6 +184,8 @@ const notePages = computed(() => (current.value?.body || '').split(PAGE_BREAK))
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 let editRevision = 0
 let saveChain: Promise<void> = Promise.resolve()
+let openRequest = 0
+let treeRequest = 0
 let unmounted = false
 const html = computed(() => (current.value ? renderMarkdown(current.value.body) : ''))
 const slashCmds = [
@@ -254,8 +256,15 @@ function buildTree(rows: any[]) {
 }
 
 async function loadTree() {
-  try { rawTree.value = await window.lk.notesList() }
-  catch (e: any) { ElMessage.error('加载笔记失败：' + (e?.message || e)); rawTree.value = [] }
+  const request = ++treeRequest
+  try {
+    const rows = await window.lk.notesList()
+    if (request === treeRequest) rawTree.value = rows
+  }
+  catch (e: any) {
+    if (request !== treeRequest) return
+    ElMessage.error('加载笔记失败：' + (e?.message || e)); rawTree.value = []
+  }
 }
 function onClick(d: any) {
   if (!d || !d.id) return
@@ -268,9 +277,12 @@ function onClick(d: any) {
   }
 }
 async function open(id: string) {
+  const request = ++openRequest
   try {
     if (dirty.value) await saveCurrent()
+    if (request !== openRequest) return
     const n = await window.lk.notesGet(id)
+    if (request !== openRequest) return
     if (n) {
       if (isInvalidNotebookBody(String(n.body || ''))) {
         const history = await window.lk.noteVersions(id)
@@ -291,10 +303,11 @@ async function open(id: string) {
           ElMessage.warning('检测到无效空页数据；没有可恢复历史，已打开安全空白页')
         }
       }
+      const nextBacklinks = await window.lk.linkAllForEntity('note', id)
+      if (request !== openRequest) return
       editRevision += 1
-      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); updateSaveState('saved'); await loadBacklinks()
+      current.value = n; currentId.value = id; dirty.value = false; tagStr.value = (n.tags || '').trim(); backlinks.value = nextBacklinks; updateSaveState('saved')
       undoStack.value = []; redoStack.value = []
-      if (props.jumpBlockId) nextTick(() => revealBlock(props.jumpBlockId!))
     } else {
       ElMessage.warning('未找到这份笔记')
     }
@@ -310,7 +323,7 @@ async function newNote(parentId: string | null = null) {
       if (cur && cur.kind === 'folder') parentId = cur.id
     }
     const id = await window.lk.notesUpsert({ title: '未命名笔记', body: '', parent_id: parentId, sort: Date.now(), kind: 'note' })
-    await loadTree(); await open(id)
+    await open(id); await loadTree()
   } catch (e: any) { ElMessage.error('创建笔记失败：' + (e?.message || e)) }
 }
 async function newFolder() {
@@ -884,6 +897,8 @@ onMounted(async () => {
     if (firstNote) await open(firstNote.id)
     else await newNote(null)
   }
+  await nextTick()
+  if (props.jumpBlockId) await revealBlock(props.jumpBlockId)
   // restore expanded state from settings
   const saved = await window.lk.getSetting('notesExpanded')
   if (saved) defaultExpand.value = JSON.parse(saved)
@@ -896,13 +911,15 @@ async function revealBlock(id: string) {
   try { anchor = JSON.parse(block.anchor || '{}') } catch { /* legacy content blocks have no structured anchor */ }
   if (anchor.kind === 'notebook-anchor') {
     paperMode.value = true
-    nextTick(() => notebookRef.value?.revealAnchor(anchor.spread || 0, anchor.anchorId || ''))
+    await nextTick()
+    notebookRef.value?.revealAnchor(anchor.spread || 0, anchor.anchorId || '')
     ElMessage.info(block.stale ? '已打开锚点所在纸页；内容变更后请核对位置。' : '已定位到笔记位置')
     return
   }
   if (anchor.kind === 'notebook-spread') {
     paperMode.value = true
-    nextTick(() => notebookRef.value?.goToSpread(anchor.spread || 0))
+    await nextTick()
+    notebookRef.value?.goToSpread(anchor.spread || 0)
     ElMessage.info(block.stale ? '已打开引用所在纸页；原笔记改动后，请核对内容。' : '已打开引用所在纸页')
     return
   }
@@ -929,6 +946,8 @@ watch(notePages, (pages) => { if (paperIndex.value >= pages.length) paperIndex.v
 watch(noteFilter, (value) => treeRef.value?.filter?.(value))
 onBeforeUnmount(async () => {
   unmounted = true
+  openRequest += 1
+  treeRequest += 1
   if (autosaveTimer) clearTimeout(autosaveTimer)
   window.removeEventListener('lk:before-close', onBeforeAppClose)
   window.removeEventListener('lk:save-note', saveCurrent as EventListener)
