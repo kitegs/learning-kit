@@ -1,5 +1,5 @@
 <template>
-  <div class="reader-root">
+  <div class="reader-root" data-testid="pdf-reader">
     <aside class="side" :class="{ open: sideOpen }">
       <div class="side-tabs">
         <button :class="{active: tab==='toc'}" @click="tab='toc'">目录</button>
@@ -45,7 +45,7 @@
         <el-button size="small" text @click="sideOpen=!sideOpen">目录</el-button>
         <span class="title">{{ book?.title }}</span>
         <span class="spacer"></span>
-        <span class="current-page-label">第 {{ page }} / {{ totalPages || '—' }} 页</span>
+        <span class="current-page-label" data-testid="pdf-current-page">第 {{ page }} / {{ totalPages || '—' }} 页</span>
         <el-button size="small" @click="prevPage" :disabled="page<=1">&lt;</el-button>
         <el-input-number v-model="pageInput" class="page-input" size="small" :min="1" :max="Math.max(1, totalPages)" :controls="false" aria-label="跳转页码" @change="jumpToPage" @keydown.enter.stop.prevent="jumpToPage(pageInput)" />
         <span class="pg-total">/ {{ totalPages }}</span>
@@ -77,12 +77,13 @@
         <el-button size="small" @click="clearPageAnnotations">清除本页批注</el-button>
         <span class="ann-hint">文本划线请先退出手绘批注模式，再直接拖选正文。</span>
       </div>
-      <div class="canvas-wrap" ref="wrap"
+      <div class="canvas-wrap" ref="wrap" data-testid="pdf-canvas-wrap"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
         @contextmenu.prevent="onContextMenu"
         @wheel="onWheel"
+        @scroll.passive="scheduleReaderViewState"
         @mouseup="onSelectionEnd"
       >
         <div ref="pageHost" class="page-host"></div>
@@ -158,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -187,6 +188,8 @@ const totalPages = ref(0)
 const page = ref(1)
 const pageInput = ref(1)
 const zoom = ref(120)
+type ReaderViewState = { page: number; zoom: number; relativeY: number }
+const READER_STATE_PREFIX = 'pdfReaderState.'
 const outline = ref<any[]>([])
 const bookmarks = ref<any[]>([])
 const highlights = ref<any[]>([])
@@ -265,6 +268,12 @@ let pdfDoc: any = null
 let annCtx: CanvasRenderingContext2D|null = null
 let annCanvas: HTMLCanvasElement|null = null
 let renderEpoch = 0
+let readerUnmounted = false
+let readerStateTimer: ReturnType<typeof setTimeout> | null = null
+let readerStateWrite = Promise.resolve<unknown>(undefined)
+let lastReaderViewState: ReaderViewState | null = null
+type PendingStickySave = { timer: ReturnType<typeof setTimeout>; save: () => Promise<unknown> }
+const pendingStickySaves = new Map<string, PendingStickySave>()
 let drawing = false
 let aSX = 0, aSY = 0
 let annPts: number[][] = []
@@ -288,14 +297,29 @@ async function load() {
   pdfDoc = await pdfjsLib.getDocument({ url: window.lk.bookUrl(bookId.value) } as any).promise
   totalPages.value = pdfDoc.numPages
   if (book.value?.total_pages !== pdfDoc.numPages) await window.lk.bookUpdate(bookId.value, { total_pages: pdfDoc.numPages })
+  const savedView = await readReaderViewState(bookId.value)
+  if (savedView) { zoom.value = savedView.zoom; lastReaderViewState = savedView }
   if (props.jumpPage) page.value = Math.min(Math.max(1, props.jumpPage), pdfDoc.numPages)
   else if (book.value?.last_page) page.value = Math.min(book.value.last_page, pdfDoc.numPages)
+  if (!props.jumpPage && savedView?.page === page.value) pendingViewportAnchor = { page: page.value, relativeY: savedView.relativeY }
   const nativeOutline = flattenOutline(await pdfDoc.getOutline())
   const savedOutline = await window.lk.chapterList(bookId.value)
   const hasGeneratedOutline = savedOutline.some((item: any) => /^(?:toc|manual-toc):/.test(String(item.id)))
   outline.value = hasGeneratedOutline || !nativeOutline.length ? savedChaptersToOutline(savedOutline) : nativeOutline
   loading.value = false
-  await renderPage({ preserveViewport: false })
+  await renderPage()
+}
+
+async function readReaderViewState(id: string): Promise<ReaderViewState | null> {
+  try {
+    const raw = await window.lk.getSetting(READER_STATE_PREFIX + id)
+    if (!raw) return null
+    const value = JSON.parse(raw)
+    const savedPage = Math.max(1, Math.round(Number(value.page) || 1))
+    const savedZoom = Math.max(80, Math.min(300, Math.round(Number(value.zoom) || 120)))
+    const relativeY = Math.max(0, Math.min(1, Number(value.relativeY) || 0))
+    return { page: savedPage, zoom: savedZoom, relativeY }
+  } catch { return null }
 }
 
 function flattenOutline(items: any[], depth = 0): any[] {
@@ -364,7 +388,83 @@ function restoreViewportAnchor(anchor: ReaderViewportAnchor, container: HTMLElem
   viewport.scrollTop = Math.max(0, anchorContentY - viewport.clientHeight / 2)
 }
 
-async function renderPage(options: { preserveViewport?: boolean } = {}) {
+function readerViewSnapshot(anchor = captureViewportAnchor(page.value)): ReaderViewState | null {
+  if (!bookId.value) return null
+  const snapshot = {
+    page: page.value,
+    zoom: zoom.value,
+    relativeY: anchor?.page === page.value
+      ? anchor.relativeY
+      : lastReaderViewState?.page === page.value ? lastReaderViewState.relativeY : 0
+  }
+  lastReaderViewState = snapshot
+  return snapshot
+}
+
+function writeReaderViewState(snapshot = readerViewSnapshot()): Promise<unknown> {
+  const targetBookId = bookId.value
+  if (!targetBookId || !snapshot) return readerStateWrite
+  lastReaderViewState = snapshot
+  readerStateWrite = readerStateWrite.catch(() => undefined).then(async () => {
+    await window.lk.bookUpdate(targetBookId, { last_page: snapshot.page })
+    await window.lk.setSetting(READER_STATE_PREFIX + targetBookId, JSON.stringify(snapshot))
+  })
+  return readerStateWrite
+}
+
+function scheduleReaderViewState() {
+  if (readerStateTimer) clearTimeout(readerStateTimer)
+  readerStateTimer = setTimeout(() => {
+    readerStateTimer = null
+    void writeReaderViewState()
+  }, 180)
+}
+
+function flushReaderViewState(): Promise<unknown> {
+  if (readerStateTimer) { clearTimeout(readerStateTimer); readerStateTimer = null }
+  return writeReaderViewState()
+}
+
+function queueStickySave(id: string, save: () => Promise<unknown>) {
+  const pending = pendingStickySaves.get(id)
+  if (pending) clearTimeout(pending.timer)
+  const timer = setTimeout(() => {
+    pendingStickySaves.delete(id)
+    void save()
+  }, 350)
+  pendingStickySaves.set(id, { timer, save })
+}
+
+function flushStickySave(id: string): Promise<unknown> {
+  const pending = pendingStickySaves.get(id)
+  if (!pending) return Promise.resolve()
+  clearTimeout(pending.timer)
+  pendingStickySaves.delete(id)
+  return pending.save()
+}
+
+function discardStickySave(id: string) {
+  const pending = pendingStickySaves.get(id)
+  if (pending) clearTimeout(pending.timer)
+  pendingStickySaves.delete(id)
+}
+
+function flushStickySaves(): Promise<unknown> {
+  const saves = [...pendingStickySaves.keys()].map(flushStickySave)
+  return Promise.allSettled(saves)
+}
+
+function renderPage(options: { preserveViewport?: boolean } = {}): Promise<void> {
+  return renderPageInternal(options).catch((error: unknown) => {
+    if (!readerUnmounted) {
+      loading.value = false
+      console.error('[pdf-render]', error)
+      ElMessage.error('当前书页渲染失败，请重试')
+    }
+  })
+}
+
+async function renderPageInternal(options: { preserveViewport?: boolean } = {}) {
   if (!pdfDoc || !pageHost.value) return
   const epoch = ++renderEpoch
   const targetPage = page.value
@@ -372,6 +472,8 @@ async function renderPage(options: { preserveViewport?: boolean } = {}) {
   if (!targetBookId) return
   if (options.preserveViewport === false) pendingViewportAnchor = null
   else pendingViewportAnchor = captureViewportAnchor(targetPage) || (pendingViewportAnchor?.page === targetPage ? pendingViewportAnchor : null)
+  await flushStickySaves()
+  if (epoch !== renderEpoch || readerUnmounted) return
   loading.value = true
   const host = pageHost.value; host.innerHTML = ''
   const p = await pdfDoc.getPage(targetPage)
@@ -423,6 +525,7 @@ async function renderPage(options: { preserveViewport?: boolean } = {}) {
 
   // annotation overlay
   const nextAnnCanvas = document.createElement('canvas')
+  nextAnnCanvas.dataset.testid = 'pdf-annotation-canvas'
   nextAnnCanvas.width = w; nextAnnCanvas.height = h
   nextAnnCanvas.style.cssText = `position:absolute;top:0;left:0;width:${w}px;height:${h}px;z-index:3;mix-blend-mode:multiply`
   container.appendChild(nextAnnCanvas)
@@ -462,8 +565,18 @@ async function renderPage(options: { preserveViewport?: boolean } = {}) {
     bar.style.cssText = 'cursor:move;display:flex;justify-content:space-between;align-items:center;padding:1px 4px;background:rgba(0,0,0,0.06);border-radius:4px 4px 0 0'
     const dot = document.createElement('span'); dot.textContent = '⋮⋮'; dot.style.cssText = 'font-size:10px;color:#999;cursor:move'
     const del = document.createElement('button'); del.textContent = '×'; del.style.cssText = 'border:none;background:none;cursor:pointer;font-size:13px;color:#999;line-height:1'
-    del.addEventListener('click', (ev) => { ev.stopPropagation(); window.lk.annDelete(sr.id).then(() => { if (page.value === targetPage) renderPage() }) })
+    del.addEventListener('click', (ev) => { ev.stopPropagation(); discardStickySave(sr.id); window.lk.annDelete(sr.id).then(() => { if (page.value === targetPage) renderPage() }) })
     bar.appendChild(dot); bar.appendChild(del)
+    const ta = document.createElement('textarea')
+    ta.value = d.text || ''
+    ta.style.cssText = 'width:100%;border:none;outline:none;background:transparent;font-size:12px;resize:vertical;min-height:28px;padding:2px 4px'
+    const saveSticky = () => window.lk.annSave({
+      id: sr.id,
+      bookId: targetBookId,
+      page: targetPage,
+      type: 'sticky',
+      data: JSON.stringify({ ...d, coord: 'normalized', x: parseFloat(div.style.left) / w, y: parseFloat(div.style.top) / h, text: ta.value })
+    })
     // drag via title bar (left button only)
     bar.addEventListener('mousedown', (ev) => {
       if (ev.button !== 0) return
@@ -476,33 +589,24 @@ async function renderPage(options: { preserveViewport?: boolean } = {}) {
       }
       const up = () => {
         window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up)
-        window.lk.annSave({ id: sr.id, bookId: targetBookId, page: targetPage, type: 'sticky', data: JSON.stringify({ ...d, coord: 'normalized', x: parseFloat(div.style.left) / w, y: parseFloat(div.style.top) / h }) })
+        queueStickySave(sr.id, saveSticky)
       }
       window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
     })
-    const ta = document.createElement('textarea')
-    ta.value = d.text || ''
-    ta.style.cssText = 'width:100%;border:none;outline:none;background:transparent;font-size:12px;resize:vertical;min-height:28px;padding:2px 4px'
-    let stickySaveTimer: ReturnType<typeof setTimeout> | null = null
-    const saveStickyText = () => {
-      if (stickySaveTimer) clearTimeout(stickySaveTimer)
-      stickySaveTimer = setTimeout(() => {
-        window.lk.annSave({ id: sr.id, bookId: targetBookId, page: targetPage, type: 'sticky', data: JSON.stringify({ ...d, coord: 'normalized', x: parseFloat(div.style.left) / w, y: parseFloat(div.style.top) / h, text: ta.value }) })
-      }, 350)
-    }
-    ta.addEventListener('input', saveStickyText)
-    ta.addEventListener('change', saveStickyText)
+    ta.addEventListener('input', () => queueStickySave(sr.id, saveSticky))
+    ta.addEventListener('change', () => { void flushStickySave(sr.id) })
+    ta.addEventListener('blur', () => { void flushStickySave(sr.id) })
     ta.addEventListener('mousedown', (ev) => ev.stopPropagation()) // don't drag sticky when editing text
     div.appendChild(bar); div.appendChild(ta)
     container.appendChild(div)
   }
 
-  await window.lk.bookUpdate(targetBookId, { last_page: targetPage })
   if (epoch === renderEpoch) {
     const anchor = pendingViewportAnchor
     if (anchor?.page === targetPage) restoreViewportAnchor(anchor, container)
     pendingViewportAnchor = null
     loading.value = false
+    scheduleReaderViewState()
   }
 }
 
@@ -532,6 +636,7 @@ function goPage(p: number) {
   const target = Math.min(Math.max(1, Math.round(Number(p) || 1)), Math.max(1, totalPages.value))
   page.value = target; pageInput.value = target; panX.value = 0; panY.value = 0
   wrap.value?.scrollTo({ top: 0, left: 0 })
+  void writeReaderViewState({ page: target, zoom: zoom.value, relativeY: 0 })
   renderPage({ preserveViewport: false })
 }
 function jumpToPage(value: number | undefined) { goPage(value ?? pageInput.value) }
@@ -1300,13 +1405,26 @@ onMounted(() => {
   load()
   window.addEventListener('keydown', onKey)
   window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('lk:before-close', onBeforeAppClose)
+})
+onBeforeUnmount(() => {
+  // Capture the last viewport anchor while the page DOM still exists.
+  void Promise.allSettled([flushStickySaves(), flushReaderViewState()])
 })
 onUnmounted(() => {
+  readerUnmounted = true
+  renderEpoch++
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('keyup', onKeyUp)
-  pdfDoc?.destroy()
+  window.removeEventListener('lk:before-close', onBeforeAppClose)
+  void Promise.resolve(pdfDoc?.destroy()).catch(() => undefined)
   pdfDoc = null
 })
+
+function onBeforeAppClose(event: Event) {
+  const detail = (event as CustomEvent<{ waitUntil?: (promise: Promise<unknown>) => void }>).detail
+  detail?.waitUntil?.(Promise.allSettled([flushStickySaves(), flushReaderViewState()]))
+}
 </script>
 
 <style scoped lang="scss">

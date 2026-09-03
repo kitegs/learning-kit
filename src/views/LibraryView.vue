@@ -12,7 +12,7 @@
     </div>
 
     <div v-else class="grid">
-      <div v-for="b in items" :key="b.id" class="card" @click="$emit('openBook', b.id)" @contextmenu="(e: MouseEvent) => onCtx(e, b)">
+      <div v-for="b in items" :key="b.id" class="card" :data-book-id="b.id" data-testid="library-book-card" @click="$emit('openBook', b.id)" @contextmenu="(e: MouseEvent) => onCtx(e, b)">
         <div class="cover" :class="b.kind">
           <img v-if="b.cover" :src="b.cover" :alt="`${b.title} 封面预览`" />
           <template v-else>

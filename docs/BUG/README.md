@@ -21,3 +21,4 @@
 | 2026-09-01 | BUG-20260901-06-notebook-blank-pan.md | 笔记工作区空白处无法拖动纸张 | fixed |
 | 2026-09-03 | BUG-20260903-01-database-durability.md | 数据库直接覆盖与损坏后静默空库 | fixed |
 | 2026-09-03 | BUG-20260903-02-notebook-ui-test-flake.md | 笔记锚点 UI 测试存在章节定位时序波动 | fixed |
+| 2026-09-03 | BUG-20260903-03-pdf-reader-state-and-sticky-save.md | PDF 阅读位置与便签保存存在切换竞态 | fixed |
