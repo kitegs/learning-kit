@@ -2,6 +2,7 @@
   <div class="knowledge-root">
     <aside class="filter-panel">
       <div class="panel-title">知识库</div>
+      <button class="filter" :class="{ active: activeFilter === 'points' }" @click="activeFilter = 'points'"><span>知识点</span><small>{{ points.length }}</small></button>
       <button v-for="item in filters" :key="item.key" class="filter" :class="{ active: activeFilter === item.key }" @click="activeFilter = item.key">
         <span>{{ item.label }}</span><small>{{ countFor(item.key) }}</small>
       </button>
@@ -17,7 +18,11 @@
         <div><h2>{{ currentTitle }}</h2><p>集中管理自己写下的笔记与从 AI 沉淀的知识。</p></div>
         <div class="head-actions"><el-input v-model="query" class="search" placeholder="搜索知识库" clearable /><el-button type="primary" @click="createNote">新建笔记</el-button></div>
       </header>
-      <div v-if="filteredNotes.length" class="note-grid">
+      <div v-if="activeFilter === 'points'" class="note-grid">
+        <button v-for="point in filteredPoints" :key="point.id" class="note-card" @click="editPoint(point)"><div class="card-top"><span class="source">知识点 · {{ point.mastery === 'unseen' ? '未学习' : point.mastery }}</span></div><h3>{{ point.title }}</h3><p>{{ point.description || '暂无描述' }}</p></button>
+        <p v-if="!filteredPoints.length" class="muted">暂无匹配知识点。确认 AI 知识点提案后会显示在这里。</p>
+      </div>
+      <div v-else-if="filteredNotes.length" class="note-grid">
         <button v-for="note in filteredNotes" :key="note.id" class="note-card" @click="openNote(note.id)">
           <div class="card-top"><span class="source" :class="note.isAi ? 'ai' : 'own'">{{ note.isAi ? 'AI 沉淀' : '我的笔记' }}</span><span class="card-actions"><span class="favorite" :class="{ marked: note.favorite }" role="button" :title="note.favorite ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(note)">★</span><time>{{ formatDate(note.updated_at) }}</time></span></div>
           <h3>{{ note.title }}</h3>
@@ -27,13 +32,37 @@
       </div>
       <div v-else class="empty"><strong>这里还没有知识条目</strong><span>在 AI 回答菜单中选择“保存到知识库”，内容会先进入收集箱。</span></div>
     </main>
+    <el-dialog v-model="pointOpen" title="编辑知识点" width="min(600px, calc(100vw - 32px))">
+      <el-input v-model="pointDraft.title" placeholder="知识点标题" maxlength="300" />
+      <el-input v-model="pointDraft.description" type="textarea" :rows="8" maxlength="10000" placeholder="描述与来源" style="margin-top:12px" />
+      <template #footer><el-button @click="pointOpen = false">取消</el-button><el-button type="primary" :loading="pointSaving" @click="savePoint">保存知识点</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 
-type Filter = 'all' | 'inbox' | 'ai' | 'own' | 'favorite'
+type Filter = 'all' | 'inbox' | 'ai' | 'own' | 'favorite' | 'points'
+type KnowledgePoint = { id: string; title: string; description: string | null; mastery: string; chapter_id: string | null; parent_id: string | null; sort: number }
+const points = ref<KnowledgePoint[]>([])
+const pointOpen = ref(false)
+const pointSaving = ref(false)
+const pointDraft = ref<KnowledgePoint>({ id: '', title: '', description: '', mastery: 'unseen', chapter_id: null, parent_id: null, sort: 0 })
+function editPoint(point: KnowledgePoint) { pointDraft.value = { ...point }; pointOpen.value = true }
+async function savePoint() {
+  if (!pointDraft.value.title.trim() || pointSaving.value) return
+  pointSaving.value = true
+  try {
+    const point = pointDraft.value
+    await window.lk.kpUpsert({ ...point, chapterId: point.chapter_id, parentId: point.parent_id })
+    points.value = points.value.map(row => row.id === point.id ? { ...point } : row)
+    pointOpen.value = false
+    ElMessage.success('知识点已保存')
+  } catch (error: unknown) { ElMessage.error(error instanceof Error ? error.message : '知识点保存失败') }
+  finally { pointSaving.value = false }
+}
 type NoteItem = { id: string; title: string; body: string; parent_id: string | null; tags: string | null; updated_at?: string; isAi: boolean; favorite: boolean; tagList: string[]; folderTitle: string }
 
 const rawNotes = ref<Array<Record<string, unknown>>>([])
@@ -42,6 +71,7 @@ const activeFilter = ref<Filter>('all')
 const activeTag = ref('')
 const activeFolderId = ref('')
 const query = ref('')
+const filteredPoints = computed(() => points.value.filter(point => `${point.title} ${point.description || ''}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 const filters: Array<{ key: Filter; label: string }> = [
   { key: 'all', label: '全部知识' }, { key: 'inbox', label: '收集箱' }, { key: 'ai', label: 'AI 沉淀' }, { key: 'own', label: '我的笔记' }, { key: 'favorite', label: '收藏' }
 ]
@@ -68,7 +98,7 @@ const filteredNotes = computed(() => notes.value.filter((note) => {
   const q = query.value.trim().toLowerCase()
   return !q || `${note.title} ${note.body} ${note.tags}`.toLowerCase().includes(q)
 }))
-const currentTitle = computed(() => filters.find((item) => item.key === activeFilter.value)?.label || '知识库')
+const currentTitle = computed(() => activeFilter.value === 'points' ? '知识点' : filters.find((item) => item.key === activeFilter.value)?.label || '知识库')
 
 function parseTags(value: string): string[] { return value.split(/[\s,#，]+/).map((tag) => tag.trim()).filter(Boolean) }
 function excerpt(value: string): string { return value.replace(/^>.*$/gm, '').replace(/\s+/g, ' ').trim().slice(0, 150) || '暂无正文' }
@@ -92,6 +122,7 @@ async function toggleFavorite(note: NoteItem) {
   if (raw) raw.favorite = note.favorite ? 0 : 1
 }
 async function load() {
+  points.value = await window.lk.kpList(null)
   rawNotes.value = await window.lk.notesList()
   const linked = await Promise.all(rawNotes.value.filter((note) => note.kind !== 'folder').map(async (note) => {
     const links = await window.lk.linkAllForEntity('note', String(note.id))

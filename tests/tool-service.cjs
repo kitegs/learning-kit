@@ -17,6 +17,8 @@ assert.equal(requiresConfirmation({ source: 'internal-ai', action: 'create_note'
 assert.equal(requiresConfirmation({ source: 'mcp', action: 'append_note' }), false)
 assert.equal(requiresConfirmation({ source: 'mcp', action: 'replace_note' }), true)
 assert.equal(requiresConfirmation({ source: 'renderer', action: 'delete' }), true)
+assert.equal(requiresConfirmation({ source: 'mcp', action: 'create_diagram' }), true)
+assert.equal(requiresConfirmation({ source: 'renderer', action: 'create_knowledge_point' }), true)
 
 assert.match(source, /export function requestInternalTool\(/, 'internal proposals must bind their source in main')
 assert.match(source, /export function requestMcpTool\(/, 'MCP requests must bind their source in main')

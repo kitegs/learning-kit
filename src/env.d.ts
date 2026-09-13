@@ -38,10 +38,10 @@ interface LkApi {
 
   aiModels: (p: string) => Promise<string[]>
   aiSystemPrompt: () => Promise<string>
-  aiChatStart: (a: any) => Promise<string | false>
+  aiChatStart: (a: AiChatStartArgs) => Promise<string | false>
   aiChatAbort: (r: string) => Promise<boolean>
   aiTest: (args: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; reply?: string; error?: string }>
-  onAiChunk: (r: string, cb: (p: any) => void) => () => void
+  onAiChunk: (r: string, cb: (p: AiChunkPayload) => void) => () => void
 
   bookImport: () => Promise<string[]>
   bookList: () => Promise<any[]>
@@ -160,6 +160,9 @@ interface LkApi {
 }
 
 type ToolAction =
+  | 'create_knowledge_point' | 'create_diagram'
+  | 'create_mindmap' | 'create_plan' | 'create_conversation'
+  | 'create_flashcard'
   | 'create_note'
   | 'append_note'
   | 'add_bookmark'
@@ -193,6 +196,34 @@ interface ToolOperationFilter {
 
 interface RawRow {
   [k: string]: any
+}
+
+interface AiChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+interface AiChatStartArgs {
+  requestId: string
+  provider: string
+  model: string
+  messages: AiChatMessage[]
+  temperature?: number
+  apiKey?: string
+  baseUrl?: string
+  customSystemPrompt?: string
+  conversationId?: string
+  inputBudget?: number
+  retrieveNotes?: boolean
+}
+
+interface AiChunkPayload {
+  contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number }
+  delta?: string
+  content?: string
+  done: boolean
+  aborted?: boolean
+  error?: string
 }
 
 declare global {

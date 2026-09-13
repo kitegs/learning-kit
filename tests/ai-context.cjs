@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const vm = require('node:vm')
+const ts = require('typescript')
+const init = require('sql.js')
+function load(file, imports = {}) {
+  const exports = {}
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports, require: name => imports[name] || require(name) })
+  return exports
+}
+async function main() {
+  const { prepareContext, estimateTokens, normalizeBudget } = load('electron/main/ai-context.ts')
+  const system = { role: 'system', content: 'rules' }, current = { role: 'user', content: '当前问题' }
+  assert.equal(normalizeBudget(NaN), 8192)
+  assert.equal(normalizeBudget(-1), 2048)
+  assert.equal(normalizeBudget(999999), 65536)
+  assert.ok(estimateTokens('汉字') > estimateTokens('ab'))
+  assert.throws(() => prepareContext([system, { ...current, content: '中'.repeat(9000) }], 2048), /预算/)
+  const result = prepareContext([system, { role: 'user', content: 'x'.repeat(9000) }, { role: 'assistant', content: 'old' }, { role: 'user', content: 'recent' }, { role: 'assistant', content: 'reply' }, current], 2048, [{ id: 'note', title: '来源', text: '参考资料' }])
+  assert.ok(result.summary.estimatedTokens <= 2048)
+  assert.equal(result.summary.droppedMessages, 2)
+  assert.equal(result.messages[1].content, 'recent')
+  assert.equal(result.messages.at(-1).content, current.content)
+  assert.equal(result.summary.sources[0].id, 'note')
+  assert.equal(result.messages.filter(message => message.role === 'system').length, 1)
+  const omitted = prepareContext([system, current], 2048, [{ id: 'big', title: '大段', text: '中'.repeat(1200) }])
+  assert.equal(omitted.summary.omittedSources, 1)
+  assert.equal(omitted.summary.sources.length, 0)
+  const SQL = await init(), db = new SQL.Database()
+  db.exec("CREATE TABLE notes (id TEXT, title TEXT, body TEXT, kind TEXT DEFAULT 'note', deleted_at INTEGER, updated_at TEXT)")
+  db.run("INSERT INTO notes(id,title,body,deleted_at) VALUES ('live','上下文预算','控制模型输入长度',NULL),('deleted','上下文预算','不能发送',1),('literal','a_b','literal',NULL),('wildcard','axb','wrong',NULL),('distant','长文','' || ?,NULL)", ['前言'.repeat(800) + '预算细节'])
+  const { retrieveNotes } = load('electron/main/ai-retrieval.ts', { './db': { getDb: () => db, qAll: (database, sql, params) => { const stmt = database.prepare(sql), rows = []; try { stmt.bind(params); while (stmt.step()) rows.push(stmt.getAsObject()); return rows } finally { stmt.free() } } } })
+  const found = retrieveNotes('上下文预算')
+  assert.equal(found[0].id, 'live')
+  assert.ok(found.every(item => item.id !== 'deleted'))
+  assert.ok(found.find(item => item.id === 'distant').text.includes('预算细节'))
+  assert.deepEqual(Array.from(retrieveNotes('a_b'), item => item.id), ['literal'])
+  assert.equal(retrieveNotes('zzzzzzzzzz').length, 0)
+  assert.equal(retrieveNotes('%').length, 0)
+  db.close()
+  console.log('AI context: budget, whole turns, source cap, Chinese retrieval, soft deletion and LIKE escaping PASS')
+}
+main().catch(error => { console.error(error); process.exitCode = 1 })

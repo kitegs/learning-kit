@@ -245,6 +245,16 @@ const previewInterval = computed(() => {
 
 const cardDialog = ref({ open: false, id: '', deckId: '', front: '', back: '', kind: 'qa' })
 const progress = ref({ open: false, loading: false, text: '' })
+let progressRequestId: string | null = null
+let progressOff: (() => void) | null = null
+let saveProgressReply: (() => Promise<unknown>) | null = null
+function cancelProgress() {
+  if (progressRequestId) void window.lk.aiChatAbort(progressRequestId).catch(console.warn)
+  if (saveProgressReply) void saveProgressReply().catch(console.warn)
+  progressRequestId = null; progressOff?.(); progressOff = null; saveProgressReply = null
+  progress.value.loading = false
+}
+watch(() => progress.value.open, (open) => { if (!open) cancelProgress() })
 
 watch(() => cur.value.id, async (cardId) => {
   cardSource.value = null
@@ -453,7 +463,12 @@ function barWidth(c: number) { const max = Math.max(1, ...intervalRows.value.map
 function heatColor(c: number) { if (c === 0) return '#2a2a2a'; if (c < 5) return '#3b6e8a'; if (c < 15) return '#4ea1ff'; return '#7fc7ff' }
 
 async function askProgress() {
+  if (progress.value.loading) return
+  if (settings.testMode) { progress.value = { open: true, loading: false, text: '测试模式：这是学习建议的本地预设回复，未发送网络请求。' }; return }
+  if (!settings.aiIncludeProgressContext) { ElMessage.info('学习统计发送已关闭，请在设置中开启后生成个性化建议。'); return }
+  if (!settings.currentApiKey()) { ElMessage.warning('请先设置 API Key'); return }
   progress.value = { open: true, loading: true, text: '' }
+  try {
   const s = await window.lk.srsStats()
   const bookStat = await window.lk.bookStat()
   const notesList = await window.lk.notesList()
@@ -466,16 +481,23 @@ async function askProgress() {
   const assistantMsg: any = { id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: '', model: settings.model, sort: (Date.now() / 1000 | 0) + 1 }
   assistantMsg.id = await chat.saveNewMessage(assistantMsg); chat.activeMessages.push(assistantMsg)
   const reqId = await window.lk.uuid()
-  const off = window.lk.onAiChunk(reqId, (p: any) => {
-    if (p.delta) assistantMsg.content += p.delta; progress.value.text = assistantMsg.content
-    if (p.error) progress.value.text += '\n\n> ' + p.error
-    if (p.done) { progress.value.loading = false; window.lk.msgPatch(assistantMsg.id, { content: assistantMsg.content }); off() }
+  if (!progress.value.loading) return
+  const reply = chat.activeMessages.find((message) => message.id === assistantMsg.id) || assistantMsg
+  progressRequestId = reqId
+  saveProgressReply = () => window.lk.msgPatch(reply.id, { content: reply.content })
+  const off = window.lk.onAiChunk(reqId, (p) => {
+    if (p.delta) reply.content += p.delta
+    if (p.error) reply.content += '\n\n> ' + p.error
+    progress.value.text = reply.content
+    if (p.done) { progress.value.loading = false; void window.lk.msgPatch(reply.id, { content: reply.content }).catch(console.warn); off(); progressRequestId = null; progressOff = null; saveProgressReply = null }
   })
-  await window.lk.aiChatStart({ requestId: reqId, provider: settings.provider, model: settings.model, messages: [{ role: 'user', content: summary }], temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+  progressOff = off
+  await window.lk.aiChatStart({ requestId: reqId, provider: settings.provider, model: settings.model, inputBudget: settings.aiInputBudget, messages: [{ role: 'user', content: summary }], temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, customSystemPrompt: settings.customSystemPromptEnabled ? settings.customSystemPrompt : undefined })
+  } catch (error: unknown) { cancelProgress(); ElMessage.error(error instanceof Error ? error.message : 'AI 学习建议失败') }
 }
 
 onMounted(async () => { await loadDecks(); await loadStats(); await refreshQueue() })
-onUnmounted(() => {})
+onUnmounted(cancelProgress)
 </script>
 
 <style scoped lang="scss">

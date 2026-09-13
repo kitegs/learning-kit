@@ -3,8 +3,8 @@
     <!-- left: diagram tree -->
     <aside class="side" :style="{ width: sideW + 'px' }">
       <div class="side-head">
-        <el-button size="small" type="primary" plain @click="newDiagram">+ New</el-button>
-        <el-button size="small" text @click="loadList">↻</el-button>
+        <el-button size="small" type="primary" plain @click="newDiagram">新建图表</el-button>
+        <el-button size="small" text @click="loadList" title="刷新图表列表">↻</el-button>
       </div>
       <div class="tree-scroll">
         <div
@@ -18,10 +18,10 @@
           <span class="icon">{{ d.format === 'drawio' ? '📐' : '🧠' }}</span>
           <span class="label">{{ d.title }}</span>
         </div>
-        <div v-if="!diagrams.length" class="empty-hint">No diagrams yet</div>
+        <div v-if="!diagrams.length" class="empty-hint">还没有图表，创建一张或让 AI 帮你整理。</div>
       </div>
       <div class="side-foot">
-        <el-button size="small" text @click="importXml">Import XML</el-button>
+        <el-button size="small" text @click="importXml">导入 XML</el-button>
       </div>
     </aside>
     <div class="resizer" @mousedown="startResize"></div>
@@ -30,20 +30,21 @@
     <main class="main">
       <div class="toolbar">
         <span class="title" v-if="currentTitle">{{ currentTitle }}</span>
-        <span class="title muted" v-else>Select a diagram</span>
+        <span class="title muted" v-else>选择一张图表开始</span>
         <span class="spacer"></span>
         <el-radio-group v-model="viewMode" size="small">
-          <el-radio-button value="edit">Edit</el-radio-button>
-          <el-radio-button value="view">View</el-radio-button>
+          <el-radio-button value="edit">编辑</el-radio-button>
+          <el-radio-button value="view">预览</el-radio-button>
         </el-radio-group>
         <span class="sep"></span>
-        <el-button size="small" @click="saveDiagram" :disabled="!currentId">Save</el-button>
+        <el-button size="small" @click="saveDiagram" :disabled="!currentId">保存</el-button>
+        <el-dropdown v-if="currentId" trigger="click" @command="onDiagramCommand"><el-button size="small">更多</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="rename">重命名</el-dropdown-item><el-dropdown-item command="delete" divided>删除图表</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
         <el-button size="small" @click="exportPng" :disabled="!currentId">PNG</el-button>
         <el-button size="small" @click="exportSvg" :disabled="!currentId">SVG</el-button>
         <span class="sep"></span>
-        <el-button size="small" @click="aiGenerate" title="AI: describe → diagram">AI Gen</el-button>
-        <el-button size="small" @click="aiModify" :disabled="!currentId" title="AI: modify current">AI Edit</el-button>
-        <el-button size="small" @click="aiFromNotes" title="AI: from selected notes/ebook">AI From Notes</el-button>
+        <el-button size="small" @click="aiGenerate" title="描述想法，生成图表提案">AI 生成</el-button>
+        <el-button size="small" @click="aiModify" :disabled="!currentId" title="生成修改后的新图表提案">AI 改写</el-button>
+        <el-button size="small" @click="aiFromNotes" title="从笔记或电子书内容生成图表">从资料生成</el-button>
         <span class="status" v-if="status">{{ status }}</span>
       </div>
 
@@ -55,13 +56,13 @@
           :src="iframeSrc"
           class="drawio-iframe"
         ></iframe>
-        <div v-else class="loading-hint">Loading draw.io...</div>
+        <div v-else class="loading-hint">正在加载图表编辑器…</div>
       </div>
 
       <!-- markmap view (read-only) -->
       <div class="view-wrap" v-show="viewMode === 'view'">
         <div ref="svgHost" class="svg-host"></div>
-        <div v-if="!currentXml" class="loading-hint">No diagram loaded</div>
+        <div v-if="!currentXml" class="loading-hint">选择图表后即可预览</div>
       </div>
     </main>
 
@@ -69,8 +70,8 @@
     <el-dialog v-model="aiDialog.open" :title="aiDialog.title" width="600px">
       <el-input v-model="aiDialog.prompt" type="textarea" :rows="4" :placeholder="aiDialog.placeholder" />
       <template #footer>
-        <el-button @click="aiDialog.open = false">Cancel</el-button>
-        <el-button type="primary" :loading="aiDialog.loading" @click="aiDialog.action">Send</el-button>
+        <el-button @click="aiDialog.open = false">取消</el-button>
+        <el-button type="primary" :loading="aiDialog.loading" @click="aiDialog.action">生成提案</el-button>
       </template>
     </el-dialog>
   </div>
@@ -78,7 +79,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Transformer } from 'markmap-lib'
 import { Markmap } from 'markmap-view'
 
@@ -196,7 +197,7 @@ async function selectDiagram(id: string) {
 }
 
 async function newDiagram() {
-  const id = await window.lk.diagUpsert({ title: 'New Diagram', xml: emptyXml(), format: 'drawio' })
+  const id = await window.lk.diagUpsert({ title: '未命名图表', xml: emptyXml(), format: 'drawio' })
   await loadList()
   await selectDiagram(id)
 }
@@ -215,22 +216,37 @@ async function exportPng() { if (iframeReady) postToIframe({ action: 'export', f
 async function exportSvg() { if (iframeReady) postToIframe({ action: 'export', format: 'svg' }) }
 
 async function importXml() {
-  const xml = prompt('Paste mxGraphModel XML:')
-  if (!xml) return
-  const id = await window.lk.diagUpsert({ title: 'Imported', xml, format: 'drawio' })
-  await loadList()
-  await selectDiagram(id)
+  try {
+    const result = await ElMessageBox.prompt('粘贴你信任的 Draw.io XML 文件内容。', '导入图表', { inputType: 'textarea', confirmButtonText: '导入', cancelButtonText: '取消', inputValidator: value => {
+      if (!value?.trim()) return '请粘贴 XML 内容'
+      const doc = new DOMParser().parseFromString(value, 'application/xml')
+      return !doc.querySelector('parsererror') && ['mxGraphModel', 'mxfile'].includes(doc.documentElement.tagName) ? true : '需要格式完整的 mxGraphModel 或 mxfile XML'
+    } })
+    const id = await window.lk.diagUpsert({ title: '导入的图表', xml: result.value, format: 'drawio' })
+    await loadList(); await selectDiagram(id)
+  } catch (error: unknown) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '导入失败') }
 }
 
-function onTreeCtx(_e: MouseEvent, d: any) {
-  // simple context menu via prompt
-  const action = prompt('rename / delete / cancel:', 'rename')
-  if (action === 'rename') {
-    const name = prompt('New name:', d.title)
-    if (name) window.lk.diagUpsert({ id: d.id, title: name, xml: d.xml }).then(() => loadList())
-  } else if (action === 'delete') {
-    window.lk.diagDelete(d.id).then(() => { if (currentId.value === d.id) { currentId.value = ''; currentXml.value = '' }; loadList() })
-  }
+function onTreeCtx(_e: MouseEvent, d: { id: string }) {
+  void selectDiagram(d.id)
+  ElMessage.info('已选中图表，可在顶部“更多”中重命名或删除。')
+}
+async function onDiagramCommand(command: string) {
+  const diagram = diagrams.value.find(item => item.id === currentId.value)
+  if (!diagram) return
+  try {
+    if (command === 'rename') {
+      const result = await ElMessageBox.prompt('为这张图表起一个名字', '重命名图表', { inputValue: diagram.title, inputValidator: value => !!value?.trim() || '标题不能为空', confirmButtonText: '保存', cancelButtonText: '取消' })
+      await window.lk.diagUpsert({ ...diagram, title: result.value.trim(), xml: currentXml.value })
+      currentTitle.value = result.value.trim()
+    } else if (command === 'delete') {
+      await ElMessageBox.confirm(`删除“${diagram.title}”？此操作无法从图表列表恢复。`, '删除图表', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '保留' })
+      await window.lk.diagDelete(diagram.id)
+      currentId.value = ''; currentTitle.value = ''; currentXml.value = ''; pendingXml = null
+      if (iframeReady) sendLoad(emptyXml())
+    }
+    await loadList()
+  } catch (error: unknown) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '图表操作失败') }
 }
 
 // ── markmap rendering ──
@@ -268,8 +284,8 @@ function emptyXml(): string {
 // ── AI operations ──
 function aiGenerate() {
   aiDialog.value = {
-    open: true, title: 'AI Generate Diagram',
-    prompt: '', placeholder: 'Describe the diagram, e.g. "UML class diagram for a blog system"',
+    open: true, title: '用 AI 生成图表',
+    prompt: '', placeholder: '描述你的想法，例如：整理一个博客系统的用户、文章与评论关系。',
     loading: false,
     action: async () => {
       aiDialog.value.loading = true
@@ -286,8 +302,8 @@ function aiGenerate() {
 
 function aiModify() {
   aiDialog.value = {
-    open: true, title: 'AI Modify Diagram',
-    prompt: '', placeholder: 'Describe changes, e.g. "Add a Database node connected to User"',
+    open: true, title: '生成图表修改提案',
+    prompt: '', placeholder: '描述修改，例如：增加一个数据库节点并连接到用户。确认后会创建新图表，不覆盖原图。',
     loading: false,
     action: async () => {
       aiDialog.value.loading = true
@@ -304,8 +320,8 @@ function aiModify() {
 
 function aiFromNotes() {
   aiDialog.value = {
-    open: true, title: 'AI: Generate diagram from notes/ebook',
-    prompt: '', placeholder: 'Paste or describe the content to visualize, or specify note/ebook range',
+    open: true, title: '从学习资料生成图表',
+    prompt: '', placeholder: '粘贴需要整理的笔记或电子书选段，AI 会提出可确认的图表操作。',
     loading: false,
     action: async () => {
       aiDialog.value.loading = true

@@ -3,7 +3,7 @@
     <!-- left dock bar -->
     <nav class="dock-left">
       <div class="dock-group">
-        <button v-for="m in modes" :key="m.key" class="dock-btn" :class="{active: mode===m.key}" @click="$emit('switch', m.key)" :title="m.label" :data-testid="`dock-mode-${m.key}`">
+        <button v-for="m in modes" :key="m.key" class="dock-btn" :class="{active: mode===m.key}" @click="$emit('switch', m.key)" :title="m.label" :aria-label="m.label" :aria-current="mode === m.key ? 'page' : undefined" :data-testid="`dock-mode-${m.key}`">
           <el-icon><component :is="m.icon" /></el-icon>
         </button>
       </div>
@@ -64,7 +64,7 @@
     <!-- right dock bar -->
     <nav class="dock-right">
       <div class="dock-group">
-        <button class="dock-btn" :class="{active: rightPanel==='ai'}" @click="toggleRight('ai')" title="AI 助手">
+        <button class="dock-btn" @click="$emit('tools')" title="AI 工具中心 · 预览与确认" aria-label="AI 工具中心" data-testid="dock-tools">
           <el-icon><ChatDotRound /></el-icon>
         </button>
         <button class="dock-btn" :class="{active: rightPanel==='backlinks'}" @click="toggleRight('backlinks')" title="反向链接">
@@ -87,22 +87,11 @@
 
     <!-- bottom bar -->
     <div class="dock-bottom">
-      <button class="dock-btn-h" :class="{active: bottomPanel==='search'}" @click="toggleBottom('search')">搜索</button>
-      <button class="dock-btn-h" :class="{active: bottomPanel==='console'}" @click="toggleBottom('console')">操作记录</button>
+      <button class="dock-btn-h" @click="$emit('search')" data-testid="dock-search">搜索 <span class="keyhint">{{ settings.getShortcut('search') }}</span></button>
+      <button class="dock-btn-h" @click="$emit('tools')">AI 操作记录</button>
       <span class="dock-status" :title="statusText">{{ statusText }}</span>
     </div>
 
-    <!-- bottom panel overlay -->
-    <div v-if="bottomPanel" class="dock-panel-bottom" :style="{height: bottomH+'px'}">
-      <div class="resize-handle-t" @mousedown="startBottomResize"></div>
-      <div class="panel-header">
-        <span>{{ bottomPanel === 'search' ? '搜索' : '操作记录' }}</span>
-        <button @click="bottomPanel=null">&times;</button>
-      </div>
-      <div class="panel-body">
-        <div class="panel-empty">{{ bottomPanel === 'search' ? '按 Ctrl + K 打开全局搜索，按类型或标签缩小范围。' : '当前没有需要显示的操作记录。' }}</div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -113,7 +102,7 @@ import { useSettingsStore, type ThemeId } from '../stores/chat'
 
 type Mode = 'chat' | 'library' | 'notes' | 'mindmap' | 'review' | 'knowledge' | 'attributes'
 const props = withDefaults(defineProps<{ mode: Mode; outlineItems: {level:number;text:string;line:number}[]; tagItems: string[]; bookmarkItems: any[]; statusText?: string }>(), { statusText: '已就绪' })
-defineEmits<{ (e:'switch',m:Mode):void; (e:'outline-click',line:number):void; (e:'bookmark-click',b:any):void }>()
+defineEmits<{ (e:'switch',m:Mode):void; (e:'outline-click',line:number):void; (e:'bookmark-click',b:any):void; (e:'search'):void; (e:'tools'):void }>()
 
 const settings = useSettingsStore()
 const theme = computed(() => settings.theme)
@@ -138,17 +127,14 @@ const modes = [
 
 const leftPanel = ref<string|null>(null)
 const rightPanel = ref<string|null>(null)
-const bottomPanel = ref<string|null>(null)
 const leftW = ref(220)
 const rightW = ref(260)
-const bottomH = ref(180)
 const statusText = computed(() => props.statusText)
 
 const leftPanelTitle = computed(() => ({ outline: '大纲', tags: '标签', bookmarks: '书签', themes: '主题与护眼模式' } as Record<string,string>)[leftPanel.value || ''] || '')
 
 function toggleLeft(p: string) { leftPanel.value = leftPanel.value === p ? null : p }
 function toggleRight(p: string) { rightPanel.value = rightPanel.value === p ? null : p }
-function toggleBottom(p: string) { bottomPanel.value = bottomPanel.value === p ? null : p }
 
 function startLeftResize(e: MouseEvent) {
   const sx = e.clientX, sw = leftW.value
@@ -162,15 +148,11 @@ function startRightResize(e: MouseEvent) {
   const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
   window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
 }
-function startBottomResize(e: MouseEvent) {
-  const sy = e.clientY, sh = bottomH.value
-  const mv = (ev: MouseEvent) => { bottomH.value = Math.max(80, Math.min(500, sh - ev.clientY + sy)) }
-  const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-  window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
-}
 </script>
 
 <style scoped lang="scss">
+.keyhint { margin-left:8px; opacity:.6; font-size:10px; }
+.dock-btn:focus-visible,.dock-btn-h:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 .dock-root {
   display: grid;
   grid-template-columns: 48px 1fr 32px;

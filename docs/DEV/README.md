@@ -4,6 +4,9 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-09-12 | DEV-20260912-05-interface-polish.md | 学习工作台 UI 实施方案 | impl |
+| 2026-09-12 | DEV-20260912-04-ai-kp-drawio.md | 知识点与 Draw.io 工具映射 | impl |
+| 2026-09-12 | DEV-20260912-02-ai-flashcard-tools.md | AI 普通闪卡和错题闪卡执行链 | impl |
 | 2026-07-21 | DEV-20260721-01-architecture.md | 模块分层与 IPC 设计 | done |
 | 2026-07-22 | DEV-20260722-01-phase2-4-features.md | Phase 2-4 标签页/子菜单/主题/Dock/Tiptap | done |
 | 2026-08-01 | DEV-20260801-01-unified-knowledge-inbox.md | 统一知识收集箱：第一阶段方案 | implemented |
@@ -31,3 +34,6 @@
 | 2026-09-01 | DEV-20260901-01-compact-note-navigation.md | 紧凑笔记与章节导航实现 | implemented |
 | 2026-09-01 | DEV-20260901-02-global-notebook-layout.md | 所有笔记共用纸页版式实现 | implemented |
 | 2026-09-03 | DEV-20260903-01-product-convergence.md | 产品收敛版本实施方案 | impl |
+| 2026-09-12 | DEV-20260912-01-ai-controls-and-request-lifecycle.md | AI 功能开关、提示词与请求生命周期方案 | impl |
+| 2026-09-12 | DEV-20260912-03-ai-context-budget.md | AI 上下文预算与检索 | impl |
+| 2026-09-12 | DEV-20260912-06-conversation-prompts.md | 对话级 Prompt 与场景模板 | impl |

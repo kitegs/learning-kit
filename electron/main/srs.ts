@@ -19,7 +19,7 @@ function saveFsrsState(cardId: string, state: CardInput): void {
   qRun(getDb(), `INSERT INTO card_scheduling(card_id,algorithm,state_json,updated_at) VALUES(?,?,?,datetime('now'))
     ON CONFLICT(card_id) DO UPDATE SET algorithm=excluded.algorithm,state_json=excluded.state_json,updated_at=excluded.updated_at`, [cardId, 'fsrs', encodeFsrs(state)])
 }
-function attachFsrsState(cardId: string): void {
+export function attachFsrsState(cardId: string): void {
   const exists = qOne(getDb(), 'SELECT card_id FROM card_scheduling WHERE card_id=?', [cardId])
   if (!exists) qRun(getDb(), 'INSERT INTO card_scheduling(card_id,algorithm,state_json) VALUES(?,?,?)', [cardId, 'fsrs', createFsrsState()])
 }

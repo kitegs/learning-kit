@@ -17,10 +17,10 @@
       @keydown.shift.enter="() => {}"
     />
     <div class="utility-bar">
-      <el-tooltip content="AI 工具管理中心：预览并确认 AI 的数据操作"><el-button text @click="$emit('open-tools')">🪄 工具中心</el-button></el-tooltip>
-      <el-tooltip content="总结当前对话"><el-button text @click="$emit('quick', 'summary')">☷ 总结</el-button></el-tooltip>
-      <el-tooltip content="生成下一步学习计划"><el-button text @click="$emit('quick', 'study')">💡 学习计划</el-button></el-tooltip>
-      <el-tooltip content="从当前对话生成闪卡"><el-button text @click="$emit('quick', 'cards')">▣ 闪卡</el-button></el-tooltip>
+      <el-tooltip content="AI 工具管理中心：预览并确认 AI 的数据操作"><el-button text :icon="SetUp" @click="$emit('open-tools')">工具中心</el-button></el-tooltip>
+      <el-tooltip content="总结当前对话"><el-button text :icon="Document" @click="$emit('quick', 'summary')">总结</el-button></el-tooltip>
+      <el-tooltip content="生成下一步学习计划"><el-button text :icon="Calendar" @click="$emit('quick', 'study')">学习计划</el-button></el-tooltip>
+      <el-tooltip content="从当前对话生成闪卡"><el-button text :icon="Collection" @click="$emit('quick', 'cards')">闪卡</el-button></el-tooltip>
       <span class="utility-tip">AI 操作均需确认</span>
     </div>
     <div class="bar">
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { SetUp, Document, Calendar, Collection } from '@element-plus/icons-vue'
 
 export interface CitationData { bookTitle: string; bookId: string; page: number; quote: string }
 
@@ -66,12 +67,13 @@ function send() {
 <style scoped lang="scss">
 .composer {
   flex: 0 0 auto;
-  border-top: 1px solid var(--border);
-  background: var(--bg-soft);
-  padding: 10px 24px 14px;
+  border: 1px solid var(--border);
+  border-radius:14px;
+  background: var(--bg-elev);
+  padding: 14px 18px 12px;
   max-width: 920px;
-  width: 100%;
-  margin: 0 auto;
+  width: calc(100% - 40px);
+  margin: 0 auto 18px;
   box-sizing: border-box;
 }
 .citation-preview {
@@ -103,6 +105,8 @@ function send() {
   font-size: 12px;
   color: var(--text-dim);
 }
-.utility-bar { display:flex; align-items:center; gap:3px; margin-top:6px; padding:4px 2px; border-bottom:1px dashed var(--border); }.utility-bar :deep(.el-button) { padding:3px 7px; color:var(--text-dim); }.utility-bar :deep(.el-button:hover) { color:var(--accent); background:var(--accent-dim); }.utility-tip { margin-left:auto; color:var(--text-dim); font-size:11px; }
+.utility-bar { display:flex; flex-wrap:wrap; align-items:center; gap:3px; margin-top:8px; padding:4px 0; }.utility-bar :deep(.el-button) { padding:6px 8px; margin-left:0; color:var(--text-secondary); }.utility-bar :deep(.el-button:hover) { color:var(--accent); background:var(--accent-dim); }.utility-tip { margin-left:auto; color:var(--text-dim); font-size:11px; }
+.composer :deep(.el-textarea__inner) { box-shadow:none; background:transparent; padding:6px 2px; font-size:14px; line-height:1.7; }
+.composer:focus-within { border-color:var(--accent); }
 .right { display: flex; gap: 8px; }
 </style>

@@ -11,7 +11,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '../stores/chat'
 import { renderMarkdown } from '../helpers/markdown'
@@ -22,6 +22,14 @@ const settings = useSettingsStore()
 const question = ref('')
 const answer = ref('')
 const loading = ref(false)
+let activeRequestId: string | null = null
+let removeListener: (() => void) | null = null
+function cancelRequest() {
+  if (activeRequestId) void window.lk.aiChatAbort(activeRequestId).catch(console.warn)
+  activeRequestId = null; removeListener?.(); removeListener = null; loading.value = false
+}
+watch(() => props.modelValue, (open) => { if (!open) cancelRequest() })
+onUnmounted(cancelRequest)
 const answerHtml = computed(() => renderMarkdown(answer.value))
 const quickActions = [
   { label: '解释', prompt: '请用通俗中文解释这段笔记。' },
@@ -32,19 +40,24 @@ const quickActions = [
 ]
 watch(() => [props.modelValue, props.suggestedPrompt] as const, ([open, suggested]) => { if (open && suggested) question.value = suggested })
 async function ask(prompt: string) {
+  if (loading.value) return
   if (!prompt.trim()) { ElMessage.warning('请输入想让 AI 完成的事情'); return }
+  if (settings.testMode) { answer.value = '测试模式：这是笔记 AI 的本地预设回复，未发送网络请求。'; return }
   if (!settings.currentApiKey()) { ElMessage.warning('请先在设置中填写 API Key'); return }
   loading.value = true; answer.value = ''
   const requestId = await window.lk.uuid()
+  if (!loading.value || !props.modelValue) return
+  activeRequestId = requestId
   const off = window.lk.onAiChunk(requestId, (payload: { delta?: string; error?: string; done?: boolean }) => {
     if (payload.delta) answer.value += payload.delta
     if (payload.error) answer.value += `\n\n> ${payload.error}`
-    if (payload.done) { loading.value = false; off() }
+    if (payload.done) { loading.value = false; activeRequestId = null; off(); removeListener = null }
   })
+  removeListener = off
   try {
-    await window.lk.aiChatStart({ requestId, provider: settings.provider, model: settings.model, apiKey: settings.currentApiKey(), temperature: settings.temperature, baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, messages: [{ role: 'user', content: `${prompt}\n\n--- 笔记上下文 ---\n${props.context || '（空白页）'}` }] })
+    await window.lk.aiChatStart({ requestId, provider: settings.provider, model: settings.model, inputBudget: settings.aiInputBudget, apiKey: settings.currentApiKey(), temperature: settings.temperature, baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, customSystemPrompt: settings.customSystemPromptEnabled ? settings.customSystemPrompt : undefined, messages: [{ role: 'user', content: settings.aiIncludeNoteContext ? `${prompt}\n\n--- 笔记上下文 ---\n${props.context || '（空白页）'}` : prompt }] })
     question.value = ''
-  } catch (err: unknown) { loading.value = false; off(); ElMessage.error(err instanceof Error ? err.message : 'AI 请求失败') }
+  } catch (err: unknown) { cancelRequest(); ElMessage.error(err instanceof Error ? err.message : 'AI 请求失败') }
 }
 </script>
 

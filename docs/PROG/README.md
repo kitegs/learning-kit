@@ -4,6 +4,13 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-09-12 | PROG-20260912-07-amend.md | 前端分类导航与真实截图 | in progress |
+| 2026-09-12 | PROG-20260912-06-amend.md | AI 知识点与 Draw.io 映射 | in progress |
+| 2026-09-12 | PROG-20260912-05-amend.md | 上下文预算与笔记关键词检索 | in progress |
+| 2026-09-12 | PROG-20260912-04-amend.md | 学习产物创建确认与撤销 | in progress |
+| 2026-09-12 | PROG-20260912-03-amend.md | AI 闪卡执行链与 Electron 验证 | in progress |
+| 2026-09-12 | PROG-20260912-02-amend.md | AI 流式容错与工具预校验 | in progress |
+| 2026-09-12 | PROG-20260912.md | AI 配置补齐与中断后复查 | in progress |
 | 2026-07-22 | PROG-20260722.md | session-4 bug修复/流式显示/工具调用/文档维护 | done |
 | 2026-07-21 | PROG-20260721.md | 初始开发 | done |
 | 2026-07-21 | PROG-20260721-02-amend.md | session-2 上下文菜单/EPUB/主题/搜索/思维导图标注 | done |
@@ -26,3 +33,4 @@
 | 2026-09-03 | PROG-20260903-02-amend.md | 产品收敛阶段 1 数据安全 | done |
 | 2026-09-03 | PROG-20260903-03-amend.md | 产品收敛阶段 2 笔记核心稳定 | done |
 | 2026-09-03 | PROG-20260903-04-amend.md | 产品收敛阶段 3 电子书核心稳定 | done |
+| 2026-09-12 | PROG-20260912-08-amend.md | 对话独立 Prompt 实现与隔离验证 | in progress |

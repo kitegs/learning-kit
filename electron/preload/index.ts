@@ -1,5 +1,21 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
+type AiChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+type AiChatStartArgs = {
+  requestId: string
+  provider: string
+  model: string
+  messages: AiChatMessage[]
+  temperature?: number
+  apiKey?: string
+  baseUrl?: string
+  customSystemPrompt?: string
+  conversationId?: string
+  inputBudget?: number
+  retrieveNotes?: boolean
+}
+type AiChunkPayload = { delta?: string; content?: string; done: boolean; aborted?: boolean; error?: string; contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number } }
+
 // Wraps an IPC result — throws if !ok, passes through data otherwise.
 // Handles both old-style (direct return) and new-style ({ok,data,error}) responses.
 function u<T>(r: any): T {
@@ -59,12 +75,12 @@ const api = {
   // ai
   aiModels: (provider: string) => ipcRenderer.invoke('ai:models', provider),
   aiSystemPrompt: () => ipcRenderer.invoke('ai:system-prompt'),
-  aiChatStart: (args: any) => ipcRenderer.invoke('ai:chat:start', args),
+  aiChatStart: (args: AiChatStartArgs) => ipcRenderer.invoke('ai:chat:start', args),
   aiChatAbort: (reqId: string) => ipcRenderer.invoke('ai:chat:abort', reqId),
-  aiTest: (args: any) => ipcRenderer.invoke('ai:test', args),
-  onAiChunk: (reqId: string, cb: (p: any) => void) => {
+  aiTest: (args: { provider: string; model: string; apiKey: string; baseUrl?: string }) => ipcRenderer.invoke('ai:test', args),
+  onAiChunk: (reqId: string, cb: (p: AiChunkPayload) => void) => {
     const channel = `ai:chunk:${reqId}`
-    const listener = (_e: IpcRendererEvent, payload: any) => cb(payload)
+    const listener = (_e: IpcRendererEvent, payload: AiChunkPayload) => cb(payload)
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   },

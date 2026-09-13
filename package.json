@@ -25,7 +25,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs",
+    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs && node tests/ai-contract.cjs && node tests/ai-runtime.cjs && node tests/ai-stream.cjs && node tests/ai-flashcard.cjs && node tests/ai-parser.cjs && node tests/ai-context.cjs",
     "test:ui:notebook-anchor": "npm run build && node tests/notebook-anchor.e2e.cjs",
     "test:ui:database-recovery": "npm run build && node tests/notebook-anchor.e2e.cjs --database-recovery",
     "test:ui:pdf-reader": "npm run build && node tests/pdf-reader.e2e.cjs"
@@ -60,6 +60,7 @@
     "pdfjs-dist": "^4.10.38",
     "perfect-freehand": "1.2.3",
     "pinia": "^2.2.4",
+    "saxes": "6.0.0",
     "sql.js": "^1.13.0",
     "tesseract.js": "^7.0.0",
     "ts-fsrs": "5.4.1",

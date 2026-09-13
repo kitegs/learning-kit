@@ -1,5 +1,5 @@
 <template>
-  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" :status-text="appStatus" @switch="onModeSwitch" @outline-click="onOutlineClick">
+  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" :status-text="appStatus" @switch="onModeSwitch" @outline-click="onOutlineClick" @search="searchOpen = true" @tools="toolCenterOpen = true">
     <template v-if="mode === 'chat'">
       <SidebarView :style="{ width: sideWidth + 'px' }" class="side chat-side" />
       <div class="resizer" @mousedown="startResize"></div>
@@ -17,6 +17,7 @@
           <el-button size="small" @click="searchOpen=true">搜索</el-button>
           <el-button v-if="mode === 'chat'" size="small" @click="openStudyPlan">学习方案</el-button>
           <el-button size="small" @click="openSettings">设置</el-button>
+          <el-button v-if="mode === 'chat'" size="small" :disabled="streaming || !chat.currentConvId" @click="conversationPromptOpen = true">Prompt · {{ conversationPromptLabel }}</el-button>
           <el-button size="small" type="primary" @click="newBlankNote">新建笔记</el-button>
           <el-button v-if="mode === 'chat' && openBookId" size="small" type="warning" @click="goBackToBook">← 回到电子书</el-button>
         </div>
@@ -26,11 +27,18 @@
         <component :is="contentComponent" :key="mode === 'library' && openBookId ? `reader:${openBookId}` : mode" :bookIdProp="openBookId" :jump-note-id="jumpToNoteId" :jump-block-id="jumpToBlockId" :jump-page="jumpToHighlight?.page" :jump-href="jumpToBookHref" @open-book="openBook" @back="onReaderBack" @ask-ai="onAskFromReader" @followup="onFollowup" />
       </div>
       <template v-if="mode === 'chat'">
+        <details v-if="aiContextInfo" class="ai-context-info">
+          <summary>本次输入约 {{ aiContextInfo.estimatedTokens }} / {{ aiContextInfo.budget }} tokens · {{ aiContextInfo.sources.length }} 条笔记 · 省略 {{ aiContextInfo.droppedMessages }} 条旧消息</summary>
+          <p v-if="!aiContextInfo.sources.length">没有附加检索笔记（检索关闭、无命中或预算不足）。</p>
+          <ul v-else><li v-for="source in aiContextInfo.sources" :key="source.id">{{ source.title }}</li></ul>
+          <small>这些来源已加入本次请求；估算不是实际计费值。预算不足未附加：{{ aiContextInfo.omittedSources }} 条。当前问题与系统规则未截断。</small>
+        </details>
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" @open-tools="toolCenterOpen = true" @quick="onChatQuickAction" />
       </template>
     </main>
   </Dock>
   <SettingsDialog v-model="settingsVisible" @saved="onSettingsSaved" />
+  <ConversationPromptDialog v-model="conversationPromptOpen" :conversation-id="chat.currentConvId" :title="titleDraft" :busy="streaming" @saved="refreshConversationPrompt" />
   <StudyPlanDialog v-model="studyPlanVisible" @created="onStudyPlanCreated" />
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
@@ -46,6 +54,7 @@ import SidebarView from './views/SidebarView.vue'
 import ChatView from './views/ChatView.vue'
 import ComposeBar from './components/ComposeBar.vue'
 import SettingsDialog from './views/SettingsDialog.vue'
+import ConversationPromptDialog from './components/ConversationPromptDialog.vue'
 import StudyPlanDialog from './views/StudyPlanDialog.vue'
 import LibraryView from './views/LibraryView.vue'
 import PdfReaderView from './views/PdfReaderView.vue'
@@ -97,6 +106,18 @@ const settingsVisible = ref(false)
 const studyPlanVisible = ref(false)
 const sideWidth = ref(280)
 const titleDraft = ref('')
+const conversationPromptOpen = ref(false)
+const conversationPromptLabel = ref('全局')
+async function refreshConversationPrompt() {
+  const id = chat.currentConvId
+  conversationPromptLabel.value = '全局'
+  if (!id) return
+  try {
+    const config = await chat.loadConversationPrompt(id)
+    if (id === chat.currentConvId) conversationPromptLabel.value = ({ inherit: '全局', custom: '专属', none: '仅内置' })[config.mode]
+  } catch { if (id === chat.currentConvId) conversationPromptLabel.value = '配置异常' }
+}
+watch(() => chat.currentConvId, refreshConversationPrompt)
 const streaming = ref(false)
 const mode = ref<Mode>('chat')
 const openBookId = ref<string | null>(null)
@@ -106,6 +127,7 @@ const toolCenterOpen = ref(false)
 const toolProposals = ref<AiToolProposal[]>([])
 const toolHistory = ref<any[]>([])
 const appStatus = ref('已就绪')
+const aiContextInfo = ref<{ budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number } | null>(null)
 
 function onAppStatus(event: Event) {
   const detail = (event as CustomEvent<{ text?: string }>).detail
@@ -121,7 +143,7 @@ function onDatabaseStatus(status: DatabasePersistenceStatus) {
 let switchSeq = 0
 function switchMode(target: Mode, ctx?: { bookId?: string; bookHref?: string; noteId?: string; blockId?: string; convId?: string; highlight?: { bookId: string; page: number } }) {
   const seq = ++switchSeq
-  if (target !== 'chat') { streaming.value = false; activeAbort?.(); activeAbort = null; pendingCitation.value = null }
+  if (target !== 'chat') { onAbort(); pendingCitation.value = null }
   // Keep the active reader route while the user works elsewhere.  The reader is
   // deliberately unmounted outside the library to release PDF/EPUB resources,
   // but its book id stays available so returning to "图书馆" restores the book.
@@ -186,6 +208,8 @@ function onOutlineClick(_line: number) {
 
 let activeAbort: (() => void) | null = null
 let currentReqId: string | null = null
+let saveActiveReply: (() => Promise<unknown>) | null = null
+let sendEpoch = 0
 
 const modeIcon = computed(() => {
   switch (mode.value) {
@@ -244,7 +268,7 @@ async function newBlankNote() {
   switchMode('notes', { noteId: id })
   tabStore.openTab({ type: 'note', title, data: { noteId: id } })
 }
-function watchCurrentConv() { titleDraft.value = chat.convs.find((c) => c.id === chat.currentConvId)?.title || '' }
+function watchCurrentConv() { titleDraft.value = chat.convs.find((c) => c.id === chat.currentConvId)?.title || ''; aiContextInfo.value = null }
 watch(() => chat.currentConvId, watchCurrentConv)
 function applyTitle() {
   if (!chat.currentConvId) return
@@ -353,6 +377,9 @@ function localTestReply(text: string) {
 }
 async function onSend(text: string, parentTurnId: string | null = null) {
   if (streaming.value) return
+  aiContextInfo.value = null
+  const epoch = ++sendEpoch
+  streaming.value = true
   log('send_start', text.slice(0, 60))
   const citation = pendingCitation.value
   if (citation) pendingCitation.value = null
@@ -393,19 +420,25 @@ async function onSend(text: string, parentTurnId: string | null = null) {
       await window.lk.convTouch(convId)
       return
     }
-    streaming.value = true; activeAbort?.()
-    currentReqId = await window.lk.uuid()
+    const requestId = await window.lk.uuid()
+    if (epoch !== sendEpoch) return
+    currentReqId = requestId
+    activeAbort?.()
     const requestConvId = convId
-    const history = chat.activeMessages.filter((m) => m.id !== rMsg.id).map((m) => ({ role: m.role, content: m.content })).slice(-12)
+    aiContextInfo.value = null
+    const history = (settings.aiIncludeHistory ? chat.activeMessages.filter((m) => m.id !== rMsg.id) : [userMsg]).map((m) => ({ role: m.role, content: m.content }))
+    saveActiveReply = () => window.lk.msgPatch(rMsg.id, { content: rMsg.content })
     log('stream_start', currentReqId.slice(0, 8))
     activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
       try {
+        if (p.contextSummary && chat.currentConvId === requestConvId) aiContextInfo.value = p.contextSummary
         if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
         if (p.delta) rMsg.content += p.delta
         if (p.done) {
           log('stream_done', `len=${rMsg.content.length}`)
           streaming.value = false
-          const actions = parseActions(rMsg.content)
+          activeAbort?.(); activeAbort = null; currentReqId = null; saveActiveReply = null
+          const actions = settings.aiToolProposalsEnabled && !p.error && !p.aborted ? parseActions(rMsg.content) : []
           window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
           window.lk.convTouch(requestConvId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
           void proposeInternalToolActions(actions).then((created) => {
@@ -416,8 +449,9 @@ async function onSend(text: string, parentTurnId: string | null = null) {
         }
       } catch (e) { console.error('[onChunk]', e) }
     })
-    await window.lk.aiChatStart({ requestId: currentReqId, provider: settings.provider, model: settings.model, messages: history, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined })
+    await window.lk.aiChatStart({ requestId: currentReqId, conversationId: requestConvId, provider: settings.provider, model: settings.model, messages: history, inputBudget: settings.aiInputBudget, retrieveNotes: settings.aiRetrievalEnabled, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, customSystemPrompt: settings.customSystemPromptEnabled ? settings.customSystemPrompt : undefined })
   } catch (err: any) {
+    if (epoch !== sendEpoch) return
     streaming.value = false
     log('send_error', err?.message || String(err))
     const msg = err?.message || String(err)
@@ -429,10 +463,18 @@ async function onSend(text: string, parentTurnId: string | null = null) {
     } else if (convId) {
       chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: `**发送失败：** ${msg}`, model: 'error' } as any)
     }
+  } finally {
+    if (epoch === sendEpoch) { streaming.value = false; activeAbort?.(); activeAbort = null; currentReqId = null; saveActiveReply = null }
   }
 }
 function onFollowup(payload: { text: string; parentTurnId: string }) { onSend(payload.text, payload.parentTurnId) }
-function onAbort() { if (currentReqId) window.lk.aiChatAbort(currentReqId); streaming.value = false; activeAbort?.(); activeAbort = null }
+function onAbort() {
+  sendEpoch++
+  if (currentReqId) void window.lk.aiChatAbort(currentReqId).catch(console.warn)
+  if (saveActiveReply) void saveActiveReply().catch(console.warn)
+  saveActiveReply = null; currentReqId = null
+  streaming.value = false; activeAbort?.(); activeAbort = null
+}
 function onChatQuickAction(action: 'summary' | 'study' | 'cards') {
   const prompts = { summary: '请总结当前对话的要点，并提出一个可确认的摘要笔记操作。', study: '请根据当前对话生成下一步学习计划，并提出一个可确认的学习计划操作。', cards: '请从当前对话生成 3 张高质量闪卡，并分别提出可确认的闪卡操作。' }
   onSend(prompts[action])
@@ -447,11 +489,13 @@ function onSelectionAi(text: string, action: string) {
 // ── action parser & confirmed internal tool proposals (PRD v3) ──
 interface ParsedAction { type: string; params: string[]; rawBlock: string }
 type InternalToolInput = {
-  action: 'create_note' | 'add_bookmark' | 'create_exercise_set' | 'create_flashcard_from_error'
+  action: 'create_note' | 'add_bookmark' | 'create_exercise_set' | 'create_flashcard_from_error' | 'create_flashcard' | 'create_mindmap' | 'create_plan' | 'create_conversation' | 'create_knowledge_point' | 'create_diagram'
   params: Record<string, unknown>
 }
 function parseActions(text: string): ParsedAction[] {
   const out: ParsedAction[] = []
+  const exercises = /<exercise_set>([\s\S]*?)<\/exercise_set>/g
+  for (const match of text.matchAll(exercises)) out.push({ type: 'exercise_json', params: [match[1].trim()], rawBlock: match[0] })
   // Parse <kp>...</kp>
   let m: RegExpExecArray | null
   const reKp = /<kp>([\s\S]*?)<\/kp>/g
@@ -487,9 +531,20 @@ function parseActions(text: string): ParsedAction[] {
 }
 function internalToolRequest(action: ParsedAction): InternalToolInput | null {
   switch (action.type) {
+    case 'kp': return { action: 'create_knowledge_point', params: { title: action.params[0], description: `AI 提取的知识点\n书籍（未核实）：${action.params[1] || 'unknown'}\n章节（未关联）：${action.params[2] || 'unknown'}\n掌握建议（仅供参考）：${action.params.slice(3).join('|') || 'unknown'}` } }
+    case 'drawio': return { action: 'create_diagram', params: { title: 'AI 图表', xml: action.params[0] } }
+    case 'summary': return { action: 'create_note', params: { title: '对话摘要', body: action.params[0] } }
+    case 'mindmap': return { action: 'create_mindmap', params: { title: action.params[0].split('\n')[0].replace(/^#+\s*/, '') || '思维导图', body: action.params[0] } }
+    case 'mindmap_legacy': return { action: 'create_mindmap', params: { title: action.params[0], body: action.params.slice(1).join('|') } }
+    case 'conversation': return action.params[0] === 'create' ? { action: 'create_conversation', params: { title: action.params.slice(1).join('|') } } : null
+    case 'plan': {
+      const plan = JSON.parse(action.params[0]) as { goal?: string }
+      return { action: 'create_plan', params: { title: plan.goal || '学习计划', plan } }
+    }
+    case 'exercise_json': return { action: 'create_exercise_set', params: JSON.parse(action.params[0]) as Record<string, unknown> }
     case 'note': return { action: 'create_note', params: { title: action.params[0] || '未命名笔记', body: action.params[1] || '' } }
     case 'bookmark': return { action: 'add_bookmark', params: { bookId: action.params[0] || '', page: Number(action.params[1]) || 1, label: action.params[2] || 'AI 书签' } }
-    case 'card': return { action: 'create_flashcard_from_error', params: { question: action.params[0] || '', answer: action.params[1] || '' } }
+    case 'card': return { action: 'create_flashcard', params: { question: action.params[0] || '', answer: action.params.slice(1).join('|') } }
     case 'exercise_set': return { action: 'create_exercise_set', params: { title: action.params[0] || 'AI 习题集', source: action.params[1] || '' } }
     case 'flashcard_from_error': return { action: 'create_flashcard_from_error', params: { questionId: action.params[0] || '', deckId: action.params[1] || '' } }
     default: return null
@@ -498,10 +553,11 @@ function internalToolRequest(action: ParsedAction): InternalToolInput | null {
 async function proposeInternalToolActions(actions: ParsedAction[]): Promise<boolean> {
   const proposals: AiToolProposal[] = []
   for (const parsed of actions) {
-    const request = internalToolRequest(parsed)
+    let request: InternalToolInput | null
+    try { request = internalToolRequest(parsed) } catch { appStatus.value = 'AI 产物 JSON 格式无效，请重新生成'; continue }
     if (!request) continue
     const result = await window.lk.toolProposeInternal(request)
-    if (!result.operationId) continue
+    if (!result.operationId) { appStatus.value = result.error || '工具提案失败'; continue }
     proposals.push({ id: result.operationId, operationId: result.operationId, type: request.action, preview: result.preview, affected: result.affected, status: result.status })
   }
   if (!proposals.length) return false
@@ -510,7 +566,11 @@ async function proposeInternalToolActions(actions: ParsedAction[]): Promise<bool
   await refreshToolHistory()
   return true
 }
-async function refreshToolHistory() { toolHistory.value = await window.lk.toolOperations({ source: 'internal-ai', limit: 40 }) }
+async function refreshToolHistory() {
+  toolHistory.value = await window.lk.toolOperations({ source: 'internal-ai', limit: 40 })
+  const pending = await window.lk.toolOperations({ source: 'internal-ai', status: 'pending_confirmation', limit: 300 })
+  toolProposals.value = pending.map((row) => ({ id: row.id, operationId: row.id, type: row.action, preview: row.preview || '', affected: JSON.parse(row.affected_json || '[]'), status: row.status }))
+}
 watch(toolCenterOpen, (open) => { if (open) refreshToolHistory().catch(() => {}) })
 async function rejectToolProposals(operationIds: string[]) {
   await Promise.all(operationIds.map((operationId) => window.lk.toolReject(operationId)))
@@ -518,18 +578,23 @@ async function rejectToolProposals(operationIds: string[]) {
   await refreshToolHistory()
 }
 async function applyToolProposals(operationIds: string[]) {
-  await Promise.all(operationIds.map((operationId) => window.lk.toolApprove(operationId)))
+  const results = await Promise.all(operationIds.map((operationId) => window.lk.toolApprove(operationId)))
+  const errors = results.filter((result) => result.status === 'failed').map((result) => result.error || '操作失败')
+  if (errors.length) appStatus.value = errors.join('；')
   toolProposals.value = toolProposals.value.filter((proposal) => !operationIds.includes(proposal.operationId))
   await refreshToolHistory()
 }
 async function undoToolOperation(operationId: string) {
-  await window.lk.toolUndo(operationId)
+  const result = await window.lk.toolUndo(operationId)
+  if (result.status === 'failed') appStatus.value = result.error || '撤销失败'
   await refreshToolHistory()
 }
 
 let removeBeforeCloseListener: (() => void) | null = null
 let removeDatabaseStatusListener: (() => void) | null = null
 async function prepareAppClose() {
+  if (saveActiveReply) await saveActiveReply()
+  onAbort()
   const pending: Promise<unknown>[] = []
   window.dispatchEvent(new CustomEvent('lk:before-close', {
     detail: { waitUntil: (promise: Promise<unknown>) => pending.push(Promise.resolve(promise)) }
@@ -622,21 +687,24 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); removeDatabaseStatusListener?.(); activeAbort?.() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); removeDatabaseStatusListener?.(); onAbort() })
 </script>
 
 <style scoped lang="scss">
+.ai-context-info { flex-shrink:0; margin:0 16px 6px; padding:9px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elev); color:var(--text-dim); font-size:12px; max-height:160px; overflow:auto; }
+.ai-context-info summary { cursor:pointer; color:var(--text); }
+.ai-context-info p,.ai-context-info ul { margin:8px 0; }
 .side { flex-shrink: 0; overflow: hidden; }
 .resizer { width: 4px; cursor: col-resize; background: var(--border); flex-shrink: 0; &:hover { background: var(--accent); } }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.topbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border); }
+.topbar { height: 56px; flex: 0 0 56px; display: flex; align-items: center; justify-content: space-between; gap:16px; padding: 0 20px; background: var(--bg-elev); border-bottom: 1px solid var(--border); }
 .title-area { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
 .breadcrumb { display:flex; align-items:center; gap:6px; color:var(--text-dim); font-size:11px; white-space:nowrap; }.breadcrumb i { font-style:normal; color:var(--border-light); }.breadcrumb strong { color:var(--text-secondary); font-weight:600; }
 .title-input { max-width: 360px; background: transparent; }
 .toolbar { display: flex; gap: 8px; }
 .mode-icon { color: var(--accent); font-size: 18px; }
 .mode-title { font-weight: 600; }
-.tag-glow { animation: glow 2s ease-in-out infinite; }
+.tag-glow { border-color:var(--success); }
 @keyframes glow {
   0%, 100% { box-shadow: 0 0 4px rgba(81,207,102,0.4); }
   50% { box-shadow: 0 0 12px rgba(81,207,102,0.8), 0 0 20px rgba(81,207,102,0.3); }

@@ -1,10 +1,13 @@
 import { ipcMain } from 'electron'
 import { getDb, qAll, qOne, qRun, schedulePersist, uuid } from './db'
 import { registerIpc } from './ipc-helpers'
+import { attachFsrsState } from './srs'
+import { isArtifact, validateArtifact, createArtifact, undoArtifact, type ArtifactAction, type ArtifactSnapshot } from './learning-artifacts'
 
 export type ToolAction =
+  | ArtifactAction
   | 'create_note' | 'append_note' | 'add_bookmark' | 'organize_note'
-  | 'create_exercise_set' | 'create_flashcard_from_error'
+  | 'create_exercise_set' | 'create_flashcard_from_error' | 'create_flashcard'
   | 'delete' | 'replace_note' | 'bulk_move' | 'import_restore' | 'security_change'
 
 export interface ToolRequest {
@@ -33,6 +36,8 @@ type NoteRow = {
 }
 type BookmarkRow = { id: string; book_id: string; page: number; label: string | null; href: string | null; created_at: string }
 type RowSnapshot =
+  | ArtifactSnapshot
+  | { entity: 'card'; id: string; before: null; after: Record<string, unknown> }
   | { entity: 'note'; id: string; before: NoteRow | null; after: NoteRow }
   | { entity: 'bookmark'; id: string; before: BookmarkRow | null; after: BookmarkRow }
 type StoredOperation = { id: string; source: ToolRequest['source']; action: ToolAction; params_json: string; preview: string | null; status: string; affected_json: string; snapshots_json: string }
@@ -43,7 +48,8 @@ export function notePostStateMatches(expected: NoteRow, current: NoteRow | undef
 
 export function requiresConfirmation(request: Pick<ToolRequest, 'source' | 'action'>): boolean {
   if (request.source === 'internal-ai') return true
-  return ['delete', 'replace_note', 'bulk_move', 'import_restore', 'security_change', 'organize_note', 'create_exercise_set', 'create_flashcard_from_error'].includes(request.action)
+  if (['create_mindmap', 'create_plan', 'create_conversation', 'create_knowledge_point', 'create_diagram'].includes(request.action)) return true
+  return ['delete', 'replace_note', 'bulk_move', 'import_restore', 'security_change', 'organize_note', 'create_exercise_set', 'create_flashcard_from_error', 'create_flashcard'].includes(request.action)
 }
 
 function stringParam(params: Record<string, unknown>, key: string): string
@@ -62,8 +68,31 @@ function numberParam(params: Record<string, unknown>, key: string, fallback: num
 }
 function parseAffected(raw: string): string[] { try { return JSON.parse(raw) as string[] } catch { return [] } }
 
+function prepareFlashcard(request: ToolRequest, preview = false): void {
+  if (request.action === 'create_flashcard_from_error') {
+    const questionId = stringParam(request.params, 'questionId')
+    const question = qOne(getDb(), 'SELECT prompt,answer_json,explanation FROM exercise_questions WHERE id=? AND EXISTS (SELECT 1 FROM exercise_attempts WHERE question_id=? AND correct=0)', [questionId, questionId]) as { prompt: string; answer_json: string; explanation: string | null } | undefined
+    if (!question) throw new Error('找不到有错误作答记录的题目')
+    const answer: unknown = JSON.parse(question.answer_json)
+    const back = `${typeof answer === 'string' ? answer : JSON.stringify(answer)}${question.explanation ? '\n\n' + question.explanation : ''}`
+    if (preview) request.params = { ...request.params, question: question.prompt, answer: back }
+    else if (request.params.question !== question.prompt || request.params.answer !== back) throw new Error('题目或答案已改变，请重新生成提案')
+  }
+  stringParam(request.params, 'question'); stringParam(request.params, 'answer')
+  const deckId = stringParam(request.params, 'deckId', false)
+  if (deckId && !qOne(getDb(), 'SELECT id FROM decks WHERE id=?', [deckId])) throw new Error('所选牌组不存在')
+}
+
 function actionPreview(request: ToolRequest): { preview: string; affected: string[] } {
+  if (isArtifact(request.action)) return { preview: validateArtifact(request.action, request.params), affected: [`${request.action}:new`] }
   switch (request.action) {
+    case 'create_flashcard':
+    case 'create_flashcard_from_error': {
+      prepareFlashcard(request, true)
+      const deckId = stringParam(request.params, 'deckId', false)
+      const deck = deckId ? qOne(getDb(), 'SELECT title FROM decks WHERE id=?', [deckId]) as { title: string } : null
+      return { preview: `向「${deck?.title || 'AI 闪卡'}」创建闪卡\n问题：${request.params.question}\n答案：${request.params.answer}`, affected: [deckId ? `deck:${deckId}` : 'deck:AI 闪卡', 'card:new'] }
+    }
     case 'create_note': return { preview: `创建笔记「${stringParam(request.params, 'title', false) ?? '未命名笔记'}」`, affected: ['note:new'] }
     case 'append_note': {
       const noteId = stringParam(request.params, 'noteId')
@@ -77,7 +106,7 @@ function actionPreview(request: ToolRequest): { preview: string; affected: strin
       if (!book) throw new Error('找不到要添加书签的图书')
       return { preview: `为《${book.title}》添加书签`, affected: [`book:${book.id}`] }
     }
-    default: return { preview: `请求执行受限操作：${request.action}`, affected: [] }
+    default: throw new Error(`当前版本尚不支持此操作：${request.action}。可以保留回答内容，手动创建。`)
   }
 }
 
@@ -101,7 +130,26 @@ function writeFailure(operationId: string, error: unknown): ToolResult {
 }
 
 function executeMutation(request: ToolRequest): { affected: string[]; snapshots: RowSnapshot[] } {
+  if (isArtifact(request.action)) {
+    const snapshot = createArtifact(request.action, request.params)
+    return { affected: [`${request.action}:${snapshot.id}`], snapshots: [snapshot] }
+  }
   switch (request.action) {
+    case 'create_flashcard':
+    case 'create_flashcard_from_error': {
+      prepareFlashcard(request)
+      let deckId = stringParam(request.params, 'deckId', false)
+      if (!deckId) {
+        const deck = qOne(getDb(), 'SELECT id FROM decks WHERE title=? ORDER BY created_at,id LIMIT 1', ['AI 闪卡']) as { id: string } | undefined
+        deckId = deck?.id || uuid()
+        if (!deck) qRun(getDb(), 'INSERT INTO decks(id,title,sort) VALUES(?,?,?)', [deckId, 'AI 闪卡', Date.now()])
+      }
+      const id = uuid()
+      qRun(getDb(), 'INSERT INTO cards(id,deck_id,front,back,kind) VALUES(?,?,?,?,?)', [id, deckId, stringParam(request.params, 'question'), stringParam(request.params, 'answer'), 'qa'])
+      attachFsrsState(id)
+      const after = qOne(getDb(), 'SELECT * FROM cards WHERE id=?', [id]) as Record<string, unknown>
+      return { affected: [`deck:${deckId}`, `card:${id}`], snapshots: [{ entity: 'card', id, before: null, after }] }
+    }
     case 'create_note': {
       const id = uuid()
       qRun(getDb(), 'INSERT INTO notes(id,title,body,parent_id,sort,tags,kind) VALUES(?,?,?,?,?,?,?)', [id, stringParam(request.params, 'title', false) ?? '未命名笔记', stringParam(request.params, 'body', false) ?? '', stringParam(request.params, 'parentId', false), Date.now(), stringParam(request.params, 'tags', false), stringParam(request.params, 'kind', false) ?? 'note'])
@@ -210,11 +258,17 @@ export function undoOperation(operationId: string): ToolResult {
   const db = getDb(); db.exec('BEGIN TRANSACTION')
   try {
     for (const snapshot of snapshots) {
+      if (snapshot.entity === 'artifact') { undoArtifact(snapshot); continue }
       if (snapshot.entity === 'note') {
         const current = qOne(db, 'SELECT * FROM notes WHERE id=?', [snapshot.id]) as NoteRow | undefined
         if (!notePostStateMatches(snapshot.after, current)) throw new Error('笔记已被更新，无法安全撤销')
         if (!snapshot.before) qRun(db, 'DELETE FROM notes WHERE id=?', [snapshot.id])
         else { qRun(db, "UPDATE notes SET title=?,body=?,parent_id=?,sort=?,tags=?,kind=?,favorite=?,deleted_at=?,updated_at=datetime('now') WHERE id=?", [snapshot.before.title, snapshot.before.body, snapshot.before.parent_id, snapshot.before.sort, snapshot.before.tags, snapshot.before.kind, snapshot.before.favorite, snapshot.before.deleted_at, snapshot.id]); markNoteBlocksStale(snapshot.id) }
+      } else if (snapshot.entity === 'card') {
+        const current = qOne(db, 'SELECT * FROM cards WHERE id=?', [snapshot.id]) as Record<string, unknown> | undefined
+        if (!current || Object.keys(snapshot.after).some((key) => current[key] !== snapshot.after[key]) || qOne(db, 'SELECT id FROM review_log WHERE card_id=? LIMIT 1', [snapshot.id])) throw new Error('闪卡已被修改或复习，无法安全撤销')
+        qRun(db, 'DELETE FROM card_scheduling WHERE card_id=?', [snapshot.id])
+        qRun(db, 'DELETE FROM cards WHERE id=?', [snapshot.id])
       } else {
         const current = qOne(db, 'SELECT * FROM bookmarks WHERE id=?', [snapshot.id]) as BookmarkRow | undefined
         if (!current || current.id !== snapshot.after.id || current.book_id !== snapshot.after.book_id || current.page !== snapshot.after.page || current.label !== snapshot.after.label || current.href !== snapshot.after.href || current.created_at !== snapshot.after.created_at) throw new Error('书签已被更新，无法安全撤销')

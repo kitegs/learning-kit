@@ -4,6 +4,8 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-09-12 | REQ-20260912-04-interface-polish.md | 学习工作台前端体验整理 | in progress |
+| 2026-09-12 | REQ-20260912-03-ai-kp-drawio.md | AI 知识点与 Draw.io 提案 | in progress |
 | 2026-07-21 | REQ-20260721-01-mvp.md | 学习助手桌面端 MVP | done |
 | 2026-08-01 | REQ-20260801-01-unified-knowledge-inbox.md | 统一知识收集箱 | implemented |
 | 2026-08-01 | REQ-20260801-02-conversation-turns.md | 流内对话轮次与追问管理 | implemented |
@@ -30,3 +32,6 @@
 | 2026-09-01 | REQ-20260901-01-compact-note-navigation.md | 紧凑笔记与章节导航 | implemented |
 | 2026-09-01 | REQ-20260901-02-global-notebook-layout.md | 所有笔记共用纸页版式 | implemented |
 | 2026-09-03 | REQ-20260903-01-product-convergence.md | 产品收敛版本 | in progress |
+| 2026-09-12 | REQ-20260912-01-ai-controls-and-custom-prompt.md | AI 功能开关与用户提示词 | in progress |
+| 2026-09-12 | REQ-20260912-02-ai-context-budget.md | 上下文预算与本地笔记检索 | in progress |
+| 2026-09-12 | REQ-20260912-05-conversation-prompts.md | 不同对话独立 Prompt | in progress |

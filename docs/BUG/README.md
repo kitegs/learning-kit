@@ -4,6 +4,8 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-09-12 | BUG-20260912-03-component-theme.md | 控件主题变量覆盖 | fixed |
+| 2026-09-12 | BUG-20260912-02-settings-dialog-scroll.md | 设置弹窗滚动样式未命中 | fixed |
 | 2026-07-21 | BUG-20260721-03-preload-mjs-path.md | preload 加载路径 .js 找不到导致 window.lk undefined | fixed |
 | 2026-07-21 | BUG-20260721-02-sqljs-statement-closed.md | sql.js 重复使用 prepared statement 报 Statement closed | fixed |
 | 2026-07-21 | BUG-20260721-01-better-sqlite3-native-build.md | better-sqlite3 native build 在 Windows 全部失败 | wontfix |
@@ -22,3 +24,4 @@
 | 2026-09-03 | BUG-20260903-01-database-durability.md | 数据库直接覆盖与损坏后静默空库 | fixed |
 | 2026-09-03 | BUG-20260903-02-notebook-ui-test-flake.md | 笔记锚点 UI 测试存在章节定位时序波动 | fixed |
 | 2026-09-03 | BUG-20260903-03-pdf-reader-state-and-sticky-save.md | PDF 阅读位置与便签保存存在切换竞态 | fixed |
+| 2026-09-12 | BUG-20260912-01-ai-prompt-and-cancellation.md | AI 提示词不生效与请求取消不完整 | open |

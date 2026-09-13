@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { conversationPromptKey, parseConversationPrompt, type ConversationPrompt } from '../../electron/shared/conversation-prompt'
 
 export type ThemeId = 'dark' | 'light' | 'paper' | 'sepia' | 'forest'
 
@@ -43,6 +44,13 @@ export const useChatStore = defineStore('chat', () => {
   const convs = ref<Conv[]>([])
   const currentConvId = ref<string | null>(null)
   const activeMessages = ref<Msg[]>([])
+  async function loadConversationPrompt(id: string): Promise<ConversationPrompt> {
+    return parseConversationPrompt(await window.lk.getSetting(conversationPromptKey(id)))
+  }
+  async function saveConversationPrompt(id: string, config: ConversationPrompt): Promise<void> {
+    const checked = parseConversationPrompt(JSON.stringify(config))
+    await window.lk.setSetting(conversationPromptKey(id), JSON.stringify(checked))
+  }
 
   function buildTree(rows: any[]): GroupNode[] {
     const map = new Map<string, GroupNode>()
@@ -132,6 +140,8 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     groups,
+    loadConversationPrompt,
+    saveConversationPrompt,
     convs,
     activeMessages,
     currentConvId,
@@ -154,6 +164,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const apiKeys = ref<Record<string, string>>({})
   const customBaseUrl = ref('')
   const systemPrompt = ref('')
+  const customSystemPrompt = ref('')
+  const customSystemPromptEnabled = ref(false)
+  const aiIncludeHistory = ref(true)
+  const aiIncludeNoteContext = ref(true)
+  const aiIncludeProgressContext = ref(true)
+  const aiToolProposalsEnabled = ref(true)
+  const aiInputBudget = ref(8192)
+  const aiRetrievalEnabled = ref(false)
   const temperature = ref(0.6)
   const theme = ref<ThemeId>('dark')
   const connected = ref(false)
@@ -195,10 +213,16 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', theme.value)
   }
 
+  async function loadBooleanSetting(key: string, fallback: boolean): Promise<boolean> {
+    const value = await window.lk.getSetting(key)
+    return value === null ? fallback : value === 'true'
+  }
+
   async function load() {
     provider.value = (await window.lk.getSetting('provider')) || 'deepseek'
     model.value = (await window.lk.getSetting('model')) || 'deepseek-v4-flash'
-    temperature.value = Number(await window.lk.getSetting('temperature')) || 0.6
+    const storedTemperature = await window.lk.getSetting('temperature')
+    temperature.value = storedTemperature !== null && Number.isFinite(Number(storedTemperature)) ? Number(storedTemperature) : 0.6
     customBaseUrl.value = (await window.lk.getSetting('customBaseUrl')) || ''
     testMode.value = (await window.lk.getSetting('testMode')) === 'true'
     const t = await window.lk.getSetting('theme')
@@ -208,10 +232,19 @@ export const useSettingsStore = defineStore('settings', () => {
     const raw = await window.lk.getSetting('shortcuts')
     if (raw) try { shortcuts.value = { ...defaultShortcuts, ...JSON.parse(raw) } } catch { shortcuts.value = { ...defaultShortcuts } }
     const rows = await window.lk.allSettings()
-    for (const r of rows) { if (r.key.startsWith('apiKey.')) apiKeys.value[r.key.slice('apiKey'.length)] = r.value }
+    for (const r of rows) { if (r.key.startsWith('apiKey.')) apiKeys.value[r.key.slice('apiKey.'.length)] = r.value }
     for (const p of ['openai', 'deepseek', 'dashscope', 'custom']) { models[p] = await window.lk.aiModels(p) }
     if (!model.value && models[provider.value]?.length) model.value = models[provider.value][0]
     systemPrompt.value = await window.lk.aiSystemPrompt()
+    customSystemPrompt.value = (await window.lk.getSetting('customSystemPrompt')) || ''
+    customSystemPromptEnabled.value = await loadBooleanSetting('customSystemPromptEnabled', false)
+    aiIncludeHistory.value = await loadBooleanSetting('aiIncludeHistory', true)
+    aiIncludeNoteContext.value = await loadBooleanSetting('aiIncludeNoteContext', true)
+    aiIncludeProgressContext.value = await loadBooleanSetting('aiIncludeProgressContext', true)
+    aiToolProposalsEnabled.value = await loadBooleanSetting('aiToolProposalsEnabled', true)
+    const budget = Number(await window.lk.getSetting('aiInputBudget'))
+    aiInputBudget.value = Number.isFinite(budget) && budget >= 2048 ? Math.min(65536, Math.floor(budget)) : 8192
+    aiRetrievalEnabled.value = await loadBooleanSetting('aiRetrievalEnabled', false)
     noteAutosaveMs.value = Number(await window.lk.getSetting('noteAutosaveMs')) || 900
     const storedReaderTheme = await window.lk.getSetting('readerTheme')
     readerTheme.value = storedReaderTheme === 'sepia' || storedReaderTheme === 'night' ? storedReaderTheme : 'paper'
@@ -231,6 +264,14 @@ export const useSettingsStore = defineStore('settings', () => {
     await window.lk.setSetting('noteAutosaveMs', String(noteAutosaveMs.value))
     await window.lk.setSetting('readerTheme', readerTheme.value)
     await window.lk.setSetting('reviewNewLimit', String(reviewNewLimit.value))
+    await window.lk.setSetting('customSystemPrompt', customSystemPrompt.value)
+    await window.lk.setSetting('customSystemPromptEnabled', String(customSystemPromptEnabled.value))
+    await window.lk.setSetting('aiIncludeHistory', String(aiIncludeHistory.value))
+    await window.lk.setSetting('aiIncludeNoteContext', String(aiIncludeNoteContext.value))
+    await window.lk.setSetting('aiIncludeProgressContext', String(aiIncludeProgressContext.value))
+    await window.lk.setSetting('aiToolProposalsEnabled', String(aiToolProposalsEnabled.value))
+    await window.lk.setSetting('aiInputBudget', String(aiInputBudget.value))
+    await window.lk.setSetting('aiRetrievalEnabled', String(aiRetrievalEnabled.value))
     await saveShortcuts()
     for (const [k, v] of Object.entries(apiKeys.value)) await window.lk.setSetting('apiKey.' + k, v)
   }
@@ -241,5 +282,5 @@ export const useSettingsStore = defineStore('settings', () => {
   function setConnected(v: boolean) { connected.value = v }
   function getShortcut(key: string): string { return shortcuts.value[key] || (defaultShortcuts as any)[key] || '' }
 
-  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, temperature, theme, connected, testMode, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
+  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, customSystemPrompt, customSystemPromptEnabled, aiIncludeHistory, aiIncludeNoteContext, aiIncludeProgressContext, aiToolProposalsEnabled, aiInputBudget, aiRetrievalEnabled, temperature, theme, connected, testMode, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
 })

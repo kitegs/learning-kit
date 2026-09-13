@@ -87,7 +87,9 @@ html {
   /* graph/node colors */
   --graph-heading: #b388ff; --graph-code: #66d9e8; --graph-math: #51cf66;
   --graph-list: #f783ac; --graph-table: #4ea1ff; --graph-todo: #ffd43b;
+}
 
+html[data-theme] {
   /* Element Plus otherwise keeps its own grey text palette.  Map it to our
      tokens so themed trees, forms, menus and empty states remain legible. */
   --el-text-color-primary: var(--text);
@@ -97,11 +99,27 @@ html {
   --el-text-color-disabled: var(--text-disabled);
   --el-color-primary: var(--accent);
   --el-color-primary-light-9: var(--accent-dim);
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 70%, var(--bg-elev));
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 50%, var(--bg-elev));
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 30%, var(--bg-elev));
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 20%, var(--bg-elev));
+  --el-color-primary-dark-2: var(--accent-hover);
+  --el-color-success: var(--success);
+  --el-color-warning: var(--warning);
+  --el-color-danger: var(--danger);
+  --el-color-info: var(--text-secondary);
   --el-border-color: var(--border);
   --el-border-color-light: var(--border-light);
   --el-bg-color: var(--bg-elev);
   --el-bg-color-page: var(--bg);
   --el-fill-color-blank: var(--bg-elev);
+  --el-fill-color-light: var(--bg-soft);
+  --el-fill-color-lighter: var(--bg-soft);
+  --el-fill-color: var(--bg-elev-2);
+  --el-disabled-bg-color: var(--bg-soft);
+  --el-disabled-text-color: var(--text-disabled);
+  --el-disabled-border-color: var(--border);
+  --el-mask-color: var(--bg-overlay);
 }
 
 html[data-theme="light"] {
