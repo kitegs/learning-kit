@@ -4,6 +4,7 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | DEV-20261002-05-ci-refresh.md | CI 环境统一与隔离 Electron 回归 | impl |
 | 2026-10-02 | DEV-20261002-04-tool-center-convergence.md | 工具状态模块与查询收敛实现 | impl |
 | 2026-10-02 | DEV-20261002-03-mcp-import.md | 标准 MCP 桥接与确认导入实现 | impl |
 | 2026-10-02 | DEV-20261002-02-diagnostics-agent-flow.md | 诊断采集与确认式 Agent 状态机 | impl |

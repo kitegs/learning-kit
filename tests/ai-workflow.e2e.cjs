@@ -1,10 +1,11 @@
 // Real main process + Vue UI in a temporary profile, with a local fake provider.
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), http = require('node:http'), assert = require('node:assert/strict')
+const { saveUiFailure } = require('./helpers/ui-artifacts.cjs')
 const source = fs.readFileSync(path.join(__dirname, 'notebook-anchor.e2e.cjs'), 'utf8')
 let setup = source.slice(0, source.indexOf('async function click(cdp, selector)')).replace('`--remote-debugging-port=${port}`,', '`--remote-debugging-port=${port}`, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",')
 if (process.argv.includes('--dev')) setup = source.slice(0, source.indexOf('async function click(cdp, selector)')).replace("spawn(ELECTRON, [`--remote-debugging-port=${port}`, '.']", "spawn(process.execPath, [join(ROOT, 'node_modules/electron-vite/bin/electron-vite.js'), 'dev', `--remoteDebuggingPort=${port}`]")
 const context = { require, __dirname, process, console, WebSocket, fetch, setTimeout, clearTimeout, path }
-vm.runInNewContext(setup + '\nglobalThis.helpers={launchApp,closeApp,waitFor}', context)
+vm.runInNewContext(setup + '\nglobalThis.helpers={launchApp,closeApp,waitFor,active:()=>activeApp}', context)
 const { launchApp, closeApp, waitFor } = context.helpers
 const stores = `document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s`
 const settings = `${stores}.get('settings')`, flow = `${stores}.get('ai-workflow')`
@@ -42,7 +43,7 @@ async function main() {
     await app.cdp.send('Page.bringToFront')
     await app.cdp.evaluate(`Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`)
     const result = await app.cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
-    const folder = path.resolve(__dirname, '../artifacts/ai-workflow'); fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, name), Buffer.from(result.data, 'base64'))
+    const folder = path.resolve(__dirname, '../test-results/ui/ai-workflow'); fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, name), Buffer.from(result.data, 'base64'))
   }
   try {
     app = await launchApp()
@@ -112,7 +113,9 @@ async function main() {
     await closeApp(app); app = null
     console.log('AI workflow Electron: composer, preview, confirm, usage, cap, errors, stop, switches, restart and clear PASS')
   } catch (error) {
-    if (app) console.error('Workflow test diagnostic:', await app.cdp.evaluate(`(async()=>({runs:JSON.parse(JSON.stringify(${flow}?.runs)), persisted:await window.lk.agentRunsList(), diagnostics:await window.lk.aiDiagnosticsList(), error:${flow}?.error, status:document.querySelector('.dock-root')?.textContent.slice(-800), events:(${stores}.get('chat')?.activeMessages||[]).map(m=>m.content)}))()`).catch(()=>null), app.output.join('').slice(-2500), app.cdp.events.filter(e=>e.method==='Runtime.consoleAPICalled').map(e=>({type:e.params.type,args:e.params.args.map(a=>a.value||a.description)})).slice(-8))
+    app ||= context.helpers.active()
+    await saveUiFailure('ai-workflow', app, error)
+    console.error('AI workflow failure evidence saved in test-results/ui/ai-workflow')
     throw error
   } finally { if (app) await closeApp(app); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)) }
 }

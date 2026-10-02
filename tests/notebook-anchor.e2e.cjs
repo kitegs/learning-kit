@@ -5,6 +5,7 @@ const { spawn } = require('child_process')
 const { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('fs')
 const { tmpdir } = require('os')
 const { join, resolve } = require('path')
+const { saveUiFailure } = require('./helpers/ui-artifacts.cjs')
 
 const ROOT = resolve(__dirname, '..')
 const ELECTRON = require('electron')
@@ -559,6 +560,7 @@ async function main() {
     console.log('  ✓ 退出重启后手动与自动识别链接均可定位')
     console.log('\n━━━ 结果: 2 通过, 0 失败 ━━━')
   } catch (error) {
+    await saveUiFailure(process.argv.includes('--database-recovery') ? 'database-recovery' : 'notebook-anchor', activeApp, error)
     console.error(`\n  ✗ ${error.stack || error}`)
     if (activeApp?.output.length) console.error('\nElectron output:\n' + activeApp.output.join('').slice(-8000))
     process.exitCode = 1

@@ -6,13 +6,28 @@ const servicePath = path.join(__dirname, '..', 'electron', 'main', 'tool-service
 assert.ok(fs.existsSync(servicePath), 'tool-service.ts must export the tool confirmation policy')
 
 const source = fs.readFileSync(servicePath, 'utf8')
-const match = source.match(/export function requiresConfirmation\([^)]*\): boolean \{([\s\S]*?)\n\}/)
-assert.ok(match, 'requiresConfirmation must be an exported boolean policy helper')
 
 // Load the shared pure registry, without Electron or sql.js, to exercise the real policy.
 const vm = require('node:vm'), ts = require('typescript'), registry = {}
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname, '../electron/shared/tools.ts'), 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, {exports:registry})
-const requiresConfirmation = new Function('request', 'toolDefinitions', match[1])
+
+// Parse declarations rather than matching source formatting. This handles Windows
+// CRLF, comments and multiline bodies while still executing the actual helpers.
+function loadPolicyHelpers(text) {
+  const parsed = ts.createSourceFile(servicePath, text, ts.ScriptTarget.Latest, true)
+  const declarations = ['requiresConfirmation', 'notePostStateMatches'].map(name => {
+    const declaration = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name)
+    assert.ok(declaration?.body, `${name} must be a function with a body`)
+    assert.ok(ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export, `${name} must remain exported`)
+    return declaration.getText(parsed)
+  })
+  const exports = {}
+  const compiled = ts.transpileModule(declarations.join('\n'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  vm.runInNewContext(compiled, { exports, toolDefinitions: registry.toolDefinitions })
+  return exports
+}
+
+const { requiresConfirmation, notePostStateMatches } = loadPolicyHelpers(source)
 const confirmation = request => requiresConfirmation(request, registry.toolDefinitions)
 
 assert.equal(confirmation({ source: 'internal-ai', action: 'create_note' }), true)
@@ -39,11 +54,19 @@ assert.match(source, /tool:propose-internal/, 'IPC must expose a source-bound in
 assert.match(source, /tool:approve/, 'IPC must expose approval by operation id')
 assert.match(source, /tool:reject/, 'IPC must expose rejection by operation id')
 
-const stateMatch = source.match(/export function notePostStateMatches\([^)]*\): boolean \{\n  ([^\n]+)\n\}/)
-assert.ok(stateMatch, 'undo must expose its dependency-free post-state comparison')
-const notePostStateMatches = new Function('expected', 'current', stateMatch[1])
 const postWrite = { id: 'note-1', title: '题目', body: '原内容\n\n追加内容', parent_id: null, sort: 1, tags: null, kind: 'note', favorite: 0, created_at: '2026-08-24 10:00:00', updated_at: '2026-08-24 10:00:00', deleted_at: null }
 assert.equal(notePostStateMatches(postWrite, { ...postWrite, body: '同一秒的手动修改' }), false, 'a same-timestamp manual edit must block undo')
 assert.equal(notePostStateMatches(postWrite, { ...postWrite }), true)
 
-console.log('tool-service policy: PASS')
+// Reproduce CI line endings in memory; never rewrite the checked-out source.
+for (const ending of ['\n', '\r\n']) {
+  const variant = source.replace(/\r?\n/g, ending).replace(/ && /g, ` &&${ending}    `)
+  const helpers = loadPolicyHelpers(variant)
+  assert.equal(helpers.requiresConfirmation({ source: 'mcp', action: 'create_note' }), true)
+  assert.equal(helpers.requiresConfirmation({ source: 'renderer', action: 'create_note' }), false)
+  assert.equal(helpers.notePostStateMatches(postWrite, { ...postWrite }), true)
+  assert.equal(helpers.notePostStateMatches(postWrite, { ...postWrite, body: '同一秒的手动修改' }), false)
+  assert.equal(helpers.notePostStateMatches(postWrite, undefined), false)
+}
+
+console.log('tool-service policy (LF/CRLF/multiline): PASS')

@@ -1,6 +1,7 @@
 // 标准 MCP 客户端 → 独立 stdio Server → 真实 Electron → Vue 确认 → 重启。
 // 使用临时资料库，不读取/改动用户真实数据；配置密钥不输出到日志或截图。
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), assert = require('node:assert/strict'), net = require('node:net')
+const { saveUiFailure } = require('./helpers/ui-artifacts.cjs')
 const source = fs.readFileSync(path.join(__dirname, 'notebook-anchor.e2e.cjs'), 'utf8')
 let setup = source.slice(0, source.indexOf('async function click(cdp, selector)')).replace('`--remote-debugging-port=${port}`,', '`--remote-debugging-port=${port}`, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-gpu", "--in-process-gpu",')
 if (process.argv.includes('--dev')) setup = setup.replace("spawn(ELECTRON, [`--remote-debugging-port=${port}`,", "spawn(process.execPath, [join(ROOT, 'node_modules/electron-vite/bin/electron-vite.js'), 'dev', `--remoteDebuggingPort=${port}`, '--',").replace(', \'.\'], {', '], {')
@@ -61,7 +62,7 @@ async function main() {
       await app.cdp.send('Page.bringToFront')
       await app.cdp.evaluate(`Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`)
       const result = await app.cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
-      const folder = path.resolve(__dirname, '../artifacts/mcp'); fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, name), Buffer.from(result.data, 'base64'))
+      const folder = path.resolve(__dirname, '../test-results/ui/mcp'); fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, name), Buffer.from(result.data, 'base64'))
     }
     assert.equal((await app.cdp.evaluate(`window.lk.mcpStatus()`)).running, false)
     await button('设置')
@@ -195,6 +196,7 @@ async function main() {
     console.log('MCP Electron: stdio tools, compact receipts, auth, validation, dedupe, preview/UI confirm, reject, queue/history pages, protected undo, app close, restart, disable and rotation PASS')
   } catch (error) {
     app ||= context.helpers.active()
+    await saveUiFailure('mcp', app, error)
     console.error('MCP test failure:', error.stack)
     throw error
   } finally {

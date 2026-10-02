@@ -4,6 +4,7 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | BUG-20261002-07-ci-line-endings.md | Windows CI 的工具测试依赖 LF 换行 | fixed |
 | 2026-10-02 | BUG-20261002-06-note-undo-dependent-data.md | 新笔记撤销可能遗留属性和版本孤儿 | fixed |
 | 2026-10-02 | BUG-20261002-03-note-undo-references.md | 工具撤销新笔记未保护后续图谱引用 | fixed |
 | 2026-10-02 | BUG-20261002-04-tool-history-window.md | 待确认项挤掉工具历史与撤销入口 | fixed |

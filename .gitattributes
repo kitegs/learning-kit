@@ -1,0 +1,12 @@
+# Keep source/configuration consistent on Windows and Unix checkouts.
+* text=auto
+.gitignore text eol=lf
+.node-version text eol=lf
+*.ts text eol=lf
+*.vue text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.bat text eol=crlf

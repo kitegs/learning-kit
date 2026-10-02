@@ -4,6 +4,7 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | PROG-20261002-06-amend.md | CI 换行修复与环境、界面回归升级 | in-progress |
 | 2026-10-02 | PROG-20261002-05-amend.md | 工具中心安全收敛与界面验证补充 | in-progress |
 | 2026-10-02 | PROG-20261002-04-amend.md | MCP 与 AI 流程收敛审查 | in-progress |
 | 2026-10-02 | PROG-20261002-03-amend.md | MCP Server 导入笔记与知识点及联调 | in-progress |

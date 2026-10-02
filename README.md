@@ -31,7 +31,7 @@
 
 ### 外部 AI 导入 / MCP Server
 
-先运行 `npm run build`（开发时至少运行 `npm run build:mcp`），打开应用，在“设置 → 外部 AI / MCP”开启服务，点击“复制客户端配置”，粘贴到支持 stdio MCP 的客户端配置中。外部客户端需安装 Node.js 20+，并保持桌面应用运行；路径变化或凭据轮换后需重新复制配置。配置含访问密钥，请勿公开或提交到 Git。无需安装 Java、Python 或原生编译工具。
+先运行 `npm run build`（开发时至少运行 `npm run build:mcp`），打开应用，在“设置 → 外部 AI / MCP”开启服务，点击“复制客户端配置”，粘贴到支持 stdio MCP 的客户端配置中。外部客户端需安装 Node.js 24+，并保持桌面应用运行；路径变化或凭据轮换后需重新复制配置。配置含访问密钥，请勿公开或提交到 Git。无需安装 Java、Python 或原生编译工具。
 
 提供 `learning_kit_status`、`import_note`、`import_knowledge_point`、`import_status` 四个工具。例如 `import_note` 参数：
 
@@ -110,7 +110,7 @@ Agent 默认关闭，第一版是一次模型生成后的确认式流程，不�
 ### 环境要求
 
 - Windows 10 / 11
-- `package.json` 声明 Node.js >= 20；建议使用 Node.js 24 运行完整开发与测试流程（当前测试依赖包含 jsdom 29）
+- Node.js 24 LTS；`.node-version` 是本地开发与 CI 的共同版本基线，`package.json` 声明最低 Node.js 24
 - npm
 
 ### 安装与启动
@@ -139,6 +139,7 @@ npm run test:ui:notebook-anchor
 npm run test:ui:database-recovery
 npm run test:ui:pdf-reader
 npm run test:ui:ai-workflow
+npm run test:ui:mcp
 
 # 以下测试需先 npm run build
 node tests/ai-settings.e2e.cjs
@@ -146,6 +147,8 @@ node tests/conversation-prompt.e2e.cjs
 node tests/ui-polish.e2e.cjs
 node tests/knowledge-graph.e2e.cjs
 ```
+
+CI 在 Windows 上执行依赖安装、类型检查、全部逻辑测试和构建，通过后分别运行笔记锚点、AI 工作流和 MCP 导入的隔离 Electron 回归。AI 回归使用本地模拟 SSE，不消耗真实模型 token；UI 失败时尽力采集截图和脱敏诊断，保留 7 天。支持手动触发，并取消同一分支/PR 的过期运行。尚未配置安装包自动发布（CD）。
 
 验证记录：2026-09-13 类型检查、`npm test` 和生产构建通过；2026-09-12 已运行新增 AI 设置、界面与对话 Prompt 的隔离 Electron 测试。真实云端流式/停止/连接测试与开发模式人工 smoke 尚未完成整体验收。构建仍有 Sass API、Rollup 注释等警告。
 

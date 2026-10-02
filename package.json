@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/kitegs/learning-kit#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "type": "module",
   "scripts": {
@@ -28,7 +28,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:mcp",
-    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs && node tests/ai-contract.cjs && node tests/ai-runtime.cjs && node tests/ai-requests.cjs && node tests/ai-stream.cjs && node tests/ai-workflow.cjs && node tests/ai-flashcard.cjs && node tests/ai-parser.cjs && node tests/ai-context.cjs && node tests/knowledge-graph.cjs && node tests/mcp-import.cjs && node tests/tool-center.cjs",
+    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs && node tests/ai-contract.cjs && node tests/ai-runtime.cjs && node tests/ai-requests.cjs && node tests/ai-stream.cjs && node tests/ai-workflow.cjs && node tests/ai-flashcard.cjs && node tests/ai-parser.cjs && node tests/ai-context.cjs && node tests/knowledge-graph.cjs && node tests/mcp-import.cjs && node tests/tool-center.cjs && node tests/ui-artifacts.cjs",
     "test:ui:notebook-anchor": "npm run build && node tests/notebook-anchor.e2e.cjs",
     "test:ui:database-recovery": "npm run build && node tests/notebook-anchor.e2e.cjs --database-recovery",
     "test:ui:pdf-reader": "npm run build && node tests/pdf-reader.e2e.cjs",
