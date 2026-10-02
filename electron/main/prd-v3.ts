@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { getDb, schedulePersist, uuid, qAll, qRun } from './db'
+import { assertUniqueKnowledgeTitle } from './knowledge-point-policy'
 
 export function registerPrdV3Ipcs(ipc: typeof ipcMain): void {
   // ── chapters ──
@@ -24,8 +25,11 @@ export function registerPrdV3Ipcs(ipc: typeof ipcMain): void {
   })
   ipc.handle('kp:upsert', (_e, kp: any) => {
     const id = kp.id ?? uuid()
+    const title = typeof kp.title === 'string' ? kp.title.trim() : ''
+    if (!title || title.length > 300) throw new Error('知识点标题需要 1–300 字符')
+    assertUniqueKnowledgeTitle(title, id)
     qRun(getDb(), `INSERT INTO knowledge_points(id,chapter_id,parent_id,title,description,mastery,sort) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET chapter_id=excluded.chapter_id,parent_id=excluded.parent_id,title=excluded.title,description=excluded.description,mastery=excluded.mastery,sort=excluded.sort,updated_at=datetime('now')`,
-      [id, kp.chapterId ?? null, kp.parentId ?? null, kp.title ?? '', kp.description ?? '', kp.mastery ?? 'unseen', kp.sort ?? 0])
+      [id, kp.chapterId ?? null, kp.parentId ?? null, title, kp.description ?? '', kp.mastery ?? 'unseen', kp.sort ?? 0])
     schedulePersist(); return id
   })
   ipc.handle('kp:delete', (_e, id: string) => {

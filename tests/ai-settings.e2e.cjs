@@ -5,9 +5,18 @@ const path = require('node:path')
 const assert = require('node:assert/strict')
 const existing = fs.readFileSync(path.join(__dirname, 'notebook-anchor.e2e.cjs'), 'utf8')
 const setup = existing.slice(0, existing.indexOf('async function click(cdp, selector)'))
+  .replace('`--remote-debugging-port=${port}`,', '`--remote-debugging-port=${port}`, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-gpu", "--in-process-gpu",')
+  .replace("await this.send('Runtime.enable')", "this.socket.addEventListener('close',()=>{for(const request of this.pending.values()) request.reject(new Error('DevTools disconnected'));this.pending.clear()}); await this.send('Runtime.enable')")
 const context = { require, __dirname, process, console, WebSocket, fetch, setTimeout, clearTimeout }
 vm.runInNewContext(setup + '\nglobalThis.helpers = { launchApp, closeApp, waitFor };', context)
-const { launchApp, closeApp, waitFor } = context.helpers
+const { launchApp, waitFor } = context.helpers
+async function closeApp(app) {
+  const exited = new Promise(resolve => app.child.once('exit', resolve))
+  void app.cdp.evaluate('window.close();true').catch(() => {})
+  let timer
+  try { await Promise.race([exited, new Promise((_, reject)=>{timer=setTimeout(()=>reject(new Error('App close handshake timed out')),10000)})]) }
+  finally { clearTimeout(timer); app.cdp.close() }
+}
 async function main() {
   let app
   try {
@@ -16,12 +25,12 @@ async function main() {
     await app.cdp.evaluate(`document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('settings').testMode = true`)
     await app.cdp.evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '设置').click()`)
     await app.cdp.evaluate(`document.querySelector('[data-settings-tab="context"]').click()`)
-    await waitFor(() => app.cdp.evaluate(`document.querySelectorAll('.ai-switches .el-switch').length === 4`), 'AI controls missing')
+    await waitFor(() => app.cdp.evaluate(`document.querySelectorAll('.ai-switches .el-switch').length === 7`), 'AI controls missing')
     assert.equal(await app.cdp.evaluate(`document.querySelector('.retrieval-setting .el-switch').classList.contains('is-checked')`), false)
     await app.cdp.evaluate(`document.querySelector('.context-budget').scrollIntoView({ block: 'center' })`)
     assert.equal(await app.cdp.evaluate(`(() => { const body = document.querySelector('.lk-settings-dialog .el-dialog__body'); return body.clientHeight <= innerHeight * 0.65 + 1 && getComputedStyle(body).overflowY === 'auto'; })()`), true, 'Settings body must scroll within viewport')
     await app.cdp.evaluate(`document.querySelector('.retrieval-setting .el-switch').click(); (() => { const input = document.querySelector('.context-budget input'); input.value = '4096'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); input.blur(); })()`)
-    await app.cdp.evaluate(`document.querySelectorAll('.ai-switches .el-switch').forEach(el => el.click()); document.querySelector('[data-settings-tab="prompt"]').click(); [...document.querySelectorAll('.el-form-item')].find(el => el.textContent.includes('自定义指令')).querySelector('.el-switch').click()`)
+    await app.cdp.evaluate(`Array.from(document.querySelectorAll('.ai-switches .el-switch')).slice(0, 4).forEach(el => el.click()); document.querySelector('[data-settings-tab="prompt"]').click(); [...document.querySelectorAll('.el-form-item')].find(el => el.textContent.includes('自定义指令')).querySelector('.el-switch').click()`)
     await app.cdp.evaluate(`(() => { const el = document.querySelector('textarea[placeholder^="例如：优先用中文"]'); el.value = '测试自定义指令：回答使用中文。'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`)
     await app.cdp.evaluate(`[...document.querySelectorAll('.el-dialog button')].find(b => b.textContent.trim() === '保存').click()`)
     await waitFor(() => app.cdp.evaluate(`window.lk.getSetting('customSystemPrompt').then(v => v === '测试自定义指令：回答使用中文。')`), 'Prompt did not save')
@@ -44,7 +53,8 @@ async function main() {
     app = await launchApp()
     await waitFor(() => app.cdp.evaluate(`!!document.querySelector('.utility-bar button')`), 'Composer missing')
     await app.cdp.evaluate(`document.querySelector('.utility-bar button').click()`)
-    await waitFor(() => app.cdp.evaluate(`document.querySelector('.proposal-list')?.textContent.includes('UI 闪卡问题')`), 'Pending card not restored')
+    await waitFor(() => app.cdp.evaluate(`document.querySelector('[data-operation-id="${proposal.operationId}"]')?.textContent.includes('UI 闪卡问题')`), 'Pending card not restored')
+    await app.cdp.evaluate(`document.querySelector('[data-operation-id="${proposal.operationId}"] .el-checkbox').click()`)
     await app.cdp.evaluate(`[...document.querySelectorAll('.el-drawer button')].find(b => b.textContent.includes('确认执行')).click()`)
     await waitFor(() => app.cdp.evaluate(`window.lk.cardAll().then(rows => rows.some(row => row.front === 'UI 闪卡问题'))`), 'Confirmed card missing')
     await closeApp(app); app = null
@@ -63,7 +73,8 @@ async function main() {
     ].map(input => window.lk.toolProposeInternal(input)))`)
     assert.ok(artifacts.every(item => item.status === 'pending_confirmation'))
     await app.cdp.evaluate(`document.querySelector('.utility-bar button').click()`)
-    await waitFor(() => app.cdp.evaluate(`document.querySelectorAll('.proposal-list .proposal').length === 6`), 'Artifact previews missing')
+    await waitFor(() => app.cdp.evaluate(`document.querySelectorAll('[data-operation-id]').length === 6`), 'Artifact previews missing')
+    await app.cdp.evaluate(`document.querySelectorAll('[data-operation-id] .el-checkbox').forEach(el=>el.click())`)
     assert.equal(await app.cdp.evaluate(`document.querySelectorAll('.graph-preview svg rect').length`), 1)
     assert.equal(await app.cdp.evaluate(`window.lk.kpList(null).then(rows => rows.some(row => row.title === 'UI 闭包知识点'))`), false)
     assert.equal(await app.cdp.evaluate(`window.lk.diagList().then(rows => rows.some(row => row.title === 'UI Drawio'))`), false)

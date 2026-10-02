@@ -4,6 +4,9 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | REQ-20261002-03-tool-center-convergence.md | 工具中心安全收敛与可用性优化 | in-progress |
+| 2026-10-02 | REQ-20261002-02-mcp-import.md | 外部 AI 导入笔记与知识点 | in-progress |
+| 2026-10-02 | REQ-20261002-01-diagnostics-agent-flow.md | 请求诊断与有界 Agent 执行流程 | in-progress |
 | 2026-09-12 | REQ-20260912-04-interface-polish.md | 学习工作台前端体验整理 | in progress |
 | 2026-09-12 | REQ-20260912-03-ai-kp-drawio.md | AI 知识点与 Draw.io 提案 | in progress |
 | 2026-07-21 | REQ-20260721-01-mvp.md | 学习助手桌面端 MVP | done |
@@ -35,3 +38,4 @@
 | 2026-09-12 | REQ-20260912-01-ai-controls-and-custom-prompt.md | AI 功能开关与用户提示词 | in progress |
 | 2026-09-12 | REQ-20260912-02-ai-context-budget.md | 上下文预算与本地笔记检索 | in progress |
 | 2026-09-12 | REQ-20260912-05-conversation-prompts.md | 不同对话独立 Prompt | in progress |
+| 2026-09-15 | REQ-20260915-01-knowledge-graph.md | 知识图谱与一跳增强检索 | in progress |

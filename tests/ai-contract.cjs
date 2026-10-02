@@ -27,7 +27,8 @@ for (const key of [
   'aiIncludeHistory',
   'aiIncludeNoteContext',
   'aiIncludeProgressContext',
-  'aiToolProposalsEnabled'
+  'aiToolProposalsEnabled',
+  'aiDiagnosticsEnabled', 'aiRequestUsage', 'aiAgentEnabled', 'aiAgentMaxSteps'
 ]) {
   assert.match(store, new RegExp(`setSetting\\('${key}'`), `${key} must be persisted`)
   assert.match(settings, new RegExp(key), `${key} must be configurable`)
@@ -35,6 +36,12 @@ for (const key of [
 
 assert.match(app, /settings\.aiIncludeHistory/)
 assert.match(app, /settings\.aiToolProposalsEnabled/)
+for (const method of ['aiDiagnosticsList', 'aiDiagnosticsClear', 'agentRunsList', 'agentRunPrepare', 'agentStepDecide']) {
+  assert.match(preload, new RegExp(`${method}:`))
+  assert.match(env, new RegExp(`${method}:`))
+}
+assert.match(app, /endOfStream/)
+assert.match(app, /epoch !== sendEpoch/)
 assert.match(notebook, /settings\.aiIncludeNoteContext/)
 assert.match(review, /settings\.aiIncludeProgressContext/)
 for (const source of [app, notebook, review]) {

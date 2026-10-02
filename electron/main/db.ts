@@ -40,6 +40,25 @@ export function consumeStartupRecoveryNotice(): StartupRecoveryNotice | null {
 }
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS graph_edges (
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  relation TEXT NOT NULL CHECK(relation IN ('prerequisite','contains','applies','contrasts')),
+  note_id TEXT NOT NULL DEFAULT '',
+  evidence TEXT NOT NULL DEFAULT '',
+  revision TEXT NOT NULL DEFAULT '',
+  CHECK(from_id <> to_id),
+  UNIQUE(from_id, to_id, relation, note_id)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_edge_to ON graph_edges(to_id);
+CREATE TABLE IF NOT EXISTS graph_sources (
+  node_id TEXT NOT NULL,
+  note_id TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  PRIMARY KEY(node_id, note_id)
+);
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -462,6 +481,26 @@ CREATE TABLE IF NOT EXISTS mcp_pending_requests (
   resolved_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_pending_status ON mcp_pending_requests(status, created_at);
+CREATE TABLE IF NOT EXISTS mcp_import_requests (
+  request_key TEXT PRIMARY KEY,
+  digest TEXT NOT NULL,
+  operation_id TEXT NOT NULL REFERENCES tool_operations(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- 新增观察记录，不修改现有业务表或列。
+CREATE TABLE IF NOT EXISTS ai_request_diagnostics (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  started_at INTEGER NOT NULL,
+  data_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  started_at INTEGER NOT NULL,
+  data_json TEXT NOT NULL
+);
 `
 
 function migrate(d: Database): void {

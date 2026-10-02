@@ -4,6 +4,13 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | BUG-20261002-06-note-undo-dependent-data.md | 新笔记撤销可能遗留属性和版本孤儿 | fixed |
+| 2026-10-02 | BUG-20261002-03-note-undo-references.md | 工具撤销新笔记未保护后续图谱引用 | fixed |
+| 2026-10-02 | BUG-20261002-04-tool-history-window.md | 待确认项挤掉工具历史与撤销入口 | fixed |
+| 2026-10-02 | BUG-20261002-05-mcp-status-race.md | MCP 状态旧响应覆盖新状态 | fixed |
+| 2026-10-02 | BUG-20261002-02-stream-terminal-race.md | 流结束事件被提前移除监听 | fixed |
+| 2026-10-02 | BUG-20261002-01-ai-request-ownership.md | AI 请求窗口归属缺失 | fixed |
+| 2026-09-15 | BUG-20260915-01-graph-validation.md | 图谱计数同步与测试定位 | fixed |
 | 2026-09-12 | BUG-20260912-03-component-theme.md | 控件主题变量覆盖 | fixed |
 | 2026-09-12 | BUG-20260912-02-settings-dialog-scroll.md | 设置弹窗滚动样式未命中 | fixed |
 | 2026-07-21 | BUG-20260721-03-preload-mjs-path.md | preload 加载路径 .js 找不到导致 window.lk undefined | fixed |

@@ -4,6 +4,12 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | PROG-20261002-05-amend.md | 工具中心安全收敛与界面验证补充 | in-progress |
+| 2026-10-02 | PROG-20261002-04-amend.md | MCP 与 AI 流程收敛审查 | in-progress |
+| 2026-10-02 | PROG-20261002-03-amend.md | MCP Server 导入笔记与知识点及联调 | in-progress |
+| 2026-10-02 | PROG-20261002-02-amend.md | 请求诊断与有界 Agent 流程实现及验证 | in-progress |
+| 2026-10-02 | PROG-20261002.md | 教学升级：AI 请求生命周期与中文注释 | in progress |
+| 2026-09-15 | PROG-20260915.md | 知识图谱与一跳检索实现及验证 | in progress |
 | 2026-09-12 | PROG-20260912-07-amend.md | 前端分类导航与真实截图 | in progress |
 | 2026-09-12 | PROG-20260912-06-amend.md | AI 知识点与 Draw.io 映射 | in progress |
 | 2026-09-12 | PROG-20260912-05-amend.md | 上下文预算与笔记关键词检索 | in progress |

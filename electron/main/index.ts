@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, protocol } from 'electron'
 import { join } from 'path'
 import { consumeStartupRecoveryNotice, getPersistenceStatus, initDb, persist } from './db'
 import { registerAiIpcs } from './ai'
+import { registerAiWorkflowIpcs } from './ai-workflow'
 import { registerDbIpcs } from './ipc-db'
 import { registerBookIpcs, registerBookProtocol } from './book'
 import { registerSrsIpcs } from './srs'
@@ -12,6 +13,8 @@ import { startDrawioServer, stopDrawioServer } from './drawio-server'
 import { registerSafetyIpcs } from './safety'
 import { registerToolIpcs } from './tool-service'
 import { registerOcrIpcs, terminateOcr } from './ocr'
+import { registerGraphIpcs } from './knowledge-graph'
+import { registerMcpIpcs, shutdownMcpServer, cancelMcpShutdown } from './mcp-pipe'
 
 // UI tests run the real app against an isolated disposable profile. Production
 // launches never set this variable and continue to use Electron's normal path.
@@ -61,7 +64,9 @@ function createWindow(): void {
     if (closeFallback) clearTimeout(closeFallback)
     closeFallback = setTimeout(() => {
       closeFallback = null
+      shutdownMcpServer()
       if (!persist()) {
+        cancelMcpShutdown()
         dialog.showErrorBox('数据尚未保存', `无法安全关闭 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
         return
       }
@@ -91,10 +96,12 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   await initDb()
+  registerGraphIpcs(ipcMain)
   databaseReady = true
   registerBookProtocol()
   registerDbIpcs(ipcMain)
   registerAiIpcs(ipcMain)
+  registerAiWorkflowIpcs(ipcMain)
   registerBookIpcs(ipcMain)
   registerSrsIpcs(ipcMain)
   registerNoteIpcs(ipcMain)
@@ -103,10 +110,13 @@ app.whenReady().then(async () => {
   registerSafetyIpcs(ipcMain)
   registerToolIpcs(ipcMain)
   registerOcrIpcs(ipcMain)
+  await registerMcpIpcs(ipcMain)
   ipcMain.handle('app:close-ready', () => {
     if (closeFallback) clearTimeout(closeFallback)
     closeFallback = null
+    shutdownMcpServer()
     if (!persist()) {
+      cancelMcpShutdown()
       dialog.showErrorBox('数据尚未保存', `无法安全关闭 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
       return false
     }
@@ -144,6 +154,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  shutdownMcpServer()
   stopDrawioServer()
   void terminateOcr()
   if (process.platform !== 'darwin') app.quit()
@@ -151,7 +162,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   if (!databaseReady) return
+  shutdownMcpServer()
   if (!persist()) {
+    cancelMcpShutdown()
     event.preventDefault()
     dialog.showErrorBox('数据尚未保存', `无法退出 Learning Kit：${getPersistenceStatus().message || '本地资料库写入失败'}。请检查磁盘空间或权限后重试。`)
   }

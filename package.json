@@ -19,18 +19,25 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npm run build:mcp",
+    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "mcp": "node out/mcp/server.js",
+    "typecheck:mcp": "tsc --noEmit -p tsconfig.mcp.json",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs && node tests/ai-contract.cjs && node tests/ai-runtime.cjs && node tests/ai-stream.cjs && node tests/ai-flashcard.cjs && node tests/ai-parser.cjs && node tests/ai-context.cjs",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:mcp",
+    "test": "node tests/integration.cjs && node tests/markdown.cjs && node tests/tool-service.cjs && node tests/ai-contract.cjs && node tests/ai-runtime.cjs && node tests/ai-requests.cjs && node tests/ai-stream.cjs && node tests/ai-workflow.cjs && node tests/ai-flashcard.cjs && node tests/ai-parser.cjs && node tests/ai-context.cjs && node tests/knowledge-graph.cjs && node tests/mcp-import.cjs && node tests/tool-center.cjs",
     "test:ui:notebook-anchor": "npm run build && node tests/notebook-anchor.e2e.cjs",
     "test:ui:database-recovery": "npm run build && node tests/notebook-anchor.e2e.cjs --database-recovery",
-    "test:ui:pdf-reader": "npm run build && node tests/pdf-reader.e2e.cjs"
+    "test:ui:pdf-reader": "npm run build && node tests/pdf-reader.e2e.cjs",
+    "test:ui:ai-workflow": "npm run build && node tests/ai-workflow.e2e.cjs",
+    "test:ui:mcp": "npm run build && node tests/mcp-import.e2e.cjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.2.0",
+    "zod": "4.6.5",
     "@electron-toolkit/utils": "^3.0.0",
     "@element-plus/icons-vue": "^2.3.1",
     "@tesseract.js-data/chi_sim": "^1.0.0",
@@ -67,6 +74,7 @@
     "vue": "^3.5.10"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
     "@electron-toolkit/preload": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@types/dompurify": "^3.0.5",

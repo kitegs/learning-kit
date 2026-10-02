@@ -1,5 +1,5 @@
 <template>
-  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" :status-text="appStatus" @switch="onModeSwitch" @outline-click="onOutlineClick" @search="searchOpen = true" @tools="toolCenterOpen = true">
+  <Dock :mode="mode" :outline-items="outlineItems" :tag-items="tagItems" :bookmark-items="bookmarkItems" :status-text="mcp.status.pending ? `外部 MCP：${mcp.status.pending} 项待确认 · ${appStatus}` : appStatus" @switch="onModeSwitch" @outline-click="onOutlineClick" @search="searchOpen = true" @tools="toolCenterOpen = true">
     <template v-if="mode === 'chat'">
       <SidebarView :style="{ width: sideWidth + 'px' }" class="side chat-side" />
       <div class="resizer" @mousedown="startResize"></div>
@@ -17,6 +17,7 @@
           <el-button size="small" @click="searchOpen=true">搜索</el-button>
           <el-button v-if="mode === 'chat'" size="small" @click="openStudyPlan">学习方案</el-button>
           <el-button size="small" @click="openSettings">设置</el-button>
+          <el-button v-if="mode === 'chat'" size="small" @click="runPanelOpen = true">运行记录</el-button>
           <el-button v-if="mode === 'chat'" size="small" :disabled="streaming || !chat.currentConvId" @click="conversationPromptOpen = true">Prompt · {{ conversationPromptLabel }}</el-button>
           <el-button size="small" type="primary" @click="newBlankNote">新建笔记</el-button>
           <el-button v-if="mode === 'chat' && openBookId" size="small" type="warning" @click="goBackToBook">← 回到电子书</el-button>
@@ -30,7 +31,7 @@
         <details v-if="aiContextInfo" class="ai-context-info">
           <summary>本次输入约 {{ aiContextInfo.estimatedTokens }} / {{ aiContextInfo.budget }} tokens · {{ aiContextInfo.sources.length }} 条笔记 · 省略 {{ aiContextInfo.droppedMessages }} 条旧消息</summary>
           <p v-if="!aiContextInfo.sources.length">没有附加检索笔记（检索关闭、无命中或预算不足）。</p>
-          <ul v-else><li v-for="source in aiContextInfo.sources" :key="source.id">{{ source.title }}</li></ul>
+          <ul v-else><li v-for="source in aiContextInfo.sources" :key="source.id"><a :href="`app://note/${source.id}`" @click.prevent="onSearchJump({kind: 'note', id: source.id})">{{ source.title }}</a><small v-if="source.path"> · {{ source.path }}</small></li></ul>
           <small>这些来源已加入本次请求；估算不是实际计费值。预算不足未附加：{{ aiContextInfo.omittedSources }} 条。当前问题与系统规则未截断。</small>
         </details>
         <ComposeBar @send="onSend" :streaming="streaming" :citation="pendingCitation" @abort="onAbort" @dismiss-citation="pendingCitation = null" @open-tools="toolCenterOpen = true" @quick="onChatQuickAction" />
@@ -43,7 +44,8 @@
   <ContextOverlay />
   <SearchOverlay :open="searchOpen" @close="searchOpen=false" @jump="onSearchJump" />
   <SelectionToolbar @ai="onSelectionAi" />
-  <AiToolCenter v-model="toolCenterOpen" :proposals="toolProposals" :history="toolHistory" @apply="applyToolProposals" @reject="rejectToolProposals" @undo="undoToolOperation" />
+  <AiToolCenter v-model="toolCenterOpen" @changed="refreshToolHistory" />
+  <AiRunPanel v-model="runPanelOpen" @changed="refreshToolHistory" />
 </template>
 
 <script setup lang="ts">
@@ -68,7 +70,12 @@ import ContextOverlay from './components/ContextOverlay.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import SelectionToolbar from './components/SelectionToolbar.vue'
 import TabBar from './components/TabBar.vue'
-import AiToolCenter, { type AiToolProposal } from './components/AiToolCenter.vue'
+import AiToolCenter from './components/AiToolCenter.vue'
+import { useToolCenterStore } from './stores/tool-center'
+import { useMcpStore } from './stores/mcp'
+import AiRunPanel from './components/AiRunPanel.vue'
+import { useAiWorkflowStore } from './stores/ai-workflow'
+import type { AgentToolInput } from '../electron/shared/ai-workflow'
 import { useTabStore } from './stores/tabs'
 import { useChatStore, useSettingsStore } from './stores/chat'
 import { matchesShortcut } from './helpers/shortcuts'
@@ -100,6 +107,10 @@ function clearLog() {
 }
 
 const chat = useChatStore()
+const workflow = useAiWorkflowStore()
+const runPanelOpen = ref(false)
+watch(runPanelOpen, open => { if (open) void workflow.refresh(chat.currentConvId || undefined) })
+watch(() => chat.currentConvId, id => { void workflow.refresh(id || undefined) })
 const settings = useSettingsStore()
 const tabStore = useTabStore()
 const settingsVisible = ref(false)
@@ -124,10 +135,10 @@ const openBookId = ref<string | null>(null)
 const searchOpen = ref(false)
 const pendingCitation = ref<{ bookTitle: string; bookId: string; page: number; quote: string } | null>(null)
 const toolCenterOpen = ref(false)
-const toolProposals = ref<AiToolProposal[]>([])
-const toolHistory = ref<any[]>([])
+const mcp = useMcpStore()
+const toolCenter = useToolCenterStore()
 const appStatus = ref('已就绪')
-const aiContextInfo = ref<{ budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number } | null>(null)
+const aiContextInfo = ref<{ budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string; path?: string }[]; omittedSources: number } | null>(null)
 
 function onAppStatus(event: Event) {
   const detail = (event as CustomEvent<{ text?: string }>).detail
@@ -210,6 +221,7 @@ let activeAbort: (() => void) | null = null
 let currentReqId: string | null = null
 let saveActiveReply: (() => Promise<unknown>) | null = null
 let sendEpoch = 0
+let endActiveStream: (() => void) | null = null
 
 const modeIcon = computed(() => {
   switch (mode.value) {
@@ -429,19 +441,30 @@ async function onSend(text: string, parentTurnId: string | null = null) {
     const history = (settings.aiIncludeHistory ? chat.activeMessages.filter((m) => m.id !== rMsg.id) : [userMsg]).map((m) => ({ role: m.role, content: m.content }))
     saveActiveReply = () => window.lk.msgPatch(rMsg.id, { content: rMsg.content })
     log('stream_start', currentReqId.slice(0, 8))
-    activeAbort = window.lk.onAiChunk(currentReqId, (p: any) => {
+    let agentRunId: string | undefined
+    let endReceived = false
+    let resolveEnd: () => void = () => {}
+    const endOfStream = new Promise<void>(resolve => { resolveEnd = resolve })
+    endActiveStream = resolveEnd
+    activeAbort = window.lk.onAiChunk(currentReqId, (p) => {
       try {
+        // 停止后已经排队的旧回调也可能到达，不能清理或修改新一轮请求。
+        if (epoch !== sendEpoch) return
+        workflow.capture(p)
+        if (p.agentRun) agentRunId = p.agentRun.id
         if (p.contextSummary && chat.currentConvId === requestConvId) aiContextInfo.value = p.contextSummary
         if (p.error) rMsg.content += `\n\n> Error: ${p.error}`
         if (p.delta) rMsg.content += p.delta
         if (p.done) {
+          endReceived = true; resolveEnd(); endActiveStream = null
           log('stream_done', `len=${rMsg.content.length}`)
           streaming.value = false
           activeAbort?.(); activeAbort = null; currentReqId = null; saveActiveReply = null
           const actions = settings.aiToolProposalsEnabled && !p.error && !p.aborted ? parseActions(rMsg.content) : []
           window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[chunk] msgPatch fail', e))
           window.lk.convTouch(requestConvId).catch((e: any) => console.warn('[chunk] convTouch fail', e))
-          void proposeInternalToolActions(actions).then((created) => {
+          // 失败/取消的模型阶段不生成工具；空操作也要结束成功的 Agent 阶段。
+          void (p.error || p.aborted ? Promise.resolve(false) : proposeInternalToolActions(actions, agentRunId)).then((created) => {
             if (!created) return
             rMsg.content += '\n\n---\n> AI 已提出工具操作，请在“AI 工具管理中心”确认后执行。'
             window.lk.msgPatch(rMsg.id, { content: rMsg.content }).catch((e: any) => console.warn('[tool proposal] msgPatch fail', e))
@@ -449,7 +472,14 @@ async function onSend(text: string, parentTurnId: string | null = null) {
         }
       } catch (e) { console.error('[onChunk]', e) }
     })
-    await window.lk.aiChatStart({ requestId: currentReqId, conversationId: requestConvId, provider: settings.provider, model: settings.model, messages: history, inputBudget: settings.aiInputBudget, retrieveNotes: settings.aiRetrievalEnabled, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, customSystemPrompt: settings.customSystemPromptEnabled ? settings.customSystemPrompt : undefined })
+    await window.lk.aiChatStart({ diagnosticsEnabled: settings.aiDiagnosticsEnabled, requestUsage: settings.aiRequestUsage, agentEnabled: settings.aiAgentEnabled, agentMaxSteps: settings.aiAgentMaxSteps, requestId: currentReqId, conversationId: requestConvId, provider: settings.provider, model: settings.model, messages: history, inputBudget: settings.aiInputBudget, retrieveNotes: settings.aiRetrievalEnabled, retrieveGraph: settings.aiGraphRetrievalEnabled, temperature: settings.temperature, apiKey: settings.currentApiKey(), baseUrl: settings.provider === 'custom' ? settings.customBaseUrl : undefined, customSystemPrompt: settings.customSystemPromptEnabled ? settings.customSystemPrompt : undefined })
+    // invoke 返回和流事件经不同桥接回调到达；不能把“调用返回”当作“已处理 done”。
+    // 保留监听直到终止事件被消费；用户停止会结束等待，异常缺失也不会永久挂住。
+    if (epoch === sendEpoch && !endReceived) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try { await Promise.race([endOfStream, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('未收到 AI 流结束事件，请重试')), 5000) })]) }
+      finally { clearTimeout(timer) }
+    }
   } catch (err: any) {
     if (epoch !== sendEpoch) return
     streaming.value = false
@@ -464,12 +494,13 @@ async function onSend(text: string, parentTurnId: string | null = null) {
       chat.activeMessages.push({ id: await window.lk.uuid(), conversation_id: convId, role: 'assistant', content: `**发送失败：** ${msg}`, model: 'error' } as any)
     }
   } finally {
-    if (epoch === sendEpoch) { streaming.value = false; activeAbort?.(); activeAbort = null; currentReqId = null; saveActiveReply = null }
+    if (epoch === sendEpoch) { streaming.value = false; activeAbort?.(); activeAbort = null; currentReqId = null; saveActiveReply = null; endActiveStream = null }
   }
 }
 function onFollowup(payload: { text: string; parentTurnId: string }) { onSend(payload.text, payload.parentTurnId) }
 function onAbort() {
   sendEpoch++
+  endActiveStream?.(); endActiveStream = null
   if (currentReqId) void window.lk.aiChatAbort(currentReqId).catch(console.warn)
   if (saveActiveReply) void saveActiveReply().catch(console.warn)
   saveActiveReply = null; currentReqId = null
@@ -550,48 +581,44 @@ function internalToolRequest(action: ParsedAction): InternalToolInput | null {
     default: return null
   }
 }
-async function proposeInternalToolActions(actions: ParsedAction[]): Promise<boolean> {
-  const proposals: AiToolProposal[] = []
+async function proposeInternalToolActions(actions: ParsedAction[], agentRunId?: string): Promise<boolean> {
+  if (agentRunId) {
+    const inputs: AgentToolInput[] = []
+    for (const parsed of actions) {
+      try { const input = internalToolRequest(parsed); if (input) inputs.push(input) }
+      catch { inputs.push({ action: 'invalid_model_output', params: {} }) }
+    }
+    const run = await workflow.prepare(agentRunId, inputs)
+    if (run.error) appStatus.value = run.error
+    await refreshToolHistory()
+    if (run.error || run.steps.some(step => step.kind === 'tool')) runPanelOpen.value = true
+    return run.steps.some(step => step.status === 'pending_confirmation')
+  }
+  let proposed = false
   for (const parsed of actions) {
     let request: InternalToolInput | null
     try { request = internalToolRequest(parsed) } catch { appStatus.value = 'AI 产物 JSON 格式无效，请重新生成'; continue }
     if (!request) continue
     const result = await window.lk.toolProposeInternal(request)
     if (!result.operationId) { appStatus.value = result.error || '工具提案失败'; continue }
-    proposals.push({ id: result.operationId, operationId: result.operationId, type: request.action, preview: result.preview, affected: result.affected, status: result.status })
+    if (result.status === 'failed') { appStatus.value = result.error || '工具提案失败'; continue }
+    proposed = true
   }
-  if (!proposals.length) return false
-  toolProposals.value = [...toolProposals.value, ...proposals]
+  if (!proposed) return false
   toolCenterOpen.value = true
   await refreshToolHistory()
   return true
 }
 async function refreshToolHistory() {
-  toolHistory.value = await window.lk.toolOperations({ source: 'internal-ai', limit: 40 })
-  const pending = await window.lk.toolOperations({ source: 'internal-ai', status: 'pending_confirmation', limit: 300 })
-  toolProposals.value = pending.map((row) => ({ id: row.id, operationId: row.id, type: row.action, preview: row.preview || '', affected: JSON.parse(row.affected_json || '[]'), status: row.status }))
+  await toolCenter.refresh()
+  await mcp.refresh()
+  await workflow.refresh(chat.currentConvId || undefined)
 }
-watch(toolCenterOpen, (open) => { if (open) refreshToolHistory().catch(() => {}) })
-async function rejectToolProposals(operationIds: string[]) {
-  await Promise.all(operationIds.map((operationId) => window.lk.toolReject(operationId)))
-  toolProposals.value = toolProposals.value.filter((proposal) => !operationIds.includes(proposal.operationId))
-  await refreshToolHistory()
-}
-async function applyToolProposals(operationIds: string[]) {
-  const results = await Promise.all(operationIds.map((operationId) => window.lk.toolApprove(operationId)))
-  const errors = results.filter((result) => result.status === 'failed').map((result) => result.error || '操作失败')
-  if (errors.length) appStatus.value = errors.join('；')
-  toolProposals.value = toolProposals.value.filter((proposal) => !operationIds.includes(proposal.operationId))
-  await refreshToolHistory()
-}
-async function undoToolOperation(operationId: string) {
-  const result = await window.lk.toolUndo(operationId)
-  if (result.status === 'failed') appStatus.value = result.error || '撤销失败'
-  await refreshToolHistory()
-}
+watch(toolCenterOpen, (open) => { if (open) void refreshToolHistory() })
 
 let removeBeforeCloseListener: (() => void) | null = null
 let removeDatabaseStatusListener: (() => void) | null = null
+let removeMcpListener: (() => void) | null = null
 async function prepareAppClose() {
   if (saveActiveReply) await saveActiveReply()
   onAbort()
@@ -605,6 +632,12 @@ async function prepareAppClose() {
 }
 
 onMounted(async () => {
+  void mcp.refresh().catch(() => {})
+  removeMcpListener = window.lk.onMcpChanged((status) => {
+    mcp.capture(status)
+    if (status.pending) appStatus.value = '打开 AI 操作记录查看导入预览'
+    if (toolCenterOpen.value) toolCenter.scheduleRefresh()
+  })
   window.addEventListener('lk:app-status', onAppStatus as EventListener)
   removeDatabaseStatusListener = window.lk.onDatabaseStatus(onDatabaseStatus)
   onDatabaseStatus(await window.lk.databaseStatus())
@@ -687,7 +720,7 @@ async function onNav(e: Event) {
   tabStore.openTab({ type: kind === 'note' ? 'note' : kind === 'book' ? 'ebook' : 'chat', title: kind, data: kind === 'book' ? { bookId: id } : kind === 'note' ? { noteId: id } : {} })
 }
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); removeDatabaseStatusListener?.(); onAbort() })
+onUnmounted(() => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('lk:ai-action', onAiAction as EventListener); window.removeEventListener('lk:nav', onNav as EventListener); window.removeEventListener('lk:app-status', onAppStatus as EventListener); removeBeforeCloseListener?.(); removeDatabaseStatusListener?.(); removeMcpListener?.(); onAbort() })
 </script>
 
 <style scoped lang="scss">

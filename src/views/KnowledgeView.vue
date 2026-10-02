@@ -2,6 +2,7 @@
   <div class="knowledge-root">
     <aside class="filter-panel">
       <div class="panel-title">知识库</div>
+      <button class="filter" :class="{ active: activeFilter === 'graph' }" data-testid="knowledge-graph-tab" @click="activeFilter = 'graph'"><span>知识图谱</span><small>关系与来源</small></button>
       <button class="filter" :class="{ active: activeFilter === 'points' }" @click="activeFilter = 'points'"><span>知识点</span><small>{{ points.length }}</small></button>
       <button v-for="item in filters" :key="item.key" class="filter" :class="{ active: activeFilter === item.key }" @click="activeFilter = item.key">
         <span>{{ item.label }}</span><small>{{ countFor(item.key) }}</small>
@@ -13,7 +14,8 @@
       <button class="filter" :class="{ active: !activeFolderId }" @click="activeFolderId = ''"><span>所有目录</span></button>
       <button v-for="folder in folders" :key="folder.id" class="filter" :class="{ active: activeFolderId === folder.id }" @click="activeFolderId = folder.id"><span>📁 {{ folder.title }}</span><small>{{ countInFolder(folder.id) }}</small></button>
     </aside>
-    <main class="knowledge-main">
+    <KnowledgeGraph v-if="activeFilter === 'graph'" />
+    <main v-else class="knowledge-main">
       <header class="knowledge-head">
         <div><h2>{{ currentTitle }}</h2><p>集中管理自己写下的笔记与从 AI 沉淀的知识。</p></div>
         <div class="head-actions"><el-input v-model="query" class="search" placeholder="搜索知识库" clearable /><el-button type="primary" @click="createNote">新建笔记</el-button></div>
@@ -41,12 +43,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import KnowledgeGraph from '../components/KnowledgeGraph.vue'
+import { useKnowledgeGraphStore } from '../stores/knowledge-graph'
 
-type Filter = 'all' | 'inbox' | 'ai' | 'own' | 'favorite' | 'points'
+type Filter = 'all' | 'inbox' | 'ai' | 'own' | 'favorite' | 'points' | 'graph'
 type KnowledgePoint = { id: string; title: string; description: string | null; mastery: string; chapter_id: string | null; parent_id: string | null; sort: number }
 const points = ref<KnowledgePoint[]>([])
+const graphState = useKnowledgeGraphStore()
+watch(() => graphState.data.nodes, nodes => { points.value = nodes })
 const pointOpen = ref(false)
 const pointSaving = ref(false)
 const pointDraft = ref<KnowledgePoint>({ id: '', title: '', description: '', mastery: 'unseen', chapter_id: null, parent_id: null, sort: 0 })

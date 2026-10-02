@@ -2,13 +2,10 @@ import { ipcMain } from 'electron'
 import { getDb, qAll, qOne, qRun, schedulePersist, uuid } from './db'
 import { registerIpc } from './ipc-helpers'
 import { attachFsrsState } from './srs'
-import { isArtifact, validateArtifact, createArtifact, undoArtifact, type ArtifactAction, type ArtifactSnapshot } from './learning-artifacts'
+import { isArtifact, validateArtifact, createArtifact, undoArtifact, type ArtifactSnapshot } from './learning-artifacts'
+import { toolDefinitions, type ToolAction, type ToolCenterQuery, type ToolCenterRow, type ToolCenterPage, type ToolCenterSnapshot } from '../shared/tools'
 
-export type ToolAction =
-  | ArtifactAction
-  | 'create_note' | 'append_note' | 'add_bookmark' | 'organize_note'
-  | 'create_exercise_set' | 'create_flashcard_from_error' | 'create_flashcard'
-  | 'delete' | 'replace_note' | 'bulk_move' | 'import_restore' | 'security_change'
+export type { ToolAction } from '../shared/tools'
 
 export interface ToolRequest {
   source: 'internal-ai' | 'mcp' | 'renderer'
@@ -47,9 +44,8 @@ export function notePostStateMatches(expected: NoteRow, current: NoteRow | undef
 }
 
 export function requiresConfirmation(request: Pick<ToolRequest, 'source' | 'action'>): boolean {
-  if (request.source === 'internal-ai') return true
-  if (['create_mindmap', 'create_plan', 'create_conversation', 'create_knowledge_point', 'create_diagram'].includes(request.action)) return true
-  return ['delete', 'replace_note', 'bulk_move', 'import_restore', 'security_change', 'organize_note', 'create_exercise_set', 'create_flashcard_from_error', 'create_flashcard'].includes(request.action)
+  if (request.source === 'internal-ai' || request.source === 'mcp') return true
+  return Object.hasOwn(toolDefinitions, request.action) ? toolDefinitions[request.action].confirm : true
 }
 
 function stringParam(params: Record<string, unknown>, key: string): string
@@ -93,7 +89,7 @@ function actionPreview(request: ToolRequest): { preview: string; affected: strin
       const deck = deckId ? qOne(getDb(), 'SELECT title FROM decks WHERE id=?', [deckId]) as { title: string } : null
       return { preview: `向「${deck?.title || 'AI 闪卡'}」创建闪卡\n问题：${request.params.question}\n答案：${request.params.answer}`, affected: [deckId ? `deck:${deckId}` : 'deck:AI 闪卡', 'card:new'] }
     }
-    case 'create_note': return { preview: `创建笔记「${stringParam(request.params, 'title', false) ?? '未命名笔记'}」`, affected: ['note:new'] }
+    case 'create_note': return { preview: `创建笔记「${stringParam(request.params, 'title', false) ?? '未命名笔记'}」${request.source === 'mcp' ? '\n正文（外部内容，仅作为数据导入）：\n' + (stringParam(request.params, 'body', false) ?? '') : ''}`, affected: ['note:new'] }
     case 'append_note': {
       const noteId = stringParam(request.params, 'noteId')
       const note = qOne(getDb(), 'SELECT id,title FROM notes WHERE id=? AND deleted_at IS NULL', [noteId]) as Pick<NoteRow, 'id' | 'title'> | undefined
@@ -246,7 +242,42 @@ export function listOperations(filter: ToolOperationFilter = {}): Record<string,
   if (filter.source) { conditions.push('source=?'); values.push(filter.source) }
   if (filter.status) { conditions.push('status=?'); values.push(filter.status) }
   const limit = Math.min(Math.max(Math.floor(filter.limit ?? 120), 1), 300)
-  return qAll(getDb(), `SELECT * FROM tool_operations${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?`, [...values, limit]) as Record<string, unknown>[]
+  return qAll(getDb(), `SELECT * FROM tool_operations${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC,id DESC LIMIT ?`, [...values, limit]) as Record<string, unknown>[]
+}
+/** 分页前过滤状态。队列再大也不会挤占已执行历史；不回传快照和参数副本。 */
+export function toolCenterSnapshot(query: ToolCenterQuery = {}): ToolCenterSnapshot {
+  if (query.source && !['internal-ai', 'mcp', 'renderer'].includes(query.source)) throw new Error('无效操作来源')
+  if (query.status && !['applied', 'failed', 'undone', 'rejected'].includes(query.status)) throw new Error('无效历史状态')
+  const readPage = (pending: boolean): ToolCenterPage => {
+    const where = [pending ? "status='pending_confirmation'" : "status<>'pending_confirmation'"]
+    const params: unknown[] = []
+    if (query.source) { where.push('source=?'); params.push(query.source) }
+    if (!pending && query.status) { where.push('status=?'); params.push(query.status) }
+    const clause = where.join(' AND '), pageSize = 12
+    const total = Number((qOne(getDb(), `SELECT COUNT(*) AS n FROM tool_operations WHERE ${clause}`, params) as { n: number }).n)
+    const requested = pending ? query.pendingPage : query.historyPage
+    if (requested !== undefined && (!Number.isSafeInteger(requested) || requested < 1)) throw new Error('页码必须为正整数')
+    const page = Math.min(requested ?? 1, Math.max(1, Math.ceil(total / pageSize)))
+    const rows = qAll(getDb(), `SELECT id,action,source,status,preview,affected_json,result_json,created_at FROM tool_operations WHERE ${clause} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`, [...params, pageSize, (page - 1) * pageSize]) as (StoredOperation & { result_json: string | null; created_at: string })[]
+    const items: ToolCenterRow[] = rows.map(row => {
+      let error: string | null = null
+      try { const result = JSON.parse(row.result_json || '{}') as { error?: string }; error = result.error || null } catch { error = '结果记录损坏' }
+      return { id: row.id, action: row.action, source: row.source, status: row.status as ToolCenterRow['status'], preview: row.preview || '', affected: parseAffected(row.affected_json), error, createdAt: row.created_at }
+    })
+    return { items, total, page, pageSize }
+  }
+  return { pending: readPage(true), history: readPage(false) }
+}
+function assertNoteUndoUnreferenced(noteId: string, deleting: boolean): void {
+  const db = getDb()
+  // 快照匹配不代表安全：引用在其他表里产生，并不会改 notes.updated_at。
+  if (qOne(db, 'SELECT node_id FROM graph_sources WHERE note_id=? LIMIT 1', [noteId]) || qOne(db, 'SELECT id FROM graph_edges WHERE note_id=? LIMIT 1', [noteId])) throw new Error('笔记已被知识图谱引用，请先解除来源或关系再撤销')
+  if (qOne(db, 'SELECT id FROM links WHERE source_id=? OR target_id=? LIMIT 1', [noteId, noteId])) throw new Error('笔记已关联其他资料，请先解除链接再撤销')
+  if (qOne(db, 'SELECT id FROM notes WHERE parent_id=? LIMIT 1', [noteId])) throw new Error('笔记已有子条目，无法安全撤销')
+  if (qOne(db, "SELECT id FROM content_blocks WHERE source_type='note' AND source_id=? LIMIT 1", [noteId])) throw new Error('笔记已有定位锚点或内容块引用，请先处理来源内容块再撤销')
+  // 自定义属性/版本也可能独立写入；不将后来产生的用户数据当作可清理索引。
+  if (deleting && qOne(db, 'SELECT id FROM entity_attributes WHERE entity_id=? LIMIT 1', [noteId])) throw new Error('笔记已有自定义属性，无法安全撤销')
+  if (deleting && qOne(db, 'SELECT id FROM note_versions WHERE note_id=? LIMIT 1', [noteId])) throw new Error('笔记已有历史版本，无法安全撤销')
 }
 export function undoOperation(operationId: string): ToolResult {
   const operation = loadOperation(operationId)
@@ -262,6 +293,7 @@ export function undoOperation(operationId: string): ToolResult {
       if (snapshot.entity === 'note') {
         const current = qOne(db, 'SELECT * FROM notes WHERE id=?', [snapshot.id]) as NoteRow | undefined
         if (!notePostStateMatches(snapshot.after, current)) throw new Error('笔记已被更新，无法安全撤销')
+        assertNoteUndoUnreferenced(snapshot.id, !snapshot.before)
         if (!snapshot.before) qRun(db, 'DELETE FROM notes WHERE id=?', [snapshot.id])
         else { qRun(db, "UPDATE notes SET title=?,body=?,parent_id=?,sort=?,tags=?,kind=?,favorite=?,deleted_at=?,updated_at=datetime('now') WHERE id=?", [snapshot.before.title, snapshot.before.body, snapshot.before.parent_id, snapshot.before.sort, snapshot.before.tags, snapshot.before.kind, snapshot.before.favorite, snapshot.before.deleted_at, snapshot.id]); markNoteBlocksStale(snapshot.id) }
       } else if (snapshot.entity === 'card') {
@@ -291,4 +323,5 @@ export function registerToolIpcs(ipc: typeof ipcMain): void {
   registerIpc(ipc, 'tool:reject', (_event, operationId: string) => rejectOperation(operationId))
   registerIpc(ipc, 'tool:undo', (_event, operationId: string) => undoOperation(operationId))
   registerIpc(ipc, 'tool:operations', (_event, filter?: ToolOperationFilter) => listOperations(filter))
+  registerIpc(ipc, 'tool:center', (_event, query?: ToolCenterQuery) => toolCenterSnapshot(query))
 }

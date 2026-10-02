@@ -4,6 +4,9 @@
 
 | Date | File | Title | Status |
 |---|---|---|---|
+| 2026-10-02 | DEV-20261002-04-tool-center-convergence.md | 工具状态模块与查询收敛实现 | impl |
+| 2026-10-02 | DEV-20261002-03-mcp-import.md | 标准 MCP 桥接与确认导入实现 | impl |
+| 2026-10-02 | DEV-20261002-02-diagnostics-agent-flow.md | 诊断采集与确认式 Agent 状态机 | impl |
 | 2026-09-12 | DEV-20260912-05-interface-polish.md | 学习工作台 UI 实施方案 | impl |
 | 2026-09-12 | DEV-20260912-04-ai-kp-drawio.md | 知识点与 Draw.io 工具映射 | impl |
 | 2026-09-12 | DEV-20260912-02-ai-flashcard-tools.md | AI 普通闪卡和错题闪卡执行链 | impl |
@@ -37,3 +40,5 @@
 | 2026-09-12 | DEV-20260912-01-ai-controls-and-request-lifecycle.md | AI 功能开关、提示词与请求生命周期方案 | impl |
 | 2026-09-12 | DEV-20260912-03-ai-context-budget.md | AI 上下文预算与检索 | impl |
 | 2026-09-12 | DEV-20260912-06-conversation-prompts.md | 对话级 Prompt 与场景模板 | impl |
+| 2026-09-15 | DEV-20260915-01-knowledge-graph.md | 知识图谱存储、确认、可视化与检索 | impl |
+| 2026-10-02 | DEV-20261002-01-ai-request-lifecycle.md | 教学：请求归属、取消与清理 | impl |

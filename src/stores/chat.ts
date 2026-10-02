@@ -172,6 +172,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const aiToolProposalsEnabled = ref(true)
   const aiInputBudget = ref(8192)
   const aiRetrievalEnabled = ref(false)
+  const aiGraphRetrievalEnabled = ref(false)
+  const aiDiagnosticsEnabled = ref(true)
+  const aiRequestUsage = ref(false)
+  const aiAgentEnabled = ref(false)
+  const aiAgentMaxSteps = ref(6)
   const temperature = ref(0.6)
   const theme = ref<ThemeId>('dark')
   const connected = ref(false)
@@ -245,6 +250,12 @@ export const useSettingsStore = defineStore('settings', () => {
     const budget = Number(await window.lk.getSetting('aiInputBudget'))
     aiInputBudget.value = Number.isFinite(budget) && budget >= 2048 ? Math.min(65536, Math.floor(budget)) : 8192
     aiRetrievalEnabled.value = await loadBooleanSetting('aiRetrievalEnabled', false)
+    aiGraphRetrievalEnabled.value = await loadBooleanSetting('aiGraphRetrievalEnabled', false)
+    aiDiagnosticsEnabled.value = await loadBooleanSetting('aiDiagnosticsEnabled', true)
+    aiRequestUsage.value = await loadBooleanSetting('aiRequestUsage', false)
+    aiAgentEnabled.value = await loadBooleanSetting('aiAgentEnabled', false)
+    const steps = Number(await window.lk.getSetting('aiAgentMaxSteps'))
+    aiAgentMaxSteps.value = Number.isInteger(steps) && steps >= 2 && steps <= 20 ? steps : 6
     noteAutosaveMs.value = Number(await window.lk.getSetting('noteAutosaveMs')) || 900
     const storedReaderTheme = await window.lk.getSetting('readerTheme')
     readerTheme.value = storedReaderTheme === 'sepia' || storedReaderTheme === 'night' ? storedReaderTheme : 'paper'
@@ -272,6 +283,11 @@ export const useSettingsStore = defineStore('settings', () => {
     await window.lk.setSetting('aiToolProposalsEnabled', String(aiToolProposalsEnabled.value))
     await window.lk.setSetting('aiInputBudget', String(aiInputBudget.value))
     await window.lk.setSetting('aiRetrievalEnabled', String(aiRetrievalEnabled.value))
+    await window.lk.setSetting('aiGraphRetrievalEnabled', String(aiGraphRetrievalEnabled.value))
+    await window.lk.setSetting('aiDiagnosticsEnabled', String(aiDiagnosticsEnabled.value))
+    await window.lk.setSetting('aiRequestUsage', String(aiRequestUsage.value))
+    await window.lk.setSetting('aiAgentEnabled', String(aiAgentEnabled.value))
+    await window.lk.setSetting('aiAgentMaxSteps', String(aiAgentMaxSteps.value))
     await saveShortcuts()
     for (const [k, v] of Object.entries(apiKeys.value)) await window.lk.setSetting('apiKey.' + k, v)
   }
@@ -282,5 +298,5 @@ export const useSettingsStore = defineStore('settings', () => {
   function setConnected(v: boolean) { connected.value = v }
   function getShortcut(key: string): string { return shortcuts.value[key] || (defaultShortcuts as any)[key] || '' }
 
-  return { provider, model, models, apiKeys, customBaseUrl, systemPrompt, customSystemPrompt, customSystemPromptEnabled, aiIncludeHistory, aiIncludeNoteContext, aiIncludeProgressContext, aiToolProposalsEnabled, aiInputBudget, aiRetrievalEnabled, temperature, theme, connected, testMode, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
+  return { aiDiagnosticsEnabled, aiRequestUsage, aiAgentEnabled, aiAgentMaxSteps, provider, model, models, apiKeys, customBaseUrl, systemPrompt, customSystemPrompt, customSystemPromptEnabled, aiIncludeHistory, aiIncludeNoteContext, aiIncludeProgressContext, aiToolProposalsEnabled, aiInputBudget, aiRetrievalEnabled, aiGraphRetrievalEnabled, temperature, theme, connected, testMode, noteAutosaveMs, readerTheme, reviewNewLimit, shortcuts, defaultShortcuts, load, saveAll, setTheme, applyTheme, modelList, currentApiKey, saveApiKey, setConnected, saveShortcuts, getShortcut }
 })

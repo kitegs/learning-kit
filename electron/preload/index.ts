@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import type { GraphNodeInput, GraphEdgeInput } from '../shared/knowledge-graph'
+import type { AgentToolInput } from '../shared/ai-workflow'
+import type { ToolCenterQuery } from '../shared/tools'
 
 type AiChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 type AiChatStartArgs = {
@@ -13,8 +16,13 @@ type AiChatStartArgs = {
   conversationId?: string
   inputBudget?: number
   retrieveNotes?: boolean
+  retrieveGraph?: boolean
+  diagnosticsEnabled?: boolean
+  requestUsage?: boolean
+  agentEnabled?: boolean
+  agentMaxSteps?: number
 }
-type AiChunkPayload = { delta?: string; content?: string; done: boolean; aborted?: boolean; error?: string; contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number } }
+type AiChunkPayload = { diagnostic?: import('../shared/ai-workflow').AiDiagnostic; agentRun?: import('../shared/ai-workflow').AgentRun; delta?: string; content?: string; done: boolean; aborted?: boolean; error?: string; contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string; path?: string }[]; omittedSources: number } }
 
 // Wraps an IPC result — throws if !ok, passes through data otherwise.
 // Handles both old-style (direct return) and new-style ({ok,data,error}) responses.
@@ -25,6 +33,27 @@ function u<T>(r: any): T {
 }
 
 const api = {
+  mcpStatus: () => ipcRenderer.invoke('mcp:status').then(u<import('../shared/mcp').McpStatus>),
+  mcpConfigure: (enabled: boolean, rotate = false) => ipcRenderer.invoke('mcp:configure', enabled, rotate).then(u<import('../shared/mcp').McpStatus>),
+  mcpClientConfig: () => ipcRenderer.invoke('mcp:client-config').then(u<import('../shared/mcp').McpClientConfig>),
+  onMcpChanged: (cb: (status: import('../shared/mcp').McpStatus) => void) => {
+    const listener = (_event: IpcRendererEvent, status: import('../shared/mcp').McpStatus) => cb(status)
+    ipcRenderer.on('mcp:changed', listener)
+    return () => ipcRenderer.removeListener('mcp:changed', listener)
+  },
+  aiDiagnosticsList: (conversationId?: string) => ipcRenderer.invoke('ai:diagnostics:list', conversationId),
+  aiDiagnosticsClear: () => ipcRenderer.invoke('ai:diagnostics:clear'),
+  agentRunsList: (conversationId?: string) => ipcRenderer.invoke('ai:agent:list', conversationId),
+  agentRunPrepare: (id: string, inputs: AgentToolInput[]) => ipcRenderer.invoke('ai:agent:prepare', id, inputs),
+  agentStepDecide: (id: string, stepId: string, decision: 'approve' | 'reject' | 'retry') => ipcRenderer.invoke('ai:agent:decide', id, stepId, decision),
+  graphList: () => ipcRenderer.invoke('graph:list'),
+  graphNote: (id: string) => ipcRenderer.invoke('graph:note', id),
+  graphNodeSave: (input: GraphNodeInput) => ipcRenderer.invoke('graph:node:save', input),
+  graphEdgeSave: (input: GraphEdgeInput) => ipcRenderer.invoke('graph:edge:save', input),
+  graphEdgeRemove: (id: string, version: string) => ipcRenderer.invoke('graph:edge:remove', id, version),
+  graphPreview: (noteId: string, revision: string, raw: string) => ipcRenderer.invoke('graph:preview', noteId, revision, raw),
+  graphApply: (token: string) => ipcRenderer.invoke('graph:apply', token),
+  graphDiscard: (token: string) => ipcRenderer.invoke('graph:discard', token),
   // app lifecycle
   onAppBeforeClose: (cb: () => void | Promise<void>) => {
     const listener = () => { void cb() }
@@ -143,6 +172,7 @@ const api = {
   toolApprove: (operationId: string) => ipcRenderer.invoke('tool:approve', operationId).then(u),
   toolReject: (operationId: string) => ipcRenderer.invoke('tool:reject', operationId).then(u),
   toolUndo: (operationId: string) => ipcRenderer.invoke('tool:undo', operationId).then(u),
+  toolCenter: (query?: ToolCenterQuery) => ipcRenderer.invoke('tool:center', query).then(u),
   toolOperations: (filter?: { source?: 'internal-ai' | 'mcp' | 'renderer'; status?: string; limit?: number }) =>
     ipcRenderer.invoke('tool:operations', filter).then(u),
 

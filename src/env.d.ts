@@ -7,6 +7,24 @@ declare module '*.vue' {
 }
 
 interface LkApi {
+  toolCenter: (query?: import('../electron/shared/tools').ToolCenterQuery) => Promise<import('../electron/shared/tools').ToolCenterSnapshot>
+  mcpStatus: () => Promise<import('../electron/shared/mcp').McpStatus>
+  mcpConfigure: (enabled: boolean, rotate?: boolean) => Promise<import('../electron/shared/mcp').McpStatus>
+  mcpClientConfig: () => Promise<import('../electron/shared/mcp').McpClientConfig>
+  onMcpChanged: (cb: (status: import('../electron/shared/mcp').McpStatus) => void) => () => void
+  aiDiagnosticsList: (conversationId?: string) => Promise<import('../electron/shared/ai-workflow').AiDiagnostic[]>
+  aiDiagnosticsClear: () => Promise<boolean>
+  agentRunsList: (conversationId?: string) => Promise<import('../electron/shared/ai-workflow').AgentRun[]>
+  agentRunPrepare: (id: string, inputs: import('../electron/shared/ai-workflow').AgentToolInput[]) => Promise<import('../electron/shared/ai-workflow').AgentRun>
+  agentStepDecide: (id: string, stepId: string, decision: 'approve' | 'reject' | 'retry') => Promise<import('../electron/shared/ai-workflow').AgentRun>
+  graphList: () => Promise<import('../electron/shared/knowledge-graph').GraphData>
+  graphNote: (id: string) => Promise<import('../electron/shared/knowledge-graph').GraphNote>
+  graphNodeSave: (input: import('../electron/shared/knowledge-graph').GraphNodeInput) => Promise<string>
+  graphEdgeSave: (input: import('../electron/shared/knowledge-graph').GraphEdgeInput) => Promise<string>
+  graphEdgeRemove: (id: string, version: string) => Promise<boolean>
+  graphPreview: (noteId: string, revision: string, raw: string) => Promise<import('../electron/shared/knowledge-graph').GraphPreview>
+  graphApply: (token: string) => Promise<boolean>
+  graphDiscard: (token: string) => Promise<boolean>
   onAppBeforeClose: (cb: () => void | Promise<void>) => () => void
   appCloseReady: () => Promise<boolean>
   getSetting: (k: string) => Promise<string | null>
@@ -204,6 +222,10 @@ interface AiChatMessage {
 }
 
 interface AiChatStartArgs {
+  diagnosticsEnabled?: boolean
+  requestUsage?: boolean
+  agentEnabled?: boolean
+  agentMaxSteps?: number
   requestId: string
   provider: string
   model: string
@@ -215,10 +237,13 @@ interface AiChatStartArgs {
   conversationId?: string
   inputBudget?: number
   retrieveNotes?: boolean
+  retrieveGraph?: boolean
 }
 
 interface AiChunkPayload {
-  contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string }[]; omittedSources: number }
+  diagnostic?: import('../electron/shared/ai-workflow').AiDiagnostic
+  agentRun?: import('../electron/shared/ai-workflow').AgentRun
+  contextSummary?: { budget: number; estimatedTokens: number; droppedMessages: number; sources: { id: string; title: string; path?: string }[]; omittedSources: number }
   delta?: string
   content?: string
   done: boolean

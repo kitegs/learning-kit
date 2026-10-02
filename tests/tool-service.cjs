@@ -9,16 +9,20 @@ const source = fs.readFileSync(servicePath, 'utf8')
 const match = source.match(/export function requiresConfirmation\([^)]*\): boolean \{([\s\S]*?)\n\}/)
 assert.ok(match, 'requiresConfirmation must be an exported boolean policy helper')
 
-// The policy helper is deliberately dependency-free. Evaluating its source keeps this
-// test runnable in Node without loading Electron or sql.js.
-const requiresConfirmation = new Function('request', match[1])
+// Load the shared pure registry, without Electron or sql.js, to exercise the real policy.
+const vm = require('node:vm'), ts = require('typescript'), registry = {}
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname, '../electron/shared/tools.ts'), 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, {exports:registry})
+const requiresConfirmation = new Function('request', 'toolDefinitions', match[1])
+const confirmation = request => requiresConfirmation(request, registry.toolDefinitions)
 
-assert.equal(requiresConfirmation({ source: 'internal-ai', action: 'create_note' }), true)
-assert.equal(requiresConfirmation({ source: 'mcp', action: 'append_note' }), false)
-assert.equal(requiresConfirmation({ source: 'mcp', action: 'replace_note' }), true)
-assert.equal(requiresConfirmation({ source: 'renderer', action: 'delete' }), true)
-assert.equal(requiresConfirmation({ source: 'mcp', action: 'create_diagram' }), true)
-assert.equal(requiresConfirmation({ source: 'renderer', action: 'create_knowledge_point' }), true)
+assert.equal(confirmation({ source: 'internal-ai', action: 'create_note' }), true)
+assert.equal(confirmation({ source: 'mcp', action: 'append_note' }), true)
+assert.equal(confirmation({ source: 'mcp', action: 'replace_note' }), true)
+assert.equal(confirmation({ source: 'renderer', action: 'delete' }), true)
+assert.equal(confirmation({ source: 'mcp', action: 'create_diagram' }), true)
+assert.equal(confirmation({ source: 'renderer', action: 'create_knowledge_point' }), true)
+assert.equal(confirmation({ source: 'renderer', action: 'create_note' }), false)
+assert.equal(confirmation({ source: 'renderer', action: '__proto__' }), true)
 
 assert.match(source, /export function requestInternalTool\(/, 'internal proposals must bind their source in main')
 assert.match(source, /export function requestMcpTool\(/, 'MCP requests must bind their source in main')

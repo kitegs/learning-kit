@@ -21,6 +21,10 @@ async function main() {
   }
   modules['./srs'] = load('electron/main/srs.ts')
   modules['./ai-diagram'] = load('electron/main/ai-diagram.ts')
+  modules['../shared/tools'] = load('electron/shared/tools.ts')
+  modules['../shared/knowledge-graph'] = load('electron/shared/knowledge-graph.ts')
+  modules['./knowledge-point-policy'] = load('electron/main/knowledge-point-policy.ts')
+  db.exec('ALTER TABLE knowledge_points ADD COLUMN deleted_at INTEGER')
   modules['./learning-artifacts'] = load('electron/main/learning-artifacts.ts')
   const tools = load('electron/main/tool-service.ts')
   const proposal = tools.requestInternalTool('create_flashcard', { question: '2+2?', answer: '4' })

@@ -1,5 +1,6 @@
 import { getDb, qAll, qOne, qRun, uuid } from './db'
 import { validateDiagram } from './ai-diagram'
+import { assertUniqueKnowledgeTitle } from './knowledge-point-policy'
 
 export type ArtifactAction = 'create_mindmap' | 'create_plan' | 'create_conversation' | 'create_exercise_set' | 'create_knowledge_point' | 'create_diagram'
 export type ArtifactSnapshot = { entity: 'artifact'; kind: ArtifactAction; id: string; after: Record<string, unknown>; questions: Record<string, unknown>[] }
@@ -17,6 +18,7 @@ export function validateArtifact(action: ArtifactAction, params: Record<string, 
   const title = text(params.title, '标题')
   if (title.length > 300) throw new Error('产物标题不能超过 300 字符')
   if (action === 'create_knowledge_point') {
+    assertUniqueKnowledgeTitle(title)
     if (params.description !== undefined && (typeof params.description !== 'string' || params.description.length > 10000)) throw new Error('知识点描述必须是 10000 字符以内的文本')
     return `${title}\n${params.description || '暂无描述'}\n保存到：知识库 → 知识点；未关联章节；掌握状态：未学习`
   }
@@ -48,7 +50,7 @@ export function validateArtifact(action: ArtifactAction, params: Record<string, 
 export function createArtifact(action: ArtifactAction, params: Record<string, unknown>): ArtifactSnapshot {
   validateArtifact(action, params)
   const db = getDb(), id = uuid()
-  if (action === 'create_knowledge_point') qRun(db, 'INSERT INTO knowledge_points(id,title,description,mastery) VALUES(?,?,?,?)', [id, params.title, params.description ?? '', 'unseen'])
+  if (action === 'create_knowledge_point') qRun(db, 'INSERT INTO knowledge_points(id,title,description,mastery) VALUES(?,?,?,?)', [id, String(params.title).trim(), params.description ?? '', 'unseen'])
   if (action === 'create_diagram') qRun(db, 'INSERT INTO diagrams(id,title,xml,format) VALUES(?,?,?,?)', [id, params.title, params.xml, 'drawio'])
   if (action === 'create_mindmap') qRun(db, 'INSERT INTO mindmaps(id,title,body) VALUES(?,?,?)', [id, params.title, params.body])
   if (action === 'create_plan') qRun(db, 'INSERT INTO study_plans(id,title,plan_json) VALUES(?,?,?)', [id, params.title, JSON.stringify(params.plan)])
@@ -68,6 +70,7 @@ export function undoArtifact(snapshot: ArtifactSnapshot): void {
   if (!same(snapshot.after, qOne(db, `SELECT * FROM ${table} WHERE id=?`, [snapshot.id]))) throw new Error('产物已修改，无法安全撤销')
   if (qOne(db, 'SELECT id FROM links WHERE source_id=? OR target_id=? LIMIT 1', [snapshot.id, snapshot.id])) throw new Error('产物已关联其他资料，无法撤销')
   if (snapshot.kind === 'create_knowledge_point' && (qOne(db, 'SELECT id FROM knowledge_points WHERE parent_id=? LIMIT 1', [snapshot.id]) || qOne(db, 'SELECT id FROM code_snippets WHERE kp_id=? LIMIT 1', [snapshot.id]))) throw new Error('知识点已有子条目或代码引用，无法撤销')
+  if (snapshot.kind === 'create_knowledge_point' && (qOne(db, 'SELECT id FROM graph_edges WHERE from_id=? OR to_id=? LIMIT 1', [snapshot.id, snapshot.id]) || qOne(db, 'SELECT node_id FROM graph_sources WHERE node_id=? LIMIT 1', [snapshot.id]))) throw new Error('知识点已有图谱关系或来源，无法撤销')
   if (snapshot.kind === 'create_conversation' && qOne(db, 'SELECT id FROM messages WHERE conversation_id=? LIMIT 1', [snapshot.id])) throw new Error('对话已有消息，无法撤销')
   if (snapshot.kind === 'create_exercise_set') {
     const questions = qAll(db, 'SELECT * FROM exercise_questions WHERE set_id=? ORDER BY id', [snapshot.id]) as Record<string, unknown>[]

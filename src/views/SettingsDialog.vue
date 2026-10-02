@@ -87,7 +87,11 @@
         <label><span><strong>携带笔记上下文</strong><small>使用笔记 AI 时发送当前笔记内容</small></span><el-switch v-model="s.aiIncludeNoteContext" /></label>
         <label><span><strong>携带学习统计</strong><small>生成学习进度建议时发送卡片、图书与笔记统计</small></span><el-switch v-model="s.aiIncludeProgressContext" /></label>
         <label><span><strong>允许 AI 工具提案</strong><small>解析模型提出的本地操作；执行前仍需逐项确认</small></span><el-switch v-model="s.aiToolProposalsEnabled" /></label>
+        <label><span><strong>请求诊断</strong><small>主聊天记录耗时、首次内容与失败分类，仅保留本地元数据</small></span><el-switch v-model="s.aiDiagnosticsEnabled" aria-label="请求诊断" /></label>
+        <label><span><strong>请求服务商返回用量</strong><small>发送 include_usage 参数；接口不支持时报错可关闭。缺失用量不视为 0</small></span><el-switch v-model="s.aiRequestUsage" aria-label="请求服务商返回用量" /></label>
+        <label><span><strong>Agent 执行流程</strong><small>默认关闭。单次模型生成后按步骤预览、确认与执行，不自动循环</small></span><el-switch v-model="s.aiAgentEnabled" aria-label="Agent 执行流程" /></label>
       </div>
+      <el-form-item label="Agent 步骤上限"><el-input-number v-model="s.aiAgentMaxSteps" :min="2" :max="20" :precision="0" /><span class="muted">含模型生成、每项工具及失败重试；确认不额外计步</span></el-form-item>
 
       <section class="context-budget">
         <header><strong>上下文预算与检索</strong><el-tag size="small" effect="plain">本地筛选 · 按需发送</el-tag></header>
@@ -98,9 +102,11 @@
         </el-form-item>
         <small>此值不含模型输出；请低于模型上下文上限并留出回答空间。字符估算与实际用量可能不同。</small>
         <div class="retrieval-setting"><span><strong>检索相关笔记</strong><small>仅聊天使用。开启后发送最多 4 条未删除笔记摘录；关键词匹配，不是语义检索。</small></span><el-switch v-model="s.aiRetrievalEnabled" aria-label="检索相关笔记" /></div>
+        <div class="retrieval-setting"><span><strong>图谱增强检索</strong><small>默认关闭，仅主聊天使用。命中知识点后沿一跳关系补充来源笔记与路径，和普通检索共用最多 4 条摘录及输入预算。开启会发送相关本地资料。</small></span><el-switch v-model="s.aiGraphRetrievalEnabled" aria-label="图谱增强检索" /></div>
       </section>
 
       </section>
+      <section v-show="section === 'mcp'" data-settings-panel="mcp"><McpServerSettings /></section>
       <section v-show="section === 'appearance'" data-settings-panel="appearance">
       <el-form-item label="界面主题">
         <div class="appearance-themes" role="group" aria-label="界面主题">
@@ -180,6 +186,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Filter, EditPen, Brush, Lock, Key } from '@element-plus/icons-vue'
 import { useSettingsStore, type ThemeId } from '../stores/chat'
+import McpServerSettings from '../components/McpServerSettings.vue'
 
 const persistenceStatus = ref<DatabasePersistenceStatus>({ state: 'idle' })
 const retryingSave = ref(false)
@@ -210,12 +217,13 @@ const visible = computed({
 })
 
 const s = useSettingsStore()
-type Section = 'connection' | 'context' | 'prompt' | 'appearance' | 'data' | 'shortcuts'
+type Section = 'connection' | 'context' | 'prompt' | 'appearance' | 'data' | 'shortcuts' | 'mcp'
 const section = ref<Section>('connection')
 const settingsContent = ref<HTMLElement | null>(null)
 const sections = [
   { id: 'connection' as Section, title: '模型与连接', description: '选择你的 AI 服务，连接一次，专注每一次提问。', icon: Connection },
   { id: 'context' as Section, title: '上下文与隐私', description: '决定 AI 可以参考哪些资料，以及每次发送多少内容。', icon: Filter },
+  { id: 'mcp' as Section, title: '外部 AI / MCP', description: '将外部 AI 整理的笔记与知识点，经预览确认导入本地。', icon: Connection },
   { id: 'prompt' as Section, title: '回答偏好', description: '用自己的指令，调整回答的语言、深度和学习方式。', icon: EditPen },
   { id: 'appearance' as Section, title: '外观与学习', description: '舒服的阅读配色，合适的学习节奏。', icon: Brush },
   { id: 'data' as Section, title: '数据安全', description: '检查保存状态，为重要的学习资料留一份备份。', icon: Lock },
@@ -231,7 +239,7 @@ const themeCards: { id: ThemeId; title: string; background: string; accent: stri
   { id: 'light', title: '清爽浅色', background: '#f6f6f6', accent: '#2563eb' },
   { id: 'dark', title: '深色专注', background: '#252526', accent: '#4ea1ff' }
 ]
-const aiDraftKeys = ['customSystemPrompt', 'customSystemPromptEnabled', 'aiIncludeHistory', 'aiIncludeNoteContext', 'aiIncludeProgressContext', 'aiToolProposalsEnabled', 'aiInputBudget', 'aiRetrievalEnabled'] as const
+const aiDraftKeys = ['aiDiagnosticsEnabled', 'aiRequestUsage', 'aiAgentEnabled', 'aiAgentMaxSteps', 'customSystemPrompt', 'customSystemPromptEnabled', 'aiIncludeHistory', 'aiIncludeNoteContext', 'aiIncludeProgressContext', 'aiToolProposalsEnabled', 'aiInputBudget', 'aiRetrievalEnabled', 'aiGraphRetrievalEnabled'] as const
 let aiOriginal: Record<string, unknown> = {}
 let saved = false
 
